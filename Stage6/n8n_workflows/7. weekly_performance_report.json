@@ -1,0 +1,346 @@
+{
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## Weekly Form Performance\n\n**Friday 17:00 UK**\n\n1. Read **Form Issue Cases** (maintained by daily exception report)\n2. Summarize raised / resolved / still open per operative (`week_days` window)\n3. Weekly performance PDF + email\n\n**No EasyBOP fetch** — daily report already reconciles open cases and updates Status / Issue Resolved on this sheet.",
+        "height": 296,
+        "width": 640
+      },
+      "id": "8b279edb-0c3e-408b-bef1-f3f2e24bb640",
+      "name": "Note — Weekly Performance",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        2064,
+        3440
+      ]
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "weeks",
+              "triggerAtDay": [
+                5
+              ],
+              "triggerAtHour": 19
+            }
+          ]
+        }
+      },
+      "id": "27f35007-7193-47ea-886b-591cfb8e795c",
+      "name": "Weekly Performance Report",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.3,
+      "position": [
+        2160,
+        3824
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "api-url",
+              "name": "ngrok_base_url",
+              "value": "http://173.212.233.153:8000",
+              "type": "string"
+            },
+            {
+              "id": "week-days",
+              "name": "week_days",
+              "value": 7,
+              "type": "number"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "7579b2ed-889e-43d3-95e6-faa6fb61e7b9",
+      "name": "Set Weekly API Params",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        2384,
+        3824
+      ],
+      "notesInFlow": true,
+      "note": "week_days: lookback window (default 7)"
+    },
+    {
+      "parameters": {
+        "jsCode": "const issueCases = $('Read Form Issue Cases1').all().map(i => i.json || {});\nconst params = $('Set Weekly API Params').first().json || {};\n\nreturn [{\n  json: {\n    issue_cases: issueCases,\n    week_days: Number(params.week_days ?? 7),\n    issue_case_count: issueCases.length,\n  },\n}];"
+      },
+      "id": "7ba1c63a-d6c5-494e-8ba9-00780d586724",
+      "name": "Build Weekly Sheet Request",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2832,
+        3824
+      ],
+      "executeOnce": true
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ ($('Set Weekly API Params').first().json.ngrok_base_url || '').replace(/\\/+$/, '') + '/weekly-performance-from-sheet' }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "ngrok-skip-browser-warning",
+              "value": "true"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { issue_cases: $json.issue_cases, week_days: $json.week_days } }}",
+        "options": {}
+      },
+      "id": "7657eae8-e1b5-45d4-b9d6-0675453b4207",
+      "name": "Summarize Weekly From Sheet",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        3056,
+        3824
+      ],
+      "executeOnce": true,
+      "notesInFlow": true,
+      "note": "Aggregate Status / Resolved from Form Issue Cases — no EasyBOP"
+    },
+    {
+      "parameters": {
+        "jsCode": "const r = $input.first().json || {};\n\nreturn [{\n  json: {\n    report_type: r.report_type,\n    report_generated_at: r.report_generated_at,\n    week_window_label: r.week_window_label,\n    week_days: r.week_days,\n    summary: r.summary,\n    operative_stats: r.operative_stats,\n    week_issues: r.week_issues,\n    still_open_carry: r.still_open_carry,\n    missing_ojs: r.missing_ojs || [],\n    pdf_filename: `weekly-form-performance-${new Date().toISOString().slice(0, 10)}.pdf`,\n  },\n}];"
+      },
+      "id": "9ce4dc3d-e490-472a-a8b8-5c26789c54b1",
+      "name": "Build Weekly PDF Payload",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3280,
+        3824
+      ],
+      "executeOnce": true
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ ($('Set Weekly API Params').first().json.ngrok_base_url || '').replace(/\\/+$/, '') + '/generate-weekly-performance-report-pdf' }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "ngrok-skip-browser-warning",
+              "value": "true"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { report_type: $json.report_type, report_generated_at: $json.report_generated_at, week_window_label: $json.week_window_label, week_days: $json.week_days, summary: $json.summary, operative_stats: $json.operative_stats, week_issues: $json.week_issues, still_open_carry: $json.still_open_carry, missing_ojs: $json.missing_ojs } }}",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "file",
+              "outputPropertyName": "report_pdf"
+            }
+          }
+        }
+      },
+      "id": "b851a7e0-dd33-4986-86d8-fe8dbbdefb91",
+      "name": "Generate Weekly Performance PDF",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        3504,
+        3824
+      ],
+      "executeOnce": true
+    },
+    {
+      "parameters": {
+        "jsCode": "function esc(t){return String(t??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}\nfunction statCard(value, label, accent) {\n  const color = accent ? 'color:' + accent + ';' : '';\n  return '<td style=\"background:#f7fafb;border:1px solid #dce3e8;border-radius:8px;padding:14px;text-align:center;width:22%;\">'\n    + '<div style=\"font-size:22px;font-weight:700;' + color + '\">' + esc(value) + '</div>'\n    + '<div style=\"font-size:10px;color:#56616b;text-transform:uppercase;\">' + esc(label) + '</div></td>';\n}\nconst built = $('Build Weekly PDF Payload').first().json || {};\nconst pdf = $input.first().binary?.report_pdf;\nif (!pdf) throw new Error('Weekly performance PDF not returned by API');\nconst s = built.summary || {};\nconst reportDate = new Date().toLocaleString('en-GB', { timeZone: 'Europe/London' }).replace(',', '');\nconst logo = 'https://jeffway.co.uk/wp-content/uploads/2025/05/jeffway-group-1.svg';\nconst sheetUrl = 'https://docs.google.com/spreadsheets/d/1mkklLpvi8klaN4Zo4D_cBrb95PGQ4NbUvtTAvLI4CII/edit';\nconst statsRow = '<table width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" style=\"margin-bottom:20px;\"><tr>'\n  + statCard(s.issues_in_week, 'Raised this week', '#145c63')\n  + '<td width=\"8\"></td>'\n  + statCard(s.resolved_in_week, 'Resolved', '#2e7d32')\n  + '<td width=\"8\"></td>'\n  + statCard(s.still_open_in_week, 'Still open (week)', '#c0392b')\n  + '<td width=\"8\"></td>'\n  + statCard(s.older_still_open, 'Older still open', '#56616b')\n  + '</tr></table>';\nconst html = [\n  '<!DOCTYPE html><html><head><meta charset=\"UTF-8\"></head>',\n  '<body style=\"margin:0;padding:0;font-family:Arial,Helvetica,sans-serif;background:#f4f4f4;\">',\n  '<table width=\"100%\" style=\"background:#f4f4f4;padding:20px;\"><tr><td align=\"center\">',\n  '<table width=\"640\" style=\"background:#fff;border-radius:8px;overflow:hidden;\">',\n  '<tr><td style=\"background:#145c63;padding:20px;text-align:center;\"><img src=\"' + logo + '\" style=\"max-width:160px;\" alt=\"Jeffway Group\"></td></tr>',\n  '<tr><td style=\"padding:24px 24px 8px;\"><h2 style=\"margin:0;color:#145c63;\">Weekly Form Quality Performance</h2>',\n  '<p style=\"color:#56616b;font-size:13px;margin:8px 0 0;\">Week: <strong style=\"color:#17212b;\">' + esc(built.week_window_label) + '</strong> · Generated ' + esc(reportDate) + ' (Europe/London)</p></td></tr>',\n  '<tr><td style=\"padding:8px 24px 8px;\"><p style=\"color:#444;font-size:14px;margin:0 0 16px;\">The weekly performance report is attached as a PDF. Summary:</p>',\n  statsRow,\n  '</td></tr>',\n  '<tr><td style=\"padding:0 24px 24px;text-align:center;\">',\n  '<a href=\"' + sheetUrl + '\" style=\"display:inline-block;padding:10px 18px;background:#145c63;color:#fff;text-decoration:none;border-radius:4px;font-size:13px;\">Open Form Issue Cases sheet</a>',\n  '</td></tr>',\n  '<tr><td style=\"background:#f7fafb;padding:16px;text-align:center;font-size:11px;color:#56616b;\">Jeffway Group · Stage 6 weekly form performance automation</td></tr>',\n  '</table></td></tr></table></body></html>',\n].join('');\nreturn [{ json: { email_subject: 'Weekly Form Performance — ' + built.week_window_label, email_html: html, pdf_filename: built.pdf_filename }, binary: { report_pdf: { ...pdf, fileName: built.pdf_filename } } }];"
+      },
+      "id": "0775fac0-e7e1-47b0-a0f0-565d56393b02",
+      "name": "Prepare Weekly Gmail",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3728,
+        3824
+      ],
+      "executeOnce": true
+    },
+    {
+      "parameters": {
+        "sendTo": "hamza@eynvision.com",
+        "subject": "={{ $json.email_subject }}",
+        "message": "={{ $json.email_html }}",
+        "options": {
+          "attachmentsUi": {
+            "attachmentsBinary": [
+              {
+                "property": "report_pdf"
+              }
+            ]
+          }
+        }
+      },
+      "id": "0f4b5b3d-3f45-415d-bbb3-045a0a08259d",
+      "name": "Send Weekly Report Gmail",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        3952,
+        3824
+      ],
+      "webhookId": "a13d856e-475f-45da-99e7-bba45ab545a2",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "5zI2J63c77B4YZ0i",
+          "name": "hamza-gmail"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "1mkklLpvi8klaN4Zo4D_cBrb95PGQ4NbUvtTAvLI4CII",
+          "mode": "list",
+          "cachedResultName": "stage 6"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 1568362364,
+          "mode": "list",
+          "cachedResultName": "Form Issue Cases"
+        },
+        "options": {}
+      },
+      "id": "502cd0ed-187a-4f99-b54a-bf3cec3ee8e8",
+      "name": "Read Form Issue Cases1",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        2608,
+        3824
+      ],
+      "executeOnce": true,
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "0bvpVa8frZ7qSwzx",
+          "name": "hamza-sheets"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Weekly Performance Report": {
+      "main": [
+        [
+          {
+            "node": "Set Weekly API Params",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Set Weekly API Params": {
+      "main": [
+        [
+          {
+            "node": "Read Form Issue Cases1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Weekly Sheet Request": {
+      "main": [
+        [
+          {
+            "node": "Summarize Weekly From Sheet",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Summarize Weekly From Sheet": {
+      "main": [
+        [
+          {
+            "node": "Build Weekly PDF Payload",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Weekly PDF Payload": {
+      "main": [
+        [
+          {
+            "node": "Generate Weekly Performance PDF",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate Weekly Performance PDF": {
+      "main": [
+        [
+          {
+            "node": "Prepare Weekly Gmail",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Weekly Gmail": {
+      "main": [
+        [
+          {
+            "node": "Send Weekly Report Gmail",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Form Issue Cases1": {
+      "main": [
+        [
+          {
+            "node": "Build Weekly Sheet Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "a5cd22a95d5313a977e9ac21c3a833db76b18ca78fb8cb2cf7013465d69f17f8"
+  }
+}

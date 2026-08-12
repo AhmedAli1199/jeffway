@@ -1,0 +1,836 @@
+{
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## Stage 6 \u2014 z_works Export \u2192 RR_work_instruction_template_s6\n\n**This workflow** fills `RR_work_instruction_template_s6` with:\nReceived Date and Time, Appointment Date, Next appointment date, Completed, etc.\n\n`POST /download-works-list-export-stage6/file` \u2192 clicks **Export** on z_works index.\n\n**Row 1 headers are kept** \u2014 only data rows (2+) are cleared each run.\nEmpty export cells are **skipped** (not written as `\"\"`) so Sheets cells stay truly blank.\n\nDo **not** use `work_inst_template.json` for this sheet.",
+        "height": 420,
+        "width": 496
+      },
+      "id": "0d4a72f3-dd32-45d7-b1a2-a6c21fb6f3d9",
+      "name": "Note \u2014 works list export stage6",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        13472,
+        256
+      ]
+    },
+    {
+      "parameters": {
+        "triggerTimes": {
+          "item": [
+            {
+              "mode": "everyX"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.cron",
+      "typeVersion": 1,
+      "position": [
+        12112,
+        640
+      ],
+      "id": "501a2d09-0100-4e56-bad0-7298d7478164",
+      "name": "Schedule every 2h (works list)"
+    },
+    {
+      "parameters": {
+        "operation": "clear",
+        "documentId": {
+          "__rl": true,
+          "value": "1mkklLpvi8klaN4Zo4D_cBrb95PGQ4NbUvtTAvLI4CII",
+          "mode": "list",
+          "cachedResultName": "stage 6",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1mkklLpvi8klaN4Zo4D_cBrb95PGQ4NbUvtTAvLI4CII/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 79620211,
+          "mode": "list",
+          "cachedResultName": "RR_work_instruction_template_s6",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1mkklLpvi8klaN4Zo4D_cBrb95PGQ4NbUvtTAvLI4CII/edit#gid=79620211"
+        },
+        "keepFirstRow": true
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        12400,
+        640
+      ],
+      "id": "f1c49beb-6098-4a39-b0e2-6a14c85010f6",
+      "name": "Clear data rows (keep headers)",
+      "executeOnce": true,
+      "notesInFlow": true,
+      "note": "Keeps row 1 column headers; clears data from row 2 down",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "0bvpVa8frZ7qSwzx",
+          "name": "hamza-sheets"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://173.212.233.153:8000/download-works-list-export-stage6/file",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "{\n  \"contract_id\": \"321129\"\n}",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "file"
+            }
+          },
+          "timeout": 300000
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        12704,
+        640
+      ],
+      "id": "c1288c26-12ca-4647-afeb-fa6ba552b3eb",
+      "name": "POST download-works-list-export-stage6",
+      "notesInFlow": true,
+      "note": "z_works/index.php \u2192 #btn_export_list"
+    },
+    {
+      "parameters": {
+        "fileFormat": "xlsx",
+        "options": {
+          "headerRow": true
+        }
+      },
+      "type": "n8n-nodes-base.spreadsheetFile",
+      "typeVersion": 2,
+      "position": [
+        13008,
+        640
+      ],
+      "id": "ab2bb910-3c0f-4633-af1e-a4e3e3afe754",
+      "name": "Read xlsx rows (works list)"
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "1mkklLpvi8klaN4Zo4D_cBrb95PGQ4NbUvtTAvLI4CII",
+          "mode": "list",
+          "cachedResultName": "stage 6",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1mkklLpvi8klaN4Zo4D_cBrb95PGQ4NbUvtTAvLI4CII/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 79620211,
+          "mode": "list",
+          "cachedResultName": "RR_work_instruction_template_s6",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1mkklLpvi8klaN4Zo4D_cBrb95PGQ4NbUvtTAvLI4CII/edit#gid=79620211"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Received Date and Time": "={{ String($json['Received Date and Time'] ?? '').trim() === '' ? undefined : $json['Received Date and Time'] }}",
+            "Description of Work": "={{ String($json['Description of Work'] ?? '').trim() === '' ? undefined : $json['Description of Work'] }}",
+            "Appointment Date": "={{ String($json['Appointment Date'] ?? '').trim() === '' ? undefined : $json['Appointment Date'] }}",
+            "Next appointment date": "={{ String($json['Next appointment date'] ?? '').trim() === '' ? undefined : $json['Next appointment date'] }}",
+            "Completed": "={{ String($json.Completed ?? '').trim() === '' ? undefined : $json.Completed }}",
+            "Type of Work": "={{ String($json['Type of Work'] ?? '').trim() === '' ? undefined : $json['Type of Work'] }}",
+            "Property Reference": "={{ String($json['Property Reference'] ?? '').trim() === '' ? undefined : $json['Property Reference'] }}",
+            "Address": "={{ String($json.Address ?? '').trim() === '' ? undefined : $json.Address }}",
+            "Client Order Reference": "={{ String($json['Client Order Reference'] ?? '').trim() === '' ? undefined : $json['Client Order Reference'] }}",
+            "Works Status": "={{ String($json['Works Status'] ?? '').trim() === '' ? undefined : $json['Works Status'] }}",
+            "Financial Status": "={{ String($json['Financial Status'] ?? '').trim() === '' ? undefined : $json['Financial Status'] }}",
+            "Our Works Instruction Number": "={{ String($json['Our Works Instruction Number'] ?? '').trim() === '' ? undefined : $json['Our Works Instruction Number'] }}",
+            "Started": "={{ String($json.Started ?? '').trim() === '' ? undefined : $json.Started }}",
+            "Time Allowed": "={{ String($json['Time Allowed'] ?? '').trim() === '' ? undefined : $json['Time Allowed'] }}",
+            "Cancelled Reason": "={{ String($json['Cancelled Reason'] ?? '').trim() === '' ? undefined : $json['Cancelled Reason'] }}",
+            "Cancelled Date": "={{ String($json['Cancelled Date'] ?? '').trim() === '' ? undefined : $json['Cancelled Date'] }}",
+            "Recorded By": "={{ String($json['Recorded By'] ?? '').trim() === '' ? undefined : $json['Recorded By'] }}",
+            "Latest Completion Date": "={{ String($json['Latest Completion Date'] ?? '').trim() === '' ? undefined : $json['Latest Completion Date'] }}",
+            "In Time": "={{ String($json['In Time'] ?? '').trim() === '' ? undefined : $json['In Time'] }}",
+            "Handover date": "={{ $json['Handover date'] }}",
+            "Ready to handover": "={{ String($json['Ready to handover'] ?? '').trim() === '' ? undefined : $json['Ready to handover'] }}",
+            "Internal Notes": "={{ String($json['Internal Notes'] ?? '').trim() === '' ? undefined : $json['Internal Notes'] }}",
+            "Job Value": "={{ String($json['Job Value'] ?? '').trim() === '' ? undefined : $json['Job Value'] }}",
+            "QS Reviewed": "={{ $json['QS Reviewed'] }}",
+            "BCC Tracker Status": "={{ $json['BCC Tracker Status'] }}",
+            "Administrative Status": "={{ $json['Administrative Status'] }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "Administrative Status",
+              "displayName": "Administrative Status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Received Date and Time",
+              "displayName": "Received Date and Time",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Description of Work",
+              "displayName": "Description of Work",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Appointment Date",
+              "displayName": "Appointment Date",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Next appointment date",
+              "displayName": "Next appointment date",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Completed",
+              "displayName": "Completed",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Internal Notes",
+              "displayName": "Internal Notes",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Type of Work",
+              "displayName": "Type of Work",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Property Reference",
+              "displayName": "Property Reference",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Address",
+              "displayName": "Address",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Client Order Reference",
+              "displayName": "Client Order Reference",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Works Status",
+              "displayName": "Works Status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Financial Status",
+              "displayName": "Financial Status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Our Works Instruction Number",
+              "displayName": "Our Works Instruction Number",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Time Allowed",
+              "displayName": "Time Allowed",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Recorded By",
+              "displayName": "Recorded By",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Latest Completion Date",
+              "displayName": "Latest Completion Date",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Job Value",
+              "displayName": "Job Value",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Handover date",
+              "displayName": "Handover date",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Started",
+              "displayName": "Started",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "In Time",
+              "displayName": "In Time",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Cancelled Reason",
+              "displayName": "Cancelled Reason",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Cancelled Date",
+              "displayName": "Cancelled Date",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Ready to handover",
+              "displayName": "Ready to handover",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "QS Reviewed",
+              "displayName": "QS Reviewed",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "BCC Tracker Status",
+              "displayName": "BCC Tracker Status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Handover Processed",
+              "displayName": "Handover Processed",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {
+          "useAppend": true
+        }
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        13312,
+        640
+      ],
+      "id": "a9fe10e3-226b-468b-9655-ac32c0216014",
+      "name": "Append rows to RR_work_instruction_template_s6",
+      "notesInFlow": true,
+      "note": "Empty cells \u2192 undefined (skipped, not written as \"\")",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "0bvpVa8frZ7qSwzx",
+          "name": "hamza-sheets"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "content": "## Stage 6 \u2014 WI template \u2192 Operative Job Sheet\n\nReads **RR_work_instruction_template_s6** and updates matching rows on **Operative Job Sheet**:\n- Appointment Date\n- Next appointment date\n- Completed\n- Internal Notes\n- Ready To Hand over (when template **Ready to handover** = Yes)\n- BCC Tracker Status\n\n**Match:** 1) `Client Order Reference` \u2194 OJS `CORF` \u00b7 2) fallback `Property Reference` \u2194 OJS `CORF` (when CORF is a property ref)\n\nOnly **BCC Response Repairs** OJS rows. Only writes non-empty template values when the OJS cell differs.",
+        "height": 408,
+        "width": 560
+      },
+      "id": "e6eab892-3a77-43f9-b260-946444d9ca3f",
+      "name": "Note \u2014 WI template OJS sync",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        12368,
+        912
+      ]
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "1mkklLpvi8klaN4Zo4D_cBrb95PGQ4NbUvtTAvLI4CII",
+          "mode": "list",
+          "cachedResultName": "stage 6",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1mkklLpvi8klaN4Zo4D_cBrb95PGQ4NbUvtTAvLI4CII/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 79620211,
+          "mode": "list",
+          "cachedResultName": "RR_work_instruction_template_s6",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1mkklLpvi8klaN4Zo4D_cBrb95PGQ4NbUvtTAvLI4CII/edit#gid=79620211"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        12352,
+        1456
+      ],
+      "id": "2407152f-4f67-444b-b5c6-ef1aef87c0cd",
+      "name": "Read RR_work_instruction_template_s6",
+      "alwaysOutputData": true,
+      "executeOnce": true,
+      "notesInFlow": true,
+      "note": "Works list export tab",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "0bvpVa8frZ7qSwzx",
+          "name": "hamza-sheets"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "1mkklLpvi8klaN4Zo4D_cBrb95PGQ4NbUvtTAvLI4CII",
+          "mode": "list",
+          "cachedResultName": "stage 6",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1mkklLpvi8klaN4Zo4D_cBrb95PGQ4NbUvtTAvLI4CII/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list",
+          "cachedResultName": "Operative Job Sheet",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1mkklLpvi8klaN4Zo4D_cBrb95PGQ4NbUvtTAvLI4CII/edit#gid=0"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        12656,
+        1456
+      ],
+      "id": "2f8954dd-0286-4afa-8c10-058849a6903c",
+      "name": "Read Operative Job Sheet sync",
+      "alwaysOutputData": true,
+      "executeOnce": true,
+      "notesInFlow": true,
+      "note": "executeOnce \u2014 one item per sheet row",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "0bvpVa8frZ7qSwzx",
+          "name": "hamza-sheets"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const TEMPLATE_NODE = 'Read RR_work_instruction_template_s6';\nconst OJS_NODE = 'Read Operative Job Sheet sync';\n\nconst SYNC_FIELDS = [\n  { template: 'Appointment Date', ojs: 'Appointment Date' },\n  { template: 'Next appointment date', ojs: 'Next appointment date' },\n  { template: 'Completed', ojs: 'Completed' },\n  { template: 'Internal Notes', ojs: 'Internal Notes' },\n  { template: 'Ready to handover', ojs: 'Ready To Hand over', onlyIfYes: true },\n  { template: 'BCC Tracker Status', ojs: 'BCC Tracker Status' },\n];\n\nfunction rowsFrom(nodeName) {\n  try {\n    return $(nodeName).all().map((i) => i.json || {});\n  } catch (e) {\n    return [];\n  }\n}\n\nfunction normText(v) {\n  return String(v ?? '')\n    .trim()\n    .toLowerCase()\n    .replace(/\\s+/g, ' ');\n}\n\nfunction normCorf(v) {\n  return String(v ?? '').trim().toUpperCase().replace(/\\s+/g, '');\n}\n\nfunction isYes(v) {\n  const s = String(v ?? '').trim().toLowerCase();\n  return s === 'yes' || s === 'y' || s === 'true' || s === '1';\n}\n\nfunction corfFromQ11Address(addr) {\n  const s = String(addr ?? '').trim();\n  const m = s.match(/-(\\d+\\/\\d+)\\s*$/);\n  return m ? m[1] : '';\n}\n\nfunction corfFromOjsRow(row) {\n  const direct = normCorf(row.CORF ?? row.corf);\n  if (direct) return direct;\n  return normCorf(corfFromQ11Address(row['Q1.1 Address']));\n}\n\nfunction isHeaderRowSmartForm(row) {\n  return /^smartform name$/i.test(String(row['SmartForm Name'] ?? '').trim());\n}\n\nfunction isHeaderRowTemplate(row) {\n  const a = String(row['Received Date and Time'] ?? '').trim();\n  const b = String(row['Client Order Reference'] ?? row['Property Reference'] ?? '').trim();\n  return /^received date and time$/i.test(a) || /^client order reference$/i.test(b) || /^property reference$/i.test(b);\n}\n\nfunction isBccResponseRepairs(name) {\n  return /:\\s*BCC\\s+Respon(?:se|sive)\\s+Repairs\\b/i.test(String(name ?? '').trim());\n}\n\nfunction isEmpty(v) {\n  if (v === null || v === undefined) return true;\n  return String(v).trim() === '';\n}\n\nconst templateRows = rowsFrom(TEMPLATE_NODE).filter((r) => !isHeaderRowTemplate(r));\nconst templateByCorf = new Map();\nconst templateByPropertyRef = new Map();\nlet skippedTemplate = 0;\n\nfor (const row of templateRows) {\n  const corf = normCorf(row['Client Order Reference']);\n  const propRef = normCorf(row['Property Reference']);\n  if (!corf && !propRef) {\n    skippedTemplate++;\n    continue;\n  }\n  if (corf) templateByCorf.set(corf, row);\n  if (propRef) templateByPropertyRef.set(propRef, row);\n}\n\nfunction findTemplateRow(ojsKey) {\n  if (!ojsKey) return { row: null, matchType: null };\n  const byCorf = templateByCorf.get(ojsKey);\n  if (byCorf) return { row: byCorf, matchType: 'corf' };\n  const byProp = templateByPropertyRef.get(ojsKey);\n  if (byProp) return { row: byProp, matchType: 'property_reference' };\n  return { row: null, matchType: null };\n}\n\nconst ojsRows = rowsFrom(OJS_NODE).filter((r) => !isHeaderRowSmartForm(r));\nconst out = [];\nlet ojsSkippedNonBcc = 0;\nlet noTemplateMatch = 0;\nlet noOjsKey = 0;\nlet noChanges = 0;\nlet matchedRows = 0;\nlet matchedByCorf = 0;\nlet matchedByPropertyRef = 0;\n\nfor (const ojsRow of ojsRows) {\n  const name = ojsRow['SmartForm Name'] ?? '';\n  if (!isBccResponseRepairs(name)) {\n    ojsSkippedNonBcc++;\n    continue;\n  }\n\n  const ojsKey = corfFromOjsRow(ojsRow);\n  if (!ojsKey) {\n    noOjsKey++;\n    continue;\n  }\n\n  const { row: templateRow, matchType } = findTemplateRow(ojsKey);\n  if (!templateRow) {\n    noTemplateMatch++;\n    continue;\n  }\n\n  matchedRows++;\n  if (matchType === 'corf') matchedByCorf++;\n  else if (matchType === 'property_reference') matchedByPropertyRef++;\n  const rn = ojsRow.row_number ?? ojsRow.rowNumber;\n  if (rn === null || rn === undefined || rn === '') continue;\n\n  const update = { row_number: rn };\n  let changed = false;\n  for (const field of SYNC_FIELDS) {\n    let newVal = templateRow[field.template];\n    if (field.onlyIfYes) {\n      if (!isYes(newVal)) continue;\n      newVal = 'Yes';\n    } else if (isEmpty(newVal)) {\n      continue;\n    }\n    const oldVal = ojsRow[field.ojs];\n    if (normText(oldVal) !== normText(newVal)) {\n      update[field.ojs] = typeof newVal === 'string' ? newVal.trim() : newVal;\n      changed = true;\n    }\n  }\n\n  if (changed) out.push({ json: update });\n  else noChanges++;\n}\n\nconst stats = {\n  template_rows: templateRows.length,\n  template_corfs: templateByCorf.size,\n  template_property_refs: templateByPropertyRef.size,\n  skipped_template: skippedTemplate,\n  ojs_rows: ojsRows.length,\n  ojs_skipped_non_bcc: ojsSkippedNonBcc,\n  ojs_no_match_key: noOjsKey,\n  matched_rows: matchedRows,\n  matched_by_corf: matchedByCorf,\n  matched_by_property_reference: matchedByPropertyRef,\n  no_template_match: noTemplateMatch,\n  no_changes: noChanges,\n  rows_to_update: out.length,\n};\n\nif (!out.length) {\n  return [{ json: { _skip_update: true, ...stats } }];\n}\n\nout[0].json._sync_stats = stats;\nreturn out;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        12960,
+        1456
+      ],
+      "id": "d234e03b-a996-4aa0-912d-86f19479415d",
+      "name": "Build WI \u2192 OJS updates",
+      "executeOnce": true,
+      "notesInFlow": true,
+      "note": "CORF match, then Property Reference fallback"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "wi-sync-has-updates",
+              "leftValue": "={{ $json._skip_update }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "notEquals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        13184,
+        1456
+      ],
+      "id": "ae29892a-ee3b-4b1d-9000-c1d0a2457f5f",
+      "name": "IF has WI sync updates"
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "documentId": {
+          "__rl": true,
+          "value": "1mkklLpvi8klaN4Zo4D_cBrb95PGQ4NbUvtTAvLI4CII",
+          "mode": "list",
+          "cachedResultName": "stage 6",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1mkklLpvi8klaN4Zo4D_cBrb95PGQ4NbUvtTAvLI4CII/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list",
+          "cachedResultName": "Operative Job Sheet",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1mkklLpvi8klaN4Zo4D_cBrb95PGQ4NbUvtTAvLI4CII/edit#gid=0"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": [
+            "row_number"
+          ],
+          "schema": [
+            {
+              "id": "row_number",
+              "displayName": "row_number",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true,
+              "readOnly": true
+            },
+            {
+              "id": "Appointment Date",
+              "displayName": "Appointment Date",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "Next appointment date",
+              "displayName": "Next appointment date",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "Completed",
+              "displayName": "Completed",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "Internal Notes",
+              "displayName": "Internal Notes",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "Ready To Hand over",
+              "displayName": "Ready To Hand over",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "BCC Tracker Status",
+              "displayName": "BCC Tracker Status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {},
+        "notesInFlow": true,
+        "note": "Appointment / Next appt / Completed / Internal Notes / Ready To Hand over / BCC Tracker Status"
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        13408,
+        1376
+      ],
+      "id": "d46b803b-e5ae-463b-9df1-dccdb1c906a7",
+      "name": "Update Operative Job Sheet from WI",
+      "notesInFlow": true,
+      "note": "Appointment / Next appt / Completed / Internal Notes / Ready To Hand over",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "0bvpVa8frZ7qSwzx",
+          "name": "hamza-sheets"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "function safeFirst(nodeName) {\n  try {\n    return $(nodeName).first()?.json || {};\n  } catch (e) {\n    return {};\n  }\n}\n\nfunction safeAll(nodeName) {\n  try {\n    return $(nodeName).all().map((i) => i.json || {});\n  } catch (e) {\n    return [];\n  }\n}\n\nconst buildItems = safeAll('Build WI \u2192 OJS updates');\nconst buildFirst = buildItems[0] || {};\nconst stats = buildFirst._sync_stats || buildFirst;\nconst skip = buildFirst._skip_update === true;\n\nlet updated = 0;\ntry {\n  updated = $('Update Operative Job Sheet from WI').all().length;\n} catch (e) {\n  updated = skip ? 0 : buildItems.filter((j) => !j._skip_update).length;\n}\n\nconst rowsToUpdate = stats.rows_to_update ?? (skip ? 0 : buildItems.filter((j) => !j._skip_update).length);\nconst matched = stats.matched_rows ?? 0;\n\nlet message = '';\nif (rowsToUpdate === 0) {\n  if (matched > 0) {\n    message = `Matched ${matched} OJS row(s); all WI fields already up to date.`;\n  } else {\n    message = 'No OJS rows matched template (check Client Order Reference \u2194 CORF, or Property Reference fallback).';\n  }\n} else {\n  message = `Updated ${updated || rowsToUpdate} OJS row(s) from WI template.`;\n}\n\nreturn [{\n  json: {\n    ok: rowsToUpdate > 0,\n    message,\n    rows_updated: updated || rowsToUpdate,\n    matched_rows: matched,\n    no_changes: stats.no_changes ?? 0,\n    no_template_match: stats.no_template_match ?? 0,\n    template_corfs: stats.template_corfs ?? stats.template_keys ?? 0,\n    template_property_refs: stats.template_property_refs ?? 0,\n    matched_by_corf: stats.matched_by_corf ?? 0,\n    matched_by_property_reference: stats.matched_by_property_reference ?? 0,\n    ojs_rows: stats.ojs_rows ?? 0,\n  },\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        13632,
+        1456
+      ],
+      "id": "e157ae8a-38ab-4df1-be02-b6c4be4a5b83",
+      "name": "Summarize WI sync run",
+      "executeOnce": true
+    }
+  ],
+  "connections": {
+    "Schedule every 2h (works list)": {
+      "main": [
+        []
+      ]
+    },
+    "Clear data rows (keep headers)": {
+      "main": [
+        [
+          {
+            "node": "POST download-works-list-export-stage6",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "POST download-works-list-export-stage6": {
+      "main": [
+        [
+          {
+            "node": "Read xlsx rows (works list)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read xlsx rows (works list)": {
+      "main": [
+        [
+          {
+            "node": "Append rows to RR_work_instruction_template_s6",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Append rows to RR_work_instruction_template_s6": {
+      "main": [
+        [
+          {
+            "node": "Read RR_work_instruction_template_s6",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read RR_work_instruction_template_s6": {
+      "main": [
+        [
+          {
+            "node": "Read Operative Job Sheet sync",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Operative Job Sheet sync": {
+      "main": [
+        [
+          {
+            "node": "Build WI \u2192 OJS updates",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build WI \u2192 OJS updates": {
+      "main": [
+        [
+          {
+            "node": "IF has WI sync updates",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF has WI sync updates": {
+      "main": [
+        [
+          {
+            "node": "Update Operative Job Sheet from WI",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Summarize WI sync run",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Operative Job Sheet from WI": {
+      "main": [
+        [
+          {
+            "node": "Summarize WI sync run",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Summarize WI sync run": {
+      "main": [
+        []
+      ]
+    }
+  },
+  "pinData": {},
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "a5cd22a95d5313a977e9ac21c3a833db76b18ca78fb8cb2cf7013465d69f17f8"
+  }
+}

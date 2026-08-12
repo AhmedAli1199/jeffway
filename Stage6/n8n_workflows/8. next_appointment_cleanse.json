@@ -1,0 +1,653 @@
+{
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## Stage 6 — Next appointment cleanse\n\n**Schedule:** 05:00 & 14:00 UK (Europe/London)\n\nExports run **sequentially** (compare reads both xlsx nodes by name).\n\nPer job: `resolve-works-id` → `update-works-next-appointment`\n\n**Email:** always to hamza@eynvision.com. **mark.bence@jeffway.co.uk is added only when the run fully succeeds** (no resolve failures and no update failures).",
+        "height": 340,
+        "width": 680
+      },
+      "id": "a19f66f1-2acd-4d46-9c79-afec5f578585",
+      "name": "Note — next appointment cleanse v2",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        6304,
+        1760
+      ]
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 5,14 * * *"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        6272,
+        2336
+      ],
+      "id": "74c73797-8fae-4c79-a76d-8c661a58d9bd",
+      "name": "Schedule 05:00 & 14:00 UK"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://173.212.233.153:8000/download-scheduling-register-stage6/file",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "{\n  \"contract_id\": \"321129\"\n}",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "file"
+            }
+          },
+          "timeout": 300000
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        6560,
+        2256
+      ],
+      "id": "5649f1f0-1521-4965-806e-86fa3353ece9",
+      "name": "POST scheduling export"
+    },
+    {
+      "parameters": {
+        "fileFormat": "xlsx",
+        "options": {
+          "headerRow": true
+        }
+      },
+      "type": "n8n-nodes-base.spreadsheetFile",
+      "typeVersion": 2,
+      "position": [
+        6864,
+        2256
+      ],
+      "id": "bb7b3405-ea10-49ef-8c50-2ee08379e7ab",
+      "name": "Read scheduling xlsx"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://173.212.233.153:8000/download-works-list-export-stage6/file",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "{\n  \"contract_id\": \"321129\"\n}",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "file"
+            }
+          },
+          "timeout": 300000
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        6560,
+        2464
+      ],
+      "id": "d2a79fae-89cc-4b78-8527-004ac0b57e49",
+      "name": "POST works list export",
+      "executeOnce": true
+    },
+    {
+      "parameters": {
+        "fileFormat": "xlsx",
+        "options": {
+          "headerRow": true
+        }
+      },
+      "type": "n8n-nodes-base.spreadsheetFile",
+      "typeVersion": 2,
+      "position": [
+        6880,
+        2464
+      ],
+      "id": "9aa681ad-ac18-46f5-8d98-1a1208f95a88",
+      "name": "Read works list xlsx"
+    },
+    {
+      "parameters": {
+        "jsCode": "const BOOKED_STAFF_ALLOCATED = 'appointment booked - staff allocated';\n\nfunction normStatus(status) {\n  const s = normHeader(status).replace(/[–—−]/g, '-').replace(/\\s*-\\s*/g, ' - ');\n  return s;\n}\n\nfunction rowsFrom(name) {\n  try { return $(name).all().map((i) => i.json || {}); } catch (e) { return []; }\n}\n\nfunction probeRow(rows) {\n  const probe = {};\n  for (const row of rows) {\n    if (!row) continue;\n    for (const k of Object.keys(row)) {\n      if (!(k in probe)) probe[k] = row[k];\n    }\n  }\n  return probe;\n}\n\nfunction normHeader(h) {\n  return String(h ?? '').trim().toLowerCase().replace(/\\s+/g, ' ');\n}\n\nfunction pickCol(row, aliases) {\n  const keys = Object.keys(row || {});\n  const normed = keys.map((k) => ({ k, n: normHeader(k) }));\n  for (const alias of aliases) {\n    const a = normHeader(alias);\n    for (const item of normed) {\n      if (item.n === a) return item.k;\n    }\n  }\n  for (const alias of aliases) {\n    const a = normHeader(alias);\n    for (const item of normed) {\n      if (item.n.includes(a)) return item.k;\n    }\n  }\n  return null;\n}\n\nfunction normCorf(v) {\n  return String(v ?? '').trim().toUpperCase().replace(/\\s+/g, '');\n}\n\nfunction parseDate(v) {\n  if (v === null || v === undefined || v === '') return null;\n  if (v instanceof Date && !isNaN(v)) return v.toISOString().slice(0, 10);\n  if (typeof v === 'number' && isFinite(v)) {\n    const epoch = Date.UTC(1899, 11, 30);\n    const ms = epoch + v * 86400000;\n    return new Date(ms).toISOString().slice(0, 10);\n  }\n  const s = String(v).trim();\n  let m = s.match(/^(\\d{4})-(\\d{2})-(\\d{2})/);\n  if (m) return `${m[1]}-${m[2]}-${m[3]}`;\n  m = s.match(/^(\\d{1,2})\\/(\\d{1,2})\\/(\\d{4})/);\n  if (m) return `${m[3]}-${m[2].padStart(2, '0')}-${m[1].padStart(2, '0')}`;\n  m = s.match(/^(\\d{1,2})-(\\d{1,2})-(\\d{4})/);\n  if (m) return `${m[3]}-${m[2].padStart(2, '0')}-${m[1].padStart(2, '0')}`;\n  return null;\n}\n\nfunction londonTodayIso() {\n  const fmt = new Intl.DateTimeFormat('en-GB', {\n    timeZone: 'Europe/London',\n    year: 'numeric',\n    month: '2-digit',\n    day: '2-digit',\n  });\n  const parts = fmt.formatToParts(new Date());\n  const m = {};\n  for (let i = 0; i < parts.length; i++) {\n    if (parts[i].type !== 'literal') m[parts[i].type] = parts[i].value;\n  }\n  return `${m.year}-${m.month}-${m.day}`;\n}\n\nfunction statusActive(status) {\n  return normStatus(status) === BOOKED_STAFF_ALLOCATED;\n}\n\nfunction isCompleted(v) {\n  const s = String(v ?? '').trim().toLowerCase();\n  return ['yes', 'y', 'true', '1', 'completed'].includes(s);\n}\n\nfunction cell(row, colKey) {\n  if (!colKey) return '';\n  if (!Object.prototype.hasOwnProperty.call(row || {}, colKey)) return '';\n  const v = row[colKey];\n  if (v === null || v === undefined) return '';\n  return String(v).trim();\n}\n\nfunction readDateCell(row, colKey) {\n  if (!colKey || !Object.prototype.hasOwnProperty.call(row || {}, colKey)) return { raw: '', iso: null };\n  const v = row[colKey];\n  if (v === null || v === undefined || v === '') return { raw: '', iso: null };\n  const iso = parseDate(v);\n  const raw = iso || String(v).trim();\n  return { raw, iso };\n}\n\nfunction pickNextFromSchedDates(dates, asOf, currentIso) {\n  const sorted = dates.slice().sort();\n  const future = sorted.filter((d) => d >= asOf);\n  if (future.length) return future[0];\n  if (currentIso) {\n    const newer = sorted.filter((d) => d > currentIso);\n    if (newer.length) return newer[0];\n  }\n  return null;\n}\n\nconst schedRows = rowsFrom('Read scheduling xlsx');\nconst wiRows = rowsFrom('Read works list xlsx');\nconst asOf = londonTodayIso();\n\nconst schedProbe = probeRow(schedRows);\nconst wiProbe = probeRow(wiRows);\n\nconst schedCorfCol = pickCol(schedProbe, ['client order reference', 'client reference', 'corf', 'client order ref']);\nconst schedDateCol = pickCol(schedProbe, ['appointment date', 'appointment date/time', 'appointment date and time', 'date']);\nconst schedStatusCol = pickCol(schedProbe, ['appointment status', 'status', 'scheduling status']);\n\nconst wiCorfCol = pickCol(wiProbe, ['client order reference']);\nconst wiNextCol = pickCol(wiProbe, ['next appointment date']);\nconst wiDoneCol = pickCol(wiProbe, ['completed']);\nconst wiAddrCol = pickCol(wiProbe, ['address']);\nconst wiDescCol = pickCol(wiProbe, ['description of work']);\n\nconst schedDatesByCorf = new Map();\nlet bookedRowsKept = 0;\nlet startedRowsSkipped = 0;\nlet otherStatusSkipped = 0;\nfor (const row of schedRows) {\n  const corf = normCorf(cell(row, schedCorfCol));\n  if (!corf) continue;\n  const status = cell(row, schedStatusCol);\n  if (!statusActive(status)) {\n    const ns = normStatus(status);\n    if (ns === 'appointment started') startedRowsSkipped += 1;\n    else otherStatusSkipped += 1;\n    continue;\n  }\n  bookedRowsKept += 1;\n  const d = parseDate(row[schedDateCol]);\n  if (!d) continue;\n  const list = schedDatesByCorf.get(corf) || [];\n  list.push(d);\n  schedDatesByCorf.set(corf, list);\n}\n\nconst needsUpdate = [];\nlet alreadyOk = 0;\nlet noFuture = 0;\nlet skippedCompleted = 0;\n\nfor (const row of wiRows) {\n  const corfRaw = cell(row, wiCorfCol);\n  const corf = normCorf(corfRaw);\n  if (!corf) continue;\n  if (isCompleted(cell(row, wiDoneCol))) { skippedCompleted++; continue; }\n\n  const { raw: currentRaw, iso: current } = readDateCell(row, wiNextCol);\n  const dates = schedDatesByCorf.get(corf) || [];\n  const next = pickNextFromSchedDates(dates, asOf, current);\n\n  if (!next) {\n    noFuture++;\n    continue;\n  }\n  if (current === next) {\n    alreadyOk++;\n    continue;\n  }\n\n  needsUpdate.push({\n    client_order_reference: corfRaw,\n    address: cell(row, wiAddrCol),\n    description_of_work: cell(row, wiDescCol),\n    current_next_appointment_date: current || currentRaw || null,\n    computed_next_appointment_date: next,\n    action: 'update',\n  });\n}\n\nconst seenCorf = new Set();\nconst deduped = [];\nfor (const row of needsUpdate) {\n  const key = normCorf(row.client_order_reference);\n  if (!key || seenCorf.has(key)) continue;\n  seenCorf.add(key);\n  deduped.push(row);\n}\n\nconst sd = $getWorkflowStaticData('global');\nsd.nextApptLogs = [];\nsd.nextApptCompare = {\n  as_of: asOf,\n  as_of_timezone: 'Europe/London',\n  scheduling_rows: schedRows.length,\n  works_list_rows: wiRows.length,\n  wi_next_col: wiNextCol,\n  wi_column_count: Object.keys(wiProbe).length,\n  status_filter: BOOKED_STAFF_ALLOCATED,\n  sched_status_column: schedStatusCol,\n  booked_rows_kept: bookedRowsKept,\n  started_rows_skipped: startedRowsSkipped,\n  other_status_skipped: otherStatusSkipped,\n  scheduling_jobs_with_booked_staff: schedDatesByCorf.size,\n  needs_update_count: deduped.length,\n  needs_update_raw_count: needsUpdate.length,\n  already_correct_count: alreadyOk,\n  no_future_in_register_count: noFuture,\n  skipped_completed: skippedCompleted,\n};\n\nif (!deduped.length) {\n  return [{\n    json: {\n      _workflow_only: true,\n      _no_jobs: true,\n      message: `Compare done — 0 jobs need update (already_ok=${alreadyOk}, no_future=${noFuture})`,\n      ...sd.nextApptCompare,\n    },\n  }];\n}\n\nreturn deduped.map((row, i) => ({ json: { ...row, _job_index: i + 1, _job_total: deduped.length } }));\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        7424,
+        2336
+      ],
+      "id": "003b554a-8926-45f7-a3f1-dc66a77e8618",
+      "name": "Compare next appointment (n8n)",
+      "executeOnce": true,
+      "notesInFlow": true,
+      "note": "Runs once — reads both xlsx nodes by name (no merge)"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "c-no-jobs",
+              "leftValue": "={{ $json._no_jobs }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "notEquals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        7680,
+        2336
+      ],
+      "id": "d44e58c3-cc95-4096-9d92-9bedd0d17016",
+      "name": "IF jobs to update"
+    },
+    {
+      "parameters": {
+        "options": {
+          "reset": false
+        }
+      },
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        7936,
+        2256
+      ],
+      "id": "f903a630-2219-43a3-bf7b-40f691b240d9",
+      "name": "Loop update jobs",
+      "notesInFlow": true,
+      "note": "One job per iteration — resolve then update"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://173.212.233.153:8000/resolve-works-id-stage6",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { \"contract_id\": \"321129\", \"client_order_reference\": $json.client_order_reference, \"address\": $json.address } }}",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          },
+          "timeout": 300000
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        8192,
+        2336
+      ],
+      "id": "986ebc6c-7b28-4ef8-9927-9dcb50cd6f58",
+      "name": "Resolve works_id",
+      "notesInFlow": true,
+      "note": "HTTP call 1 — CORF → works_id"
+    },
+    {
+      "parameters": {
+        "jsCode": "function bodyFrom(resp) {\n  let body = resp.body ?? resp.data ?? resp;\n  if (typeof body === 'string') {\n    try { body = JSON.parse(body); } catch (e) { body = {}; }\n  }\n  if (body && body.body && body.works_id === undefined && body.results === undefined) {\n    body = body.body;\n  }\n  return body || {};\n}\n\nconst resp = $input.first().json || {};\nconst resolve = bodyFrom(resp);\nconst job = $('Loop update jobs').item.json || {};\n\nreturn [{\n  json: {\n    ...job,\n    works_id: String(resolve.works_id || '').trim(),\n    resolve_found: Boolean(resolve.found),\n    resolve_address: resolve.address || '',\n    resolve_error: resolve.error || null,\n    resolve_message: resolve.message || '',\n  },\n}];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        8448,
+        2336
+      ],
+      "id": "d1413f1d-47c0-44c0-8b9c-c0a8c1dfd074",
+      "name": "Parse resolve response"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "c-found",
+              "leftValue": "={{ $json.resolve_found }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            },
+            {
+              "id": "c-wid",
+              "leftValue": "={{ $json.works_id }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEquals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        8704,
+        2336
+      ],
+      "id": "34cdf8f0-1a50-4935-bef6-aa0210168c02",
+      "name": "IF works_id found"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://173.212.233.153:8000/update-works-next-appointment-stage6",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ {\n  \"contract_id\": \"321129\",\n  \"works_id\": $json.works_id,\n  \"client_order_reference\": $json.client_order_reference,\n  \"address\": $json.address,\n  \"current_next_appointment_date\": $json.current_next_appointment_date,\n  \"next_appointment_date\": $json.computed_next_appointment_date,\n  \"click_save\": true\n} }}",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          },
+          "timeout": 300000
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        8960,
+        2256
+      ],
+      "id": "830049c8-bef3-43f8-87f3-ea4cbe6fbb5a",
+      "name": "Update next appointment",
+      "notesInFlow": true,
+      "note": "HTTP call 2 — fill #udf_pw_works_5088"
+    },
+    {
+      "parameters": {
+        "jsCode": "function bodyFrom(resp) {\n  let body = resp.body ?? resp.data ?? resp;\n  if (typeof body === 'string') {\n    try { body = JSON.parse(body); } catch (e) { body = {}; }\n  }\n  if (body && body.body && body.success === undefined && body.works_id === undefined) {\n    body = body.body;\n  }\n  return body || {};\n}\n\nconst sd = $getWorkflowStaticData('global');\nif (!Array.isArray(sd.nextApptLogs)) sd.nextApptLogs = [];\n\nconst job = $('Loop update jobs').item.json || {};\nconst parsed = $('Parse resolve response').first().json || {};\n\nlet update = {};\nlet step = 'resolve_failed';\ntry {\n  const raw = $('Update next appointment').first().json || {};\n  update = bodyFrom(raw);\n  if (update && (update.success !== undefined || update.works_id)) step = 'updated';\n} catch (e) {}\n\nif (parsed.resolve_found && parsed.works_id) step = step === 'updated' ? 'updated' : step;\n\nconst entry = {\n  step,\n  job_index: job._job_index || null,\n  job_total: job._job_total || null,\n  client_order_reference: job.client_order_reference || parsed.client_order_reference || '',\n  works_id: parsed.works_id || job.works_id || '',\n  address: job.address || parsed.resolve_address || '',\n  current_next_appointment_date: job.current_next_appointment_date || null,\n  computed_next_appointment_date: job.computed_next_appointment_date || null,\n  resolve_found: Boolean(parsed.resolve_found),\n  resolve_error: parsed.resolve_error || null,\n  update_success: update.success === true && update.saved === true,\n  update_error: update.error || null,\n  field_value_after: update.field_value_verified || update.field_value_after || null,\n  url: update.url || null,\n  message: update.message || parsed.resolve_message || parsed.resolve_error || 'skipped — works_id not found',\n  logged_at: new Date().toISOString(),\n};\n\nsd.nextApptLogs.push(entry);\nreturn [{ json: entry }];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        9216,
+        2336
+      ],
+      "id": "2c2975ca-a9ee-4465-8776-0ca655d3a779",
+      "name": "Accumulate update log"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Loop back without replacing the batch queue (reset must be false on Loop node).\nreturn [{ json: { _loop_continue: true } }];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        9472,
+        2336
+      ],
+      "id": "b38ed9ab-0ce7-4872-beab-8998dfe54d51",
+      "name": "Continue loop"
+    },
+    {
+      "parameters": {
+        "jsCode": "const sd = $getWorkflowStaticData('global');\nconst logs = Array.isArray(sd.nextApptLogs) ? sd.nextApptLogs : [];\nconst compare = sd.nextApptCompare || {};\n\nconst updated = logs.filter((l) => l.step === 'updated' && l.update_success).length;\nconst resolveFailed = logs.filter((l) => l.step === 'resolve_failed').length;\nconst updateFailed = logs.filter((l) => l.step === 'updated' && !l.update_success).length;\n\nconst lines = logs.map((l) => {\n  const corf = l.client_order_reference || '-';\n  const wid = l.works_id || '-';\n  if (l.step === 'resolve_failed') {\n    return `SKIP resolve corf=${corf} — ${l.message}`;\n  }\n  return `${l.update_success ? 'OK' : 'FAIL'} [${l.job_index || '?'}/${l.job_total || '?'}] corf=${corf} works_id=${wid} ${l.current_next_appointment_date || '(blank)'} -> ${l.computed_next_appointment_date} field=${l.field_value_after || '-'} ${l.message || ''}`;\n});\n\nreturn [{\n  json: {\n    _workflow_only: true,\n    workflow: 'next_appointment_cleanse',\n    finished_at: new Date().toISOString(),\n    compare,\n    processed: logs.length,\n    updated_ok: updated,\n    resolve_failed: resolveFailed,\n    update_failed: updateFailed,\n    log_lines: lines,\n    message: `Next appointment cleanse done — updated ${updated}/${logs.length} (resolve_failed=${resolveFailed}, update_failed=${updateFailed})`,\n  },\n}];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        7936,
+        2544
+      ],
+      "id": "c1c59ceb-3bfa-44b2-8388-6cf7dac85f51",
+      "name": "Final run summary"
+    },
+    {
+      "parameters": {
+        "jsCode": "const row = $input.first().json || {};\nreturn [{ json: { ...row, message: row.message || 'No jobs need Next appointment update.' } }];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        7936,
+        2720
+      ],
+      "id": "e9060391-302c-478f-b419-ad1c556800ec",
+      "name": "No jobs summary"
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.limit",
+      "typeVersion": 1,
+      "position": [
+        7744,
+        2144
+      ],
+      "id": "c615510d-d9ed-496a-aa2b-67835360e3e3",
+      "name": "Limit",
+      "disabled": true
+    },
+    {
+      "parameters": {
+        "jsCode": "function esc(t) {\n  return String(t ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');\n}\n\nconst sd = $getWorkflowStaticData('global');\nconst logs = Array.isArray(sd.nextApptLogs) ? sd.nextApptLogs : [];\n\nconst reportDate = new Date().toLocaleString('en-GB', { timeZone: 'Europe/London' }).replace(',', '');\nconst logo = 'https://jeffway.co.uk/wp-content/uploads/2025/05/jeffway-group-1.svg';\n\nconst updatedOk = logs.filter((l) => l.step === 'updated' && l.update_success).length;\nconst resolveFailed = logs.filter((l) => l.step === 'resolve_failed').length;\nconst updateFailed = logs.filter((l) => l.step === 'updated' && !l.update_success).length;\nconst processed = logs.length;\n\nfunction statusLabel(l) {\n  if (l.step === 'resolve_failed') return { text: 'Resolve failed', color: '#b45309' };\n  if (l.update_success) return { text: 'Updated', color: '#15803d' };\n  return { text: 'Update failed', color: '#b91c1c' };\n}\n\nlet jobRows = '';\nif (logs.length) {\n  jobRows = logs.map((l) => {\n    const st = statusLabel(l);\n    return '<tr>'\n      + '<td style=\"padding:8px;border-bottom:1px solid #eee;\">' + esc(l.job_index || '-') + '</td>'\n      + '<td style=\"padding:8px;border-bottom:1px solid #eee;\">' + esc(l.client_order_reference || '-') + '</td>'\n      + '<td style=\"padding:8px;border-bottom:1px solid #eee;\">' + esc(l.address || '-') + '</td>'\n      + '<td style=\"padding:8px;border-bottom:1px solid #eee;\">' + esc(l.works_id || '-') + '</td>'\n      + '<td style=\"padding:8px;border-bottom:1px solid #eee;\">' + esc(l.current_next_appointment_date || '(blank)') + '</td>'\n      + '<td style=\"padding:8px;border-bottom:1px solid #eee;\">' + esc(l.computed_next_appointment_date || '-') + '</td>'\n      + '<td style=\"padding:8px;border-bottom:1px solid #eee;\">' + esc(l.field_value_after || l.field_value_verified || '-') + '</td>'\n      + '<td style=\"padding:8px;border-bottom:1px solid #eee;color:' + st.color + ';font-weight:bold;\">' + esc(st.text) + '</td>'\n      + '</tr>';\n  }).join('');\n} else {\n  jobRows = '<tr><td colspan=\"8\" style=\"padding:16px;text-align:center;color:#666;\">No updates this run.</td></tr>';\n}\n\nconst html = [\n  '<!DOCTYPE html><html><head><meta charset=\"UTF-8\"></head>',\n  '<body style=\"margin:0;padding:0;font-family:Arial,sans-serif;background:#f4f4f4;\">',\n  '<table width=\"100%\" style=\"background:#f4f4f4;padding:20px;\"><tr><td align=\"center\">',\n  '<table width=\"760\" style=\"background:#fff;border-radius:8px;overflow:hidden;\">',\n  '<tr><td style=\"background:#000;padding:20px;text-align:center;\"><img src=\"' + logo + '\" style=\"max-width:160px;\" alt=\"Jeffway\"></td></tr>',\n  '<tr><td style=\"padding:20px 24px 8px;\"><h2 style=\"margin:0;color:#111;\">Stage 6 — Next Appointment Cleanse</h2>',\n  '<p style=\"color:#777;font-size:13px;margin:8px 0 0;\">' + esc(reportDate) + ' (Europe/London)</p></td></tr>',\n  '<tr><td style=\"padding:8px 24px 24px;\">',\n  '<table width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" style=\"border-collapse:collapse;font-size:12px;\">',\n  '<tr style=\"background:#f3f3f3;\">',\n  '<th align=\"left\" style=\"padding:8px;\">#</th>',\n  '<th align=\"left\" style=\"padding:8px;\">CORF</th>',\n  '<th align=\"left\" style=\"padding:8px;\">Address</th>',\n  '<th align=\"left\" style=\"padding:8px;\">Works ID</th>',\n  '<th align=\"left\" style=\"padding:8px;\">Current</th>',\n  '<th align=\"left\" style=\"padding:8px;\">New</th>',\n  '<th align=\"left\" style=\"padding:8px;\">Field after</th>',\n  '<th align=\"left\" style=\"padding:8px;\">Status</th>',\n  '</tr>',\n  jobRows,\n  '</table></td></tr>',\n  '<tr><td style=\"background:#f9f9f9;padding:16px;text-align:center;font-size:12px;color:#777;\">Jeffway Group · Automated Next appointment cleanse</td></tr>',\n  '</table></td></tr></table></body></html>',\n].join('');\n\nreturn [{\n  json: {\n    _alert_subject: 'Stage 6 Next Appointment Cleanse — ' + reportDate + (processed ? (' — ' + updatedOk + '/' + processed + ' updated') : ' — no updates'),\n    _alert_html: html,\n    processed,\n    updated_ok: updatedOk,\n    resolve_failed: resolveFailed,\n    update_failed: updateFailed,\n  },\n}];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        8192,
+        2640
+      ],
+      "id": "5faf8d1a-bb75-4dda-b000-e67b9a88647f",
+      "name": "Prepare Gmail",
+      "executeOnce": true
+    },
+    {
+      "parameters": {
+        "sendTo": "={{ ($json.resolve_failed === 0 && $json.update_failed === 0) ? 'hamza@eynvision.com, mark.bence@jeffway.co.uk' : 'hamza@eynvision.com' }}",
+        "subject": "={{ $json._alert_subject }}",
+        "message": "={{ $json._alert_html }}",
+        "options": {
+          "appendAttribution": false
+        }
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        8448,
+        2640
+      ],
+      "id": "016392d1-098b-470b-b3bf-d2aa4b64006a",
+      "name": "Send Gmail",
+      "executeOnce": true,
+      "webhookId": "6b5d9843-0a7c-40bf-ac5c-b4cd1cb0afb0",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "5zI2J63c77B4YZ0i",
+          "name": "hamza-gmail"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Schedule 05:00 & 14:00 UK": {
+      "main": [
+        [
+          {
+            "node": "POST scheduling export",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "POST scheduling export": {
+      "main": [
+        [
+          {
+            "node": "Read scheduling xlsx",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read scheduling xlsx": {
+      "main": [
+        [
+          {
+            "node": "POST works list export",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "POST works list export": {
+      "main": [
+        [
+          {
+            "node": "Read works list xlsx",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read works list xlsx": {
+      "main": [
+        [
+          {
+            "node": "Compare next appointment (n8n)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Compare next appointment (n8n)": {
+      "main": [
+        [
+          {
+            "node": "IF jobs to update",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF jobs to update": {
+      "main": [
+        [
+          {
+            "node": "Limit",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "No jobs summary",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Loop update jobs": {
+      "main": [
+        [
+          {
+            "node": "Final run summary",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Resolve works_id",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Resolve works_id": {
+      "main": [
+        [
+          {
+            "node": "Parse resolve response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse resolve response": {
+      "main": [
+        [
+          {
+            "node": "IF works_id found",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF works_id found": {
+      "main": [
+        [
+          {
+            "node": "Update next appointment",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Accumulate update log",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update next appointment": {
+      "main": [
+        [
+          {
+            "node": "Accumulate update log",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Accumulate update log": {
+      "main": [
+        [
+          {
+            "node": "Continue loop",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Continue loop": {
+      "main": [
+        [
+          {
+            "node": "Loop update jobs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Final run summary": {
+      "main": [
+        [
+          {
+            "node": "Prepare Gmail",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Limit": {
+      "main": [
+        [
+          {
+            "node": "Loop update jobs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Gmail": {
+      "main": [
+        [
+          {
+            "node": "Send Gmail",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "meta": {
+    "instanceId": "a5cd22a95d5313a977e9ac21c3a833db76b18ca78fb8cb2cf7013465d69f17f8"
+  }
+}

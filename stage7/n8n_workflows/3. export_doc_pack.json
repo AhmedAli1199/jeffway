@@ -1,0 +1,1371 @@
+{
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "triggerAtHour": 19
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.3,
+      "position": [
+        -208,
+        352
+      ],
+      "id": "68c7a8b1-51f9-4822-90a0-1946f3a99017",
+      "name": "Schedule Trigger1"
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        864,
+        336
+      ],
+      "id": "4ae2ad52-c749-4220-880f-bb5044b14d8e",
+      "name": "Loop Over Items1",
+      "executeOnce": true
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "1mkklLpvi8klaN4Zo4D_cBrb95PGQ4NbUvtTAvLI4CII",
+          "mode": "list",
+          "cachedResultName": "stage 6",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1mkklLpvi8klaN4Zo4D_cBrb95PGQ4NbUvtTAvLI4CII/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 79620211,
+          "mode": "list",
+          "cachedResultName": "RR_work_instruction_template_s6",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1mkklLpvi8klaN4Zo4D_cBrb95PGQ4NbUvtTAvLI4CII/edit#gid=79620211"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        16,
+        352
+      ],
+      "id": "81013b53-0ee8-44cb-85c3-d1b7d8b7daea",
+      "name": "Read RR_work_instruction_template_s6",
+      "alwaysOutputData": true,
+      "executeOnce": true,
+      "notesInFlow": true,
+      "note": "Read all rows — filter in Build doc pack queue (case-insensitive Yes)",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "0bvpVa8frZ7qSwzx",
+          "name": "hamza-sheets"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const SOURCE = 'Read RR_work_instruction_template_s6';\n\nfunction rowsFrom(name) {\n  try { return $(name).all().map((i) => i.json || {}); } catch (e) { return []; }\n}\n\nfunction isYes(v) {\n  const s = String(v ?? '').trim().toLowerCase();\n  return s === 'yes' || s === 'y' || s === 'true' || s === '1';\n}\n\nfunction isHeader(row) {\n  const received = String(row['Received Date and Time'] ?? '').trim();\n  const address = String(row['Address'] ?? '').trim();\n  return /^received date/i.test(received) || /^address$/i.test(address);\n}\n\nconst rows = rowsFrom(SOURCE).filter((r) => !isHeader(r));\nconst queue = [];\n\nfor (const row of rows) {\n  if (!isYes(row['Ready to handover'])) continue;\n  if (!isYes(row['QS Reviewed'])) continue;\n  if (isYes(row['Handover Processed'])) continue;\n  if (!String(row['Address'] ?? '').trim()) continue;\n  \n  queue.push(row);\n}\n\nif (!queue.length) {\n  return [{ json: { _workflow_only: true, _no_jobs: true, message: 'No RR rows with Ready to handover=Yes and QS Reviewed=Yes', eligible: 0 } }];\n}\n\nreturn queue.map((row, i) => ({\n  json: {\n    ...row,\n    _job_index: i + 1,\n    _job_total: queue.length,\n  },\n}));\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        224,
+        352
+      ],
+      "id": "8fecfaf3-0cb6-491f-9089-fb8bf6371fc0",
+      "name": "Build doc pack queue"
+    },
+    {
+      "parameters": {
+        "amount": 3
+      },
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        5520,
+        448
+      ],
+      "id": "06260a62-19ab-40c6-b144-3c4bc50d1bda",
+      "name": "Wait",
+      "webhookId": "f29ee27e-eb94-44db-81e7-1c52f3760992"
+    },
+    {
+      "parameters": {
+        "content": "# Part 2\n## Export doc pack when **Ready to handover** = Yes AND **QS Reviewed** = Yes\n\nReads all rows from **RR_work_instruction_template_s6**, then filters in code (case-insensitive yes/Yes).\n\nGoogle Sheets node filters are case-sensitive — sheet often has `yes` not `Yes` for QS Reviewed.",
+        "height": 560,
+        "width": 5924,
+        "color": 2
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        -224,
+        112
+      ],
+      "typeVersion": 1,
+      "id": "e6c4f270-2c9f-4fc7-8fd1-1de2cc8152c4",
+      "name": "Sticky Note1"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=http://173.212.233.153:8000/stage7/export-job-documents",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "ngrok-skip-browser-warning",
+              "value": "true"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"address\": \"{{ $('Loop Over Items1').item.json['Client Order Reference'] }}\"\n}",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          },
+          "timeout": 900000
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1264,
+        432
+      ],
+      "id": "40aea576-d406-4727-bcab-a03c47f1e4b2",
+      "name": "stage7_export_job_documents_post",
+      "notesInFlow": true,
+      "note": "Skips PDFs for rows already on sheet; no extract limit",
+      "executeOnce": true
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://graph.microsoft.com/v1.0/users/BCCorders@jeffway.co.uk/messages",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "oAuth2Api",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"subject\": \"Handover — {{ $('Loop Over Items1').first().json.Address}} — {{ $('Loop Over Items1').first().json['Client Order Reference'] }}\",\n  \"body\": {\n    \"contentType\": \"HTML\",\n    \"content\": \"Testing Export Pack Draft\"\n  },\"categories\": [\"Jeffway-Handover\"],\n\"parentFolderId\":\"Inbox\",\n  \"singleValueExtendedProperties\": [\n    {\n      \"id\": \"String {00020329-0000-0000-C000-000000000046} Name works_id\",\n      \"value\": \"{{ $json.body.works_id }}\"\n    },\n   {\n    \"id\": \"String {00020329-0000-0000-C000-000000000046} Name contract_id\",\n    \"value\": \"{{ $json.body.contract_id }}\"\n   }\n  ],\n  \"isDraft\": true\n}\n",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        1504,
+        432
+      ],
+      "id": "440d4ca5-b6b7-437f-8df3-0e3e506c8bf6",
+      "name": "Create Draft Email",
+      "credentials": {
+        "httpBasicAuth": {
+          "id": "RUaTmWieNiIpEt8K",
+          "name": "test"
+        },
+        "oAuth2Api": {
+          "id": "nNC3eYQ9UeulKHjg",
+          "name": "Jeffway-M365-GraphAPI"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://graph.microsoft.com/v1.0/users/BCCorders@jeffway.co.uk/messages/{{ $json.id }}/attachments",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "oAuth2Api",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"@odata.type\": \"#microsoft.graph.fileAttachment\",\n  \"name\": \"{{ $('stage7_export_job_documents_post').first().json.body.zip_filename }}\",\n  \"contentType\": \"application/zip\",\n  \"contentBytes\": \"{{ $('stage7_export_job_documents_post').first().json.body.zip_base64 }}\"\n}\n",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        1856,
+        432
+      ],
+      "id": "6c8b58e3-6816-4aec-99c3-75566dcd0754",
+      "name": "Add Zip Attachment",
+      "credentials": {
+        "httpBasicAuth": {
+          "id": "RUaTmWieNiIpEt8K",
+          "name": "test"
+        },
+        "oAuth2Api": {
+          "id": "nNC3eYQ9UeulKHjg",
+          "name": "Jeffway-M365-GraphAPI"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://graph.microsoft.com/v1.0/users/BCCorders@jeffway.co.uk/messages/{{ $('Move Draft Email to Inbox').first().json.id }}/attachments",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "oAuth2Api",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"@odata.type\": \"#microsoft.graph.fileAttachment\",\n  \"name\": \"{{ $('stage7_export_job_documents_post').first().json.body.excel_filename }}\",\n  \"contentType\": \"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet\",\n  \"contentBytes\": \"{{ $('stage7_export_job_documents_post').first().json.body.excel_base64 }}\"\n}\n",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        2032,
+        432
+      ],
+      "id": "15dfa925-66a3-4cc6-94c4-0704cd9fe4e8",
+      "name": "Add Excel Attachment",
+      "credentials": {
+        "httpBasicAuth": {
+          "id": "RUaTmWieNiIpEt8K",
+          "name": "test"
+        },
+        "oAuth2Api": {
+          "id": "nNC3eYQ9UeulKHjg",
+          "name": "Jeffway-M365-GraphAPI"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "content": "## FOR PRODUCTION:\n### Just need to review what the email body should be.",
+        "height": 288,
+        "color": 3
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        1456,
+        256
+      ],
+      "typeVersion": 1,
+      "id": "7df63279-2226-48dd-abe3-d3e3466d32e6",
+      "name": "Sticky Note4"
+    },
+    {
+      "parameters": {
+        "fieldToSplitOut": "value",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.splitOut",
+      "typeVersion": 1,
+      "position": [
+        3744,
+        288
+      ],
+      "id": "0eb2f422-42f3-4fb8-af19-eedb9ad396e5",
+      "name": "Split Out1"
+    },
+    {
+      "parameters": {
+        "jsCode": "const rawUrl = $input.first().json[\"Q2.3 Please provide photos of completed work\"];\n\nif(rawUrl===\"No\")\n{\n  return {\"missing_photos\":\"true\"}\n}\n// Extract the folder path after /bccvoids/BCC/\nconst afterBCC = rawUrl.split('/bccvoids/BCC/')[1];\n\n// Decode (SharePoint may partially encode), then re-encode each segment properly\nconst folderPath = afterBCC\n  .split('/')\n  .map(segment => encodeURIComponent(decodeURIComponent(segment)))\n  .join('/');\n\nconst driveId = 'b!mmeaOEfO_kewgJRy38w-lnTSJT3f1PlOnaNtyDObK1UDLngLPMt1SqCkWGF6w1ul';\n\nconst url = `https://graph.microsoft.com/v1.0/drives/${driveId}/root:/${folderPath}:/children`;\n\nreturn [{ json: { graph_url: url } }];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3152,
+        192
+      ],
+      "id": "18fc0f6e-0e7d-43d5-b9cb-1bee8f150eb2",
+      "name": "Build Image Folder Path"
+    },
+    {
+      "parameters": {
+        "url": "={{ $json[\"@microsoft.graph.downloadUrl\"] }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        3952,
+        288
+      ],
+      "id": "37ec1859-cbcb-4f02-a9bf-1a7398e58225",
+      "name": "Download Images"
+    },
+    {
+      "parameters": {
+        "url": "={{ $json.graph_url }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "oAuth2Api",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        3536,
+        288
+      ],
+      "id": "485bec6f-36cf-40aa-87dc-5a8d7f4be1fa",
+      "name": "Get All Photos",
+      "credentials": {
+        "httpBasicAuth": {
+          "id": "RUaTmWieNiIpEt8K",
+          "name": "test"
+        },
+        "oAuth2Api": {
+          "id": "nNC3eYQ9UeulKHjg",
+          "name": "Jeffway-M365-GraphAPI"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "binaryToPropery",
+        "options": {
+          "keepSource": "json"
+        }
+      },
+      "type": "n8n-nodes-base.extractFromFile",
+      "typeVersion": 1.1,
+      "position": [
+        4144,
+        288
+      ],
+      "id": "24266cda-bc83-4b5b-82cd-f889eff893e2",
+      "name": "Extract from File"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=http://173.212.233.153:8000/stage7/zip-files",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ \n{ \n\"files\": $json.files,\n\"zip_name\": \"operatives_photos.zip\" \n}\n}}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        4576,
+        288
+      ],
+      "id": "f16a1e28-7969-4f03-a235-fd7864f5202b",
+      "name": "Zip Photos"
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\n\n\nconst files = items.map(item => {\nconst file = {\n  filename: item.json.name,\n  base64: item.json.data   // n8n already stores binary as base64 string\n    }\n  return file;\n}\n)\nreturn {files};\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4368,
+        288
+      ],
+      "id": "4a31ebc5-8726-44b5-b520-0b01929b9bd9",
+      "name": "Prepare photos to Send"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://graph.microsoft.com/v1.0/users/BCCorders@jeffway.co.uk/messages/{{ $('Move Draft Email to Inbox').first().json.id }}/attachments",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "oAuth2Api",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"@odata.type\": \"#microsoft.graph.fileAttachment\",\n  \"name\": \"{{ $json.zip_filename }}\",\n  \"contentType\": \"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet\",\n  \"contentBytes\": \"{{ $json.zip_base64 }}\"\n}\n",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        4848,
+        288
+      ],
+      "id": "88b5da40-b639-409f-b7c6-8f32dd1813c9",
+      "name": "Add Photos Attachment",
+      "credentials": {
+        "httpBasicAuth": {
+          "id": "RUaTmWieNiIpEt8K",
+          "name": "test"
+        },
+        "oAuth2Api": {
+          "id": "nNC3eYQ9UeulKHjg",
+          "name": "Jeffway-M365-GraphAPI"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst Address  = $('Loop Over Items1').first().json.Address\nconst Reference = $('Loop Over Items1').first().json[\"Property Reference\"].toString()\n\n// return {Address,Reference};\n\nconst rows = $('Get Operatives Sheet').all().filter(item => {\n  const address = item.json[\"SmartForm Name\"].split(\":\")[0].trim();  \n  const reference = item.json[\"SmartForm Name\"].split(\":\")[2].trim();\n  if (address === Address && reference === Reference)\n  {\n    return item;\n  }\n  \n                                          });\n\nreturn rows;\n\n\n\n\n\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2432,
+        432
+      ],
+      "id": "3fbcf7ec-cb4b-4c3a-a9e3-562cdd0cf244",
+      "name": "Match Address and Property Ref",
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "1fcf4439-4847-40f6-b080-4b996aa4fe95",
+              "leftValue": "={{ $input.first().json.hasField(\"smart_form_x_id\") }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        2640,
+        400
+      ],
+      "id": "72eea936-a354-423f-935e-9969d7ca7dd8",
+      "name": "Matched?"
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "1mkklLpvi8klaN4Zo4D_cBrb95PGQ4NbUvtTAvLI4CII",
+          "mode": "list",
+          "cachedResultName": "stage 6",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1mkklLpvi8klaN4Zo4D_cBrb95PGQ4NbUvtTAvLI4CII/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list",
+          "cachedResultName": "Operative Job Sheet",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1mkklLpvi8klaN4Zo4D_cBrb95PGQ4NbUvtTAvLI4CII/edit#gid=0"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        2208,
+        432
+      ],
+      "id": "b8c96c19-d81f-4d5f-9062-815d33558f93",
+      "name": "Get Operatives Sheet",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "0bvpVa8frZ7qSwzx",
+          "name": "hamza-sheets"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=http://173.212.233.153:8000/stage7/add-email-review-task",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "ngrok-skip-browser-warning",
+              "value": "true"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"works_id\":      \"{{ $('stage7_export_job_documents_post').first().json.body.works_id }}\",\n  \"contract_id\":   \"{{ $('stage7_export_job_documents_post').first().json.body.contract_id }}\",\n  \"address\":       \"{{ $('Loop Over Items1').first().json.Address }}\",\n  \"order_ref\":     \"{{ $('Loop Over Items1').first().json['Client Order Reference'] }}\",\n  \"email_subject\": \"{{ $('Create Draft Email').first().json.subject }}\"\n}\n",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          },
+          "timeout": 900000
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        5088,
+        448
+      ],
+      "id": "32cb4329-c4a7-4ff7-8de2-36a0f20eec06",
+      "name": "Stage 7 - Add Final Review Task",
+      "notesInFlow": true,
+      "note": "Skips PDFs for rows already on sheet; no extract limit",
+      "executeOnce": true
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "documentId": {
+          "__rl": true,
+          "value": "1mkklLpvi8klaN4Zo4D_cBrb95PGQ4NbUvtTAvLI4CII",
+          "mode": "list",
+          "cachedResultName": "stage 6",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1mkklLpvi8klaN4Zo4D_cBrb95PGQ4NbUvtTAvLI4CII/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 79620211,
+          "mode": "list",
+          "cachedResultName": "RR_work_instruction_template_s6",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1mkklLpvi8klaN4Zo4D_cBrb95PGQ4NbUvtTAvLI4CII/edit#gid=79620211"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "row_number": "={{ $('Loop Over Items1').item.json.row_number }}",
+            "Handover Processed": "Yes"
+          },
+          "matchingColumns": [
+            "row_number"
+          ],
+          "schema": [
+            {
+              "id": "Received Date and Time",
+              "displayName": "Received Date and Time",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Description of Work",
+              "displayName": "Description of Work",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Appointment Date",
+              "displayName": "Appointment Date",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Next appointment date",
+              "displayName": "Next appointment date",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Completed",
+              "displayName": "Completed",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Internal Notes",
+              "displayName": "Internal Notes",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Type of Work",
+              "displayName": "Type of Work",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Property Reference",
+              "displayName": "Property Reference",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Address",
+              "displayName": "Address",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Client Order Reference",
+              "displayName": "Client Order Reference",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Works Status",
+              "displayName": "Works Status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Financial Status",
+              "displayName": "Financial Status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Our Works Instruction Number",
+              "displayName": "Our Works Instruction Number",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Time Allowed",
+              "displayName": "Time Allowed",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Recorded By",
+              "displayName": "Recorded By",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Latest Completion Date",
+              "displayName": "Latest Completion Date",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Job Value",
+              "displayName": "Job Value",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Handover date",
+              "displayName": "Handover date",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Started",
+              "displayName": "Started",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "In Time",
+              "displayName": "In Time",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Cancelled Reason",
+              "displayName": "Cancelled Reason",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Cancelled Date",
+              "displayName": "Cancelled Date",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Ready to handover",
+              "displayName": "Ready to handover",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "QS Reviewed",
+              "displayName": "QS Reviewed",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "BCC Tracker Status",
+              "displayName": "BCC Tracker Status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Handover Processed",
+              "displayName": "Handover Processed",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "row_number",
+              "displayName": "row_number",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true,
+              "readOnly": true,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        5296,
+        448
+      ],
+      "id": "8f54a1fa-cd43-48c7-a812-cb3421190620",
+      "name": "Update Handover Processed",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "0bvpVa8frZ7qSwzx",
+          "name": "hamza-sheets"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "d519528a-684c-466b-99af-83ffa1cbeaa7",
+              "leftValue": "={{ $json.hasField(\"row_number\") }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        464,
+        352
+      ],
+      "id": "17acf2f0-a336-474b-a162-2d994232f930",
+      "name": "Eligible Jobs found?"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://graph.microsoft.com/v1.0/users/BCCorders@jeffway.co.uk/messages/{{ $json.id }}/move",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "oAuth2Api",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"destinationId\": \"AAMkAGQ4ZmUyMjY3LTlmYmQtNGU4NS04YzIxLTE2NjNmOWI0MGRiMQAuAAAAAABpECuz1aBJQ4UJOZrOC6FyAQD9wE3HDRzITbwxsIDj_gP3AAAAAAEMAAA=\"\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        1680,
+        432
+      ],
+      "id": "e764fcb2-3101-445c-9275-a662935629d8",
+      "name": "Move Draft Email to Inbox",
+      "credentials": {
+        "httpBasicAuth": {
+          "id": "RUaTmWieNiIpEt8K",
+          "name": "test"
+        },
+        "oAuth2Api": {
+          "id": "nNC3eYQ9UeulKHjg",
+          "name": "Jeffway-M365-GraphAPI"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "d581011c-f07e-4d37-952b-b5e6cff91c73",
+              "leftValue": "={{ $json.hasField(\"missing_photos\") }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "false",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        3312,
+        288
+      ],
+      "id": "63de0850-fad9-4684-b4c0-25feae3a43ce",
+      "name": "Photos Found?"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "5c501280-c583-4beb-806b-d7a7e8a6f0a9",
+              "leftValue": "={{ $json['Q2.3 Please provide photos of completed work'] }}",
+              "rightValue": "Yes",
+              "operator": {
+                "type": "string",
+                "operation": "notEquals"
+              }
+            },
+            {
+              "id": "a069d2bc-23ef-4a28-9f6c-df36f35554bb",
+              "leftValue": "={{ $json['Q2.3 Please provide photos of completed work'] }}",
+              "rightValue": "No",
+              "operator": {
+                "type": "string",
+                "operation": "notEquals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.filter",
+      "typeVersion": 2.3,
+      "position": [
+        2784,
+        208
+      ],
+      "id": "1e76f119-f119-408e-8ba3-b64776969c7a",
+      "name": "Filter",
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "d581011c-f07e-4d37-952b-b5e6cff91c73",
+              "leftValue": "={{ $json.hasField(\"row_number\") }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        2960,
+        208
+      ],
+      "id": "1e1aadef-d805-4558-aa4c-8e86f6ddb8cb",
+      "name": "Photos Found?1"
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "G4l0IDqqpaWj3hxf",
+          "mode": "list",
+          "cachedResultUrl": "/workflow/G4l0IDqqpaWj3hxf",
+          "cachedResultName": "Eynvision — Stage 7 — Server"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {},
+          "matchingColumns": [],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.3,
+      "position": [
+        656,
+        144
+      ],
+      "id": "ad285a49-92a3-47d2-af05-6296f1fbb2df",
+      "name": "Call 'Stage 7 — Server'"
+    }
+  ],
+  "connections": {
+    "Schedule Trigger1": {
+      "main": [
+        [
+          {
+            "node": "Read RR_work_instruction_template_s6",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Loop Over Items1": {
+      "main": [
+        [],
+        [
+          {
+            "node": "stage7_export_job_documents_post",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read RR_work_instruction_template_s6": {
+      "main": [
+        [
+          {
+            "node": "Build doc pack queue",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build doc pack queue": {
+      "main": [
+        [
+          {
+            "node": "Eligible Jobs found?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "stage7_export_job_documents_post": {
+      "main": [
+        [
+          {
+            "node": "Create Draft Email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create Draft Email": {
+      "main": [
+        [
+          {
+            "node": "Move Draft Email to Inbox",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Add Zip Attachment": {
+      "main": [
+        [
+          {
+            "node": "Add Excel Attachment",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Add Excel Attachment": {
+      "main": [
+        [
+          {
+            "node": "Get Operatives Sheet",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Split Out1": {
+      "main": [
+        [
+          {
+            "node": "Download Images",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Image Folder Path": {
+      "main": [
+        [
+          {
+            "node": "Photos Found?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Download Images": {
+      "main": [
+        [
+          {
+            "node": "Extract from File",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get All Photos": {
+      "main": [
+        [
+          {
+            "node": "Split Out1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract from File": {
+      "main": [
+        [
+          {
+            "node": "Prepare photos to Send",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Zip Photos": {
+      "main": [
+        [
+          {
+            "node": "Add Photos Attachment",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare photos to Send": {
+      "main": [
+        [
+          {
+            "node": "Zip Photos",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Add Photos Attachment": {
+      "main": [
+        [
+          {
+            "node": "Stage 7 - Add Final Review Task",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Match Address and Property Ref": {
+      "main": [
+        [
+          {
+            "node": "Matched?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Matched?": {
+      "main": [
+        [
+          {
+            "node": "Filter",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Stage 7 - Add Final Review Task",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Operatives Sheet": {
+      "main": [
+        [
+          {
+            "node": "Match Address and Property Ref",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Stage 7 - Add Final Review Task": {
+      "main": [
+        [
+          {
+            "node": "Update Handover Processed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Handover Processed": {
+      "main": [
+        [
+          {
+            "node": "Wait",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Eligible Jobs found?": {
+      "main": [
+        [
+          {
+            "node": "Call 'Stage 7 — Server'",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Loop Over Items1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Move Draft Email to Inbox": {
+      "main": [
+        [
+          {
+            "node": "Add Zip Attachment",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Photos Found?": {
+      "main": [
+        [
+          {
+            "node": "Get All Photos",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Stage 7 - Add Final Review Task",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filter": {
+      "main": [
+        [
+          {
+            "node": "Photos Found?1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Photos Found?1": {
+      "main": [
+        [
+          {
+            "node": "Build Image Folder Path",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Stage 7 - Add Final Review Task",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Call 'Stage 7 — Server'": {
+      "main": [
+        []
+      ]
+    }
+  },
+  "pinData": {},
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "a5cd22a95d5313a977e9ac21c3a833db76b18ca78fb8cb2cf7013465d69f17f8"
+  }
+}

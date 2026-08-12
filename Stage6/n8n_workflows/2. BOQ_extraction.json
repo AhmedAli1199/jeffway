@@ -1,0 +1,2413 @@
+{
+  "nodes": [
+    {
+      "parameters": {
+        "jsCode": "// Gate: only jobs where BOQ_Checked is empty or not TRUE.\nfunction norm(v) { return String(v !== null && v !== undefined ? v : '').trim(); }\nfunction isTrue(v) {\n  if (v === true || v === 1) return true;\n  var s = norm(String(v !== null && v !== undefined ? v : '')).toLowerCase();\n  return s === 'true' || s === 'yes' || s === '1';\n}\nfunction isHeaderRow(row) {\n  return /^smartform name$/i.test(norm(row['SmartForm Name'] || row.smart_form_name || ''));\n}\nfunction needsBoqFetch(row) {\n  return !isTrue(row.BOQ_Checked || row.boq_checked || row['BOQ Checked'] || '');\n}\n\nvar ojsRows = $('Read Operative Job Sheet3').all().map(function(i) { return i.json || {}; });\nvar seen = {};\nvar pending = 0;\nvar stats = { skipped_done: 0 };\n\nfor (var oi = 0; oi < ojsRows.length; oi++) {\n  var row = ojsRows[oi];\n  if (isHeaderRow(row)) continue;\n  var sfn = norm(row['SmartForm Name'] || row.smart_form_name || '');\n  if (!sfn) continue;\n  var key = sfn.toUpperCase();\n  if (seen[key]) continue;\n  if (!needsBoqFetch(row)) { stats.skipped_done++; continue; }\n  seen[key] = true;\n  pending++;\n}\n\nif (!pending) {\n  return [{ json: {\n    _no_jobs: true,\n    message: 'No BOQ jobs — ' + stats.skipped_done + ' already BOQ_Checked.',\n    stats: stats,\n  }}];\n}\n\nreturn [{ json: {\n  _no_jobs: false,\n  pending_count: pending,\n  message: pending + ' job(s) pending — will fetch works index and process.',\n  stats: stats,\n}}];"
+      },
+      "id": "6b6c32af-3a4b-4d91-a096-633c948a6070",
+      "name": "Preview jobs to fetch",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        8976,
+        -640
+      ],
+      "notesInFlow": true,
+      "note": "Only rows where BOQ_Checked is empty or not TRUE"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": false,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "c-if-pending",
+              "leftValue": "={{ $json._no_jobs }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "notEquals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "638ba64d-9485-4267-9aab-5c9684d4ca84",
+      "name": "IF has pending jobs",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        9200,
+        -640
+      ],
+      "notesInFlow": true,
+      "note": "true → Fetch Works Index + BOQ batch HTTP\nfalse → Summarize (no API calls)"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Recalculate job-level BOQ estimates from rows already on OJS BOQ & SMV sheet.\nfunction norm(v) { return String(v !== null && v !== undefined ? v : '').trim(); }\nfunction normLo(v) { return norm(v).toLowerCase(); }\nfunction jobKey(s) { return norm(s).toUpperCase(); }\nfunction normDocKey(raw) {\n  if (raw === null || raw === undefined) return null;\n  var digits = String(raw).replace(/[^0-9]/g, '');\n  if (!digits) return null;\n  var last6 = digits.length >= 6 ? digits.slice(-6) : digits;\n  while (last6.length < 6) last6 = '0' + last6;\n  return last6;\n}\nfunction parseSmv(raw) {\n  if (raw === null || raw === undefined) return null;\n  var s = String(raw).trim();\n  if (!s || /^subcontract/i.test(s) || /^error:#?n\\/a/i.test(s)) return null;\n  var n = parseFloat(s.replace(/[^0-9.]/g, ''));\n  return isFinite(n) ? n : null;\n}\nfunction parseQty(raw) {\n  var n = parseFloat(String(raw !== null && raw !== undefined ? raw : '').trim());\n  return isFinite(n) ? n : 1;\n}\nfunction roundUp15(m) { return Math.ceil(m / 15) * 15; }\nfunction formatHours(totalMins) {\n  if (!isFinite(totalMins) || totalMins <= 0) return '';\n  return String(Math.max(1, Math.ceil(roundUp15(totalMins) / 60)));\n}\nfunction isRealSorRow(r) {\n  var rt = norm(r['Row Type'] || r.Row_Type || r.row_type || '');\n  var sor = norm(r['SOR Code'] || r.sor_code || '');\n  return rt === 'sor_line' || (!!sor && !/^(no_sor_lines|fetch_error)$/i.test(sor));\n}\nfunction groupKey(r) {\n  var sfn = norm(r['SmartForm Name'] || r.smart_form_name || '');\n  if (sfn) return 'J:' + jobKey(sfn);\n  var addr = normLo(r.Address || r.address || '');\n  if (addr) return 'A:' + addr;\n  return '';\n}\nfunction lineMinutesFromRow(r, smvLookup) {\n  var lm = parseFloat(String(r['Line Minutes'] !== undefined && r['Line Minutes'] !== null ? r['Line Minutes'] : ''));\n  if (isFinite(lm) && lm > 0) return lm;\n  var smvRaw = parseSmv(r['SMV Raw']);\n  if (smvRaw !== null) return smvRaw * 0.8 * parseQty(r.Quantity || r.quantity);\n  var key = normDocKey(r['SOR Code'] || r.sor_code || '');\n  var smvRow = (key && smvLookup[key]) ? smvLookup[key] : null;\n  var detailed = smvRow ? String(smvRow.desc || '').trim() : '';\n  if (/^subcontract/i.test(detailed)) return null;\n  var smv = parseSmv(detailed);\n  if (smv !== null) return smv * 0.8 * parseQty(r.Quantity || r.quantity);\n  return null;\n}\nfunction calcJobEstimateFromRows(rows, smvLookup) {\n  var productive = 0, anySub = false, anyTbc = false;\n  for (var i = 0; i < rows.length; i++) {\n    var lm = lineMinutesFromRow(rows[i], smvLookup);\n    if (lm === null) {\n      var key = normDocKey(rows[i]['SOR Code'] || rows[i].sor_code || '');\n      var smvRow = (key && smvLookup[key]) ? smvLookup[key] : null;\n      var detailed = smvRow ? String(smvRow.desc || '').trim() : '';\n      if (/^subcontract/i.test(detailed)) { anySub = true; continue; }\n      anyTbc = true;\n      continue;\n    }\n    productive += lm;\n  }\n  if (anySub && productive === 0) {\n    return { lineMinutes: 0, jobMinutes: '', jobHours: 'Subcontract - book separately' };\n  }\n  if (productive === 0 && anyTbc) {\n    return { lineMinutes: 0, jobMinutes: '', jobHours: 'Time TBC' };\n  }\n  var totalMins = productive + 30;\n  return {\n    lineMinutes: Math.round(productive * 100) / 100,\n    jobMinutes: roundUp15(totalMins),\n    jobHours: formatHours(totalMins),\n  };\n}\nfunction estStr(v) { return v === null || v === undefined ? '' : String(v); }\nfunction estChanged(cur, want) { return estStr(cur) !== estStr(want); }\n\nvar smvLookup = {};\nvar smvItems = $('Read SMV bank1').all();\nfor (var si = 0; si < smvItems.length; si++) {\n  var sr = smvItems[si].json || {};\n  var code = sr['Document Code'] || sr['Document code'] || sr['DOCUMENT CODE'] || sr['Reference'] || '';\n  var skey = normDocKey(code);\n  if (!skey) continue;\n  var detailed = sr['Detailed Description'] || sr['Detailed description'] || sr['DETAILED DESCRIPTION'] || '';\n  smvLookup[skey] = { desc: String(detailed).trim() };\n}\n\nvar boqRows = $('Read OJS BOQ & SMV1').all().map(function(i) { return i.json || {}; });\nvar ojsRows = $('Read Operative Job Sheet3').all().map(function(i) { return i.json || {}; });\n\nvar groups = {};\nfor (var ri = 0; ri < boqRows.length; ri++) {\n  var row = boqRows[ri];\n  if (!isRealSorRow(row)) continue;\n  var gk = groupKey(row);\n  if (!gk) continue;\n  if (!groups[gk]) groups[gk] = [];\n  groups[gk].push(row);\n}\n\nvar jobEstByGroup = {};\nvar gkeys = Object.keys(groups);\nfor (var gi = 0; gi < gkeys.length; gi++) {\n  jobEstByGroup[gkeys[gi]] = calcJobEstimateFromRows(groups[gkeys[gi]], smvLookup);\n}\n\nvar boqUpdates = [];\nfor (var bi = 0; bi < boqRows.length; bi++) {\n  var br = boqRows[bi];\n  if (!isRealSorRow(br)) continue;\n  var gk2 = groupKey(br);\n  var est = jobEstByGroup[gk2];\n  if (!est) continue;\n  var rn = Number(br.row_number);\n  if (!isFinite(rn) || rn < 2) continue;\n  var wantLine = est.lineMinutes === 0 && est.jobHours === 'Subcontract - book separately' ? '' : est.lineMinutes;\n  var wantMins = est.jobMinutes;\n  var wantHours = est.jobHours;\n  if (!estChanged(br['Job Total Line Minutes'], wantLine) &&\n      !estChanged(br['Job Estimated Minutes'], wantMins) &&\n      !estChanged(br['Job Estimated Hours'], wantHours) &&\n      !estChanged(br['Estimated Hours'], wantHours)) continue;\n  boqUpdates.push({\n    row_number: rn,\n    'Job Total Line Minutes': wantLine,\n    'Job Estimated Minutes': wantMins,\n    'Job Estimated Hours': wantHours,\n    'Estimated Hours': wantHours,\n  });\n}\n\nvar opUpdates = [];\nvar seenOp = {};\nfor (var oi = 0; oi < ojsRows.length; oi++) {\n  var orow = ojsRows[oi];\n  var sfn = norm(orow['SmartForm Name'] || orow.smart_form_name || '');\n  if (!sfn || /^smartform name$/i.test(sfn)) continue;\n  var ok = jobKey(sfn);\n  if (seenOp[ok]) continue;\n  seenOp[ok] = true;\n  var rn2 = Number(orow.row_number);\n  if (!isFinite(rn2) || rn2 < 2) continue;\n  var addrPart = normLo(sfn.split(':')[0] || '');\n  var est2 = jobEstByGroup['J:' + ok] || jobEstByGroup['A:' + addrPart];\n  if (!est2) continue;\n  var wantLine2 = est2.lineMinutes === 0 && est2.jobHours === 'Subcontract - book separately' ? '' : est2.lineMinutes;\n  var wantMins2 = est2.jobMinutes;\n  var wantHours2 = est2.jobHours;\n  if (!estChanged(orow['BOQ Total Line Minutes'], wantLine2) &&\n      !estChanged(orow['BOQ Estimated Minutes'], wantMins2) &&\n      !estChanged(orow['BOQ Estimated Hours'], wantHours2)) continue;\n  opUpdates.push({\n    row_number: rn2,\n    'BOQ Total Line Minutes': wantLine2,\n    'BOQ Estimated Minutes': wantMins2,\n    'BOQ Estimated Hours': wantHours2,\n  });\n}\n\nvar sd = $getWorkflowStaticData('global');\nsd.backfillBoqUpdates = boqUpdates;\nsd.backfillOpUpdates = opUpdates;\n\nreturn [{ json: {\n  boqUpdateCount: boqUpdates.length,\n  opUpdateCount: opUpdates.length,\n  jobGroupCount: gkeys.length,\n  hasBoqBackfill: boqUpdates.length > 0,\n  hasOpBackfill: opUpdates.length > 0,\n}}];\n"
+      },
+      "id": "7754bda2-5b27-479c-984d-67e5b3fb1316",
+      "name": "Backfill estimates from existing BOQ",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        6944,
+        -496
+      ],
+      "notesInFlow": true,
+      "note": "Recalc job estimates from BOQ rows already on sheet (no fetch)"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": false,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "c-if-boq-bf",
+              "leftValue": "={{ $json.hasBoqBackfill }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "6e1adb82-de0a-46b8-882e-00d11586a34d",
+      "name": "IF has BOQ backfill",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        7168,
+        -496
+      ],
+      "notesInFlow": true,
+      "note": "IF has BOQ backfill"
+    },
+    {
+      "parameters": {
+        "jsCode": "var sd = $getWorkflowStaticData('global');\nvar rows = Array.isArray(sd.backfillBoqUpdates) ? sd.backfillBoqUpdates : [];\nif (!rows.length) return [{ json: { _skip: true } }];\nreturn rows.map(function(r) { return { json: r }; });\n"
+      },
+      "id": "9407d763-9427-4716-b2da-082c9f102d24",
+      "name": "Emit BOQ backfill rows",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        7392,
+        -576
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": false,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "c-if-emit-boq",
+              "leftValue": "={{ $json._skip }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "notEquals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "a3933efc-a77e-40dc-b615-41df6fb6d18e",
+      "name": "IF BOQ backfill rows",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        7616,
+        -576
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "documentId": {
+          "__rl": true,
+          "value": "1mkklLpvi8klaN4Zo4D_cBrb95PGQ4NbUvtTAvLI4CII",
+          "mode": "list",
+          "cachedResultName": "stage 6",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1mkklLpvi8klaN4Zo4D_cBrb95PGQ4NbUvtTAvLI4CII/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 2010323410,
+          "mode": "list",
+          "cachedResultName": "OJS BOQ & SMV",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1mkklLpvi8klaN4Zo4D_cBrb95PGQ4NbUvtTAvLI4CII/edit#gid=2010323410"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {
+            "row_number": "={{ $json.row_number }}",
+            "Job Total Line Minutes": "={{ $json['Job Total Line Minutes'] }}",
+            "Job Estimated Minutes": "={{ $json['Job Estimated Minutes'] }}",
+            "Job Estimated Hours": "={{ $json['Job Estimated Hours'] }}",
+            "Estimated Hours": "={{ $json['Estimated Hours'] }}"
+          },
+          "matchingColumns": [
+            "row_number"
+          ],
+          "schema": [
+            {
+              "id": "row_number",
+              "displayName": "row_number",
+              "required": false,
+              "defaultMatch": true,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true,
+              "readOnly": true
+            },
+            {
+              "id": "Job Total Line Minutes",
+              "displayName": "Job Total Line Minutes",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "Job Estimated Minutes",
+              "displayName": "Job Estimated Minutes",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "Job Estimated Hours",
+              "displayName": "Job Estimated Hours",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "Estimated Hours",
+              "displayName": "Estimated Hours",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "id": "012bbd35-6d6d-4c2e-8fd1-ba3e5e9ad21b",
+      "name": "Update OJS BOQ job estimates",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        7840,
+        -640
+      ],
+      "notesInFlow": true,
+      "note": "Writes Job Estimated cols on existing SOR rows",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "0bvpVa8frZ7qSwzx",
+          "name": "hamza-sheets"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": false,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "c-if-op-bf",
+              "leftValue": "={{ (Array.isArray($getWorkflowStaticData('global').backfillOpUpdates) ? $getWorkflowStaticData('global').backfillOpUpdates : []).length > 0 }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "79a67ded-c0d3-44b4-90fc-35ca90b57b73",
+      "name": "IF has Op backfill",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        8064,
+        -576
+      ],
+      "notesInFlow": true,
+      "note": "IF has Op backfill"
+    },
+    {
+      "parameters": {
+        "jsCode": "var sd = $getWorkflowStaticData('global');\nvar rows = Array.isArray(sd.backfillOpUpdates) ? sd.backfillOpUpdates : [];\nif (!rows.length) return [{ json: { _skip: true } }];\nreturn rows.map(function(r) { return { json: r }; });\n"
+      },
+      "id": "f124d511-27c8-4a1a-bd2c-3633144d2df4",
+      "name": "Emit Op backfill rows",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        8304,
+        -496
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": false,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "c-if-emit-op",
+              "leftValue": "={{ $json._skip }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "notEquals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "2cc1cbe8-229b-42f3-80fb-2c4b5c2fa7e9",
+      "name": "IF Op backfill rows",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        8528,
+        -496
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "documentId": {
+          "__rl": true,
+          "value": "1mkklLpvi8klaN4Zo4D_cBrb95PGQ4NbUvtTAvLI4CII",
+          "mode": "list",
+          "cachedResultName": "stage 6",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1mkklLpvi8klaN4Zo4D_cBrb95PGQ4NbUvtTAvLI4CII/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list",
+          "cachedResultName": "Operative Job Sheet",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1mkklLpvi8klaN4Zo4D_cBrb95PGQ4NbUvtTAvLI4CII/edit#gid=0"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {
+            "row_number": "={{ $json.row_number }}",
+            "BOQ Total Line Minutes": "={{ $json['BOQ Total Line Minutes'] }}",
+            "BOQ Estimated Minutes": "={{ $json['BOQ Estimated Minutes'] }}",
+            "BOQ Estimated Hours": "={{ $json['BOQ Estimated Hours'] }}"
+          },
+          "matchingColumns": [
+            "row_number"
+          ],
+          "schema": [
+            {
+              "id": "row_number",
+              "displayName": "row_number",
+              "required": false,
+              "defaultMatch": true,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true,
+              "readOnly": true
+            },
+            {
+              "id": "BOQ Total Line Minutes",
+              "displayName": "BOQ Total Line Minutes",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "BOQ Estimated Minutes",
+              "displayName": "BOQ Estimated Minutes",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "BOQ Estimated Hours",
+              "displayName": "BOQ Estimated Hours",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "id": "d348f7fa-a1bd-477e-b73e-e3c551b34e5b",
+      "name": "Update Operative BOQ estimates",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        8752,
+        -432
+      ],
+      "notesInFlow": true,
+      "note": "BOQ Estimated cols from existing BOQ data",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "0bvpVa8frZ7qSwzx",
+          "name": "hamza-sheets"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "content": "## Stage 6 — OJS BOQ & SMV\n\n1. Read Operative Job Sheet + BOQ tab\n2. **Only process rows where BOQ_Checked is empty or FALSE**\n3. Fetch **full works index** (all pages via API pagination)\n4. Fetch BOQ in batches of 3\n5. Append to OJS BOQ & SMV tab\n6. Set **BOQ_Checked = TRUE** on Operative Job Sheet for fetched jobs",
+        "height": 284,
+        "width": 660
+      },
+      "id": "77dc3617-159b-4505-8467-c2d38c71b1a6",
+      "name": "Note — OJS BOQ & SMV v",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        4480,
+        -1104
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "api-base",
+              "name": "api_base_url",
+              "value": "http://173.212.233.153:8000",
+              "type": "string"
+            },
+            {
+              "id": "ngrok-base",
+              "name": "ngrok_base_url",
+              "value": "http://173.212.233.153:8000",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "c966d4cf-2608-40b7-adbb-480463e93f64",
+      "name": "Set API params3",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        4704,
+        -496
+      ],
+      "notesInFlow": true,
+      "note": "Server API on port 8000 (same host as OJS extraction)"
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "1PRUtOeUec0uMhrj4k1sFEAdo5qvXE9cDOeyAQ67hIDI",
+          "mode": "list",
+          "cachedResultName": "sheet2",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1PRUtOeUec0uMhrj4k1sFEAdo5qvXE9cDOeyAQ67hIDI/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 201049180,
+          "mode": "list",
+          "cachedResultName": "sheet2",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1PRUtOeUec0uMhrj4k1sFEAdo5qvXE9cDOeyAQ67hIDI/edit#gid=201049180"
+        },
+        "options": {}
+      },
+      "id": "84912d67-22f6-43f5-8c2f-f258a82d191b",
+      "name": "Read SMV bank1",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        4928,
+        -496
+      ],
+      "alwaysOutputData": true,
+      "executeOnce": true,
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "0bvpVa8frZ7qSwzx",
+          "name": "hamza-sheets"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "1mkklLpvi8klaN4Zo4D_cBrb95PGQ4NbUvtTAvLI4CII",
+          "mode": "list",
+          "cachedResultName": "stage 6",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1mkklLpvi8klaN4Zo4D_cBrb95PGQ4NbUvtTAvLI4CII/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list",
+          "cachedResultName": "Operative Job Sheet",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1mkklLpvi8klaN4Zo4D_cBrb95PGQ4NbUvtTAvLI4CII/edit#gid=0"
+        },
+        "options": {}
+      },
+      "id": "d91dfdba-daf7-4b56-9d0b-7e1c9dbf3e91",
+      "name": "Read Operative Job Sheet3",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        5152,
+        -496
+      ],
+      "alwaysOutputData": true,
+      "executeOnce": true,
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "0bvpVa8frZ7qSwzx",
+          "name": "hamza-sheets"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "1mkklLpvi8klaN4Zo4D_cBrb95PGQ4NbUvtTAvLI4CII",
+          "mode": "list",
+          "cachedResultName": "stage 6",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1mkklLpvi8klaN4Zo4D_cBrb95PGQ4NbUvtTAvLI4CII/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 2010323410,
+          "mode": "list",
+          "cachedResultName": "OJS BOQ & SMV",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1mkklLpvi8klaN4Zo4D_cBrb95PGQ4NbUvtTAvLI4CII/edit#gid=2010323410"
+        },
+        "options": {}
+      },
+      "id": "1cde79e4-5e1b-4c9f-ba9d-51c9a7ce6376",
+      "name": "Read OJS BOQ & SMV1",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        5376,
+        -496
+      ],
+      "alwaysOutputData": true,
+      "executeOnce": true,
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "0bvpVa8frZ7qSwzx",
+          "name": "hamza-sheets"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ ($('Set API params3').first().json.api_base_url || $('Set API params3').first().json.ngrok_base_url || '').replace(/\\/+$/, '') + '/works-index' }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "ngrok-skip-browser-warning",
+              "value": "true"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { timeout_ms: 120000 } }}",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          },
+          "timeout": 180000
+        }
+      },
+      "id": "567f90a9-8934-4f54-a86c-1d21ad7ecdd4",
+      "name": "Fetch Works Index1",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        9424,
+        -720
+      ],
+      "notesInFlow": true,
+      "note": "Only runs when Preview found pending jobs",
+      "executeOnce": true
+    },
+    {
+      "parameters": {
+        "jsCode": "// Startup: scan OJS BOQ & SMV for duplicates and sync Operative BOQ_Checked.\nvar SHEET_GID = 2010323410;\nvar NO_SOR_RE = /no sor lines found on boq tab/i;\n\nfunction norm(v) { return String(v !== null && v !== undefined ? v : '').trim(); }\nfunction normLo(v) { return norm(v).toLowerCase(); }\nfunction jobKey(s) { return norm(s).toUpperCase(); }\nfunction isTrue(v) {\n  if (v === true || v === 1) return true;\n  var s = normLo(String(v !== null && v !== undefined ? v : ''));\n  return s === 'true' || s === 'yes' || s === '1';\n}\nfunction isNoSorRow(r) {\n  var sor = norm(r['SOR Code'] || r.sor_code || '');\n  if (sor && !/^(no_sor_lines|fetch_error)$/i.test(sor)) return false;\n  var rt = norm(r['Row Type'] || r.Row_Type || r.row_type || '');\n  var desc = norm(r.Description || r.description || '');\n  return rt === 'no_sor_lines' || NO_SOR_RE.test(desc);\n}\nfunction isRealSorRow(r) {\n  var rt = norm(r['Row Type'] || r.Row_Type || r.row_type || '');\n  var sor = norm(r['SOR Code'] || r.sor_code || '');\n  return rt === 'sor_line' || (!!sor && !/^(no_sor_lines|fetch_error)$/i.test(sor));\n}\n\nvar boqRows = $('Read OJS BOQ & SMV1').all().map(function(i) { return i.json || {}; });\nvar ojsRows = $('Read Operative Job Sheet3').all().map(function(i) { return i.json || {}; });\n\nvar jobStatus = {};\nfunction ensureJob(k) {\n  if (!jobStatus[k]) jobStatus[k] = { hasReal: false, noSorNums: [] };\n  return jobStatus[k];\n}\nfor (var ri = 0; ri < boqRows.length; ri++) {\n  var r = boqRows[ri];\n  var key = jobKey(r['SmartForm Name'] || r.smart_form_name || '');\n  var addrKey = 'A:' + normLo(r.Address || r.address || '');\n  var keys = [];\n  if (key) keys.push(key);\n  if (addrKey !== 'A:') keys.push(addrKey);\n  for (var ki = 0; ki < keys.length; ki++) {\n    var st = ensureJob(keys[ki]);\n    if (isRealSorRow(r)) st.hasReal = true;\n\n    if (isNoSorRow(r)) {\n      var rn = Number(r.row_number);\n      if (rn >= 2) st.noSorNums.push(rn);\n    }\n  }\n}\n\nvar toDelete = [];\nvar stKeys = Object.keys(jobStatus);\nfor (var si = 0; si < stKeys.length; si++) {\n  var st = jobStatus[stKeys[si]];\n  if (st.hasReal && st.noSorNums.length) {\n    for (var ni = 0; ni < st.noSorNums.length; ni++) toDelete.push(st.noSorNums[ni]);\n  }\n}\nvar seen_del = {};\nvar deleteNums = toDelete.filter(function(n) {\n  if (seen_del[n]) return false; seen_del[n] = true; return true;\n}).sort(function(a, b) { return b - a; });\n\nvar operativeUpdates = [];\nvar seenOjs = {};\nfor (var oi = 0; oi < ojsRows.length; oi++) {\n  var row = ojsRows[oi];\n  var sfn = norm(row['SmartForm Name'] || row.smart_form_name || '');\n  if (!sfn || /^smartform name$/i.test(sfn)) continue;\n  var key = jobKey(sfn);\n  if (seenOjs[key]) continue;\n  seenOjs[key] = true;\n  if (row.row_number === null || row.row_number === undefined || row.row_number === '') continue;\n  var sfnParts = sfn.split(':');\n  var addrPart = normLo(sfnParts[0]);\n  var st = jobStatus[key] || jobStatus['A:' + addrPart];\n  if (!st) continue;\n  var curChecked = isTrue(row.BOQ_Checked || row.boq_checked || row['BOQ Checked'] || '');\n  var curReason = norm(row.Reason || row.reason || '');\n  if (st.hasReal) {\n    if (!curChecked || curReason) operativeUpdates.push({ row_number: row.row_number, BOQ_Checked: 'TRUE', 'SOR Checked': 'TRUE', Reason: '' });\n  } else if (st.noSorNums.length) {\n    var want = 'No SOR lines on BOQ tab';\n    if (!curChecked || curReason !== want) operativeUpdates.push({ row_number: row.row_number, BOQ_Checked: 'TRUE', 'SOR Checked': 'TRUE', Reason: want });\n  }\n}\n\nvar sd = $getWorkflowStaticData('global');\nsd.startupOpUpdates = operativeUpdates;\nsd.boqRetryQueue = [];\nsd.pendingBatchResults = [];\nsd.pendingRetryResults = [];\nsd.emittedResults = [];\nsd.emittedItems = [];\nsd.emittedIsRetry = false;\n\nreturn [{ json: {\n  deleteNums: deleteNums,\n  deleteRequests: deleteNums.map(function(rn) {\n    return { deleteDimension: { range: { sheetId: SHEET_GID, dimension: 'ROWS', startIndex: rn - 1, endIndex: rn } } };\n  }),\n  operativeUpdates: operativeUpdates,\n  dupCount: deleteNums.length,\n  opUpdateCount: operativeUpdates.length,\n  hasWork: deleteNums.length > 0 || operativeUpdates.length > 0,\n}}];\n"
+      },
+      "id": "25cb157d-0188-4893-860f-4e2a44ddc5e9",
+      "name": "Startup: Fix Duplicates & Sync1",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        5600,
+        -496
+      ],
+      "notesInFlow": true,
+      "note": "Remove no-SOR duplicates + sync BOQ_Checked + clear accumulators"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": false,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "c-if-startup",
+              "leftValue": "={{ ($json.dupCount || 0) > 0 }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "9aeed8af-ad59-4dd7-9977-61fa94b26081",
+      "name": "IF startup has work1",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        5824,
+        -496
+      ],
+      "notesInFlow": true,
+      "note": "true only when duplicate no-SOR rows need deleting (dupCount > 0)"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://sheets.googleapis.com/v4/spreadsheets/1mkklLpvi8klaN4Zo4D_cBrb95PGQ4NbUvtTAvLI4CII:batchUpdate",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "googleSheetsOAuth2Api",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { requests: $json.deleteRequests } }}",
+        "options": {}
+      },
+      "id": "899e0301-33a5-470a-918f-c96f7e93746c",
+      "name": "Delete duplicate no-SOR rows1",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        6048,
+        -576
+      ],
+      "notesInFlow": true,
+      "note": "Removes old no-SOR placeholder rows when real SOR rows exist for same address (only runs when dupCount > 0)",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "0bvpVa8frZ7qSwzx",
+          "name": "hamza-sheets"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "var sd = $getWorkflowStaticData('global');\nvar updates = Array.isArray(sd.startupOpUpdates) ? sd.startupOpUpdates : [];\nif (!updates.length) return [{ json: { _skip: true } }];\nreturn updates.map(function(u) { return { json: u }; });\n"
+      },
+      "id": "36178980-1e6a-4ccf-bef5-cfe8df2aa72c",
+      "name": "Emit startup Operative updates1",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        6272,
+        -496
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": false,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "c-if-op",
+              "leftValue": "={{ $json._skip }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "notEquals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "b99b0a9f-8607-4e84-979f-b8fae9dd9620",
+      "name": "IF startup Operative updates1",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        6496,
+        -496
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "documentId": {
+          "__rl": true,
+          "value": "1mkklLpvi8klaN4Zo4D_cBrb95PGQ4NbUvtTAvLI4CII",
+          "mode": "list",
+          "cachedResultName": "stage 6",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1mkklLpvi8klaN4Zo4D_cBrb95PGQ4NbUvtTAvLI4CII/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list",
+          "cachedResultName": "Operative Job Sheet",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1mkklLpvi8klaN4Zo4D_cBrb95PGQ4NbUvtTAvLI4CII/edit#gid=0"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "BOQ_Checked": "={{ $json.BOQ_Checked }}",
+            "row_number": "={{ $json.row_number }}",
+            "Reason": "={{ $json.Reason }}",
+            "SOR Checked": "={{ $json['SOR Checked'] }}",
+            "BOQ Estimated Minutes": "={{ $json['BOQ Estimated Minutes'] }}",
+            "BOQ Estimated Hours": "={{ $json['BOQ Estimated Hours'] }}",
+            "BOQ Total Line Minutes": "={{ $json['BOQ Total Line Minutes'] }}"
+          },
+          "matchingColumns": [
+            "row_number"
+          ],
+          "schema": [
+            {
+              "id": "BOQ_Checked",
+              "displayName": "BOQ_Checked",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "row_number",
+              "displayName": "row_number",
+              "required": false,
+              "defaultMatch": true,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true,
+              "readOnly": true
+            },
+            {
+              "id": "Reason",
+              "displayName": "Reason",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "SOR Checked",
+              "displayName": "SOR Checked",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "BOQ Estimated Minutes",
+              "displayName": "BOQ Estimated Minutes",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "BOQ Estimated Hours",
+              "displayName": "BOQ Estimated Hours",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "BOQ Total Line Minutes",
+              "displayName": "BOQ Total Line Minutes",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "16e4abe3-2b5d-4b01-8347-1e0b1f7bc425",
+      "name": "Update Operative BOQ_Checked (startup)1",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        6720,
+        -576
+      ],
+      "notesInFlow": true,
+      "note": "Sync BOQ_Checked + Reason",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "0bvpVa8frZ7qSwzx",
+          "name": "hamza-sheets"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "var BATCH_LIMIT = 3;\nvar WORKS_ID_MISSING_REASON = 'works_id is required — address-search path removed';\nvar sd = $getWorkflowStaticData('global');\nsd.boqRetryQueue = [];\nsd.pendingBatchResults = [];\nsd.pendingRetryResults = [];\n\nfunction norm(v) { return String(v !== null && v !== undefined ? v : '').trim(); }\nfunction isTrue(v) {\n  if (v === true || v === 1) return true;\n  var s = norm(String(v !== null && v !== undefined ? v : '')).toLowerCase();\n  return s === 'true' || s === 'yes' || s === '1';\n}\nfunction isHeaderRow(row) {\n  return /^smartform name$/i.test(norm(row['SmartForm Name'] || row.smart_form_name || ''));\n}\nfunction needsBoqFetch(row) {\n  return !isTrue(row.BOQ_Checked || row.boq_checked || row['BOQ Checked'] || '');\n}\nfunction isAddressSearchEligible(row) {\n  var r = norm(row.Reason || row.reason || '');\n  return r === WORKS_ID_MISSING_REASON || /works_id is required/i.test(r);\n}\n\nvar indexResp = null;\ntry { indexResp = $('Fetch Works Index1').first().json || {}; } catch(e) { indexResp = {}; }\nvar indexBody = indexResp.body !== undefined ? indexResp.body : indexResp;\nif (typeof indexBody === 'string') { try { indexBody = JSON.parse(indexBody); } catch(e) { indexBody = {}; } }\nvar indexItems = (indexBody && indexBody.items) ? indexBody.items : (Array.isArray(indexBody) ? indexBody : []);\n\nvar indexByAddr = {};\nvar indexByRef = {};\nfor (var idx = 0; idx < indexItems.length; idx++) {\n  var wi = indexItems[idx];\n  if (!wi.works_id) continue;\n  if (wi.address) indexByAddr[wi.address.trim().toLowerCase()] = wi.works_id;\n  if (wi.property_ref) indexByRef[wi.property_ref.trim()] = wi.works_id;\n  if (wi.client_order_reference) indexByRef[wi.client_order_reference.trim()] = wi.works_id;\n}\n\nvar ojsRows = $('Read Operative Job Sheet3').all().map(function(i) { return i.json || {}; });\nvar seen = {};\nvar toFetch = [];\nvar stats = { skipped_done: 0, queued: 0, with_works_id: 0, without_works_id: 0, address_search: 0 };\n\nfor (var oi = 0; oi < ojsRows.length; oi++) {\n  var row = ojsRows[oi];\n  if (isHeaderRow(row)) continue;\n  var sfn = norm(row['SmartForm Name'] || row.smart_form_name || '');\n  if (!sfn) continue;\n  var key = sfn.toUpperCase();\n  if (seen[key]) continue;\n  if (!needsBoqFetch(row)) { stats.skipped_done++; continue; }\n  seen[key] = true;\n  stats.queued++;\n\n  var sfnParts = sfn.split(':');\n  var address = sfnParts[0].trim();\n  if (!address) continue;\n  var addrLo = address.toLowerCase();\n\n  var uprn = '';\n  var fromCol = norm(row.CORF || row.corf || row.UPRN || row.uprn || '');\n  if (fromCol) uprn = fromCol;\n  else if (sfnParts.length >= 2) {\n    var tail = sfnParts[sfnParts.length - 1].trim();\n    uprn = tail.replace(/[^0-9]/g, '') || tail;\n  }\n\n  var worksId = '';\n  var useAddressSearch = false;\n  if (isAddressSearchEligible(row)) {\n    useAddressSearch = true;\n    stats.address_search++;\n  } else {\n    worksId = indexByAddr[addrLo] || indexByRef[uprn] || '';\n    if (worksId) stats.with_works_id++;\n    else stats.without_works_id++;\n  }\n\n  toFetch.push({\n    address: address,\n    smart_form_name: sfn,\n    uprn: uprn,\n    row_number: row.row_number,\n    works_id: worksId,\n    use_address_search: useAddressSearch,\n  });\n}\n\nif (!toFetch.length) {\n  return [{ json: { _no_jobs: true,\n    message: 'No BOQ jobs — ' + stats.skipped_done + ' already BOQ_Checked.',\n    stats: stats,\n  }}];\n}\n\nvar batchTotal = Math.ceil(toFetch.length / BATCH_LIMIT);\nvar batches = [];\nfor (var i = 0; i < toFetch.length; i += BATCH_LIMIT) {\n  var batch = toFetch.slice(i, i + BATCH_LIMIT);\n  batches.push({\n    items: batch,\n    batch_index: Math.floor(i / BATCH_LIMIT) + 1,\n    batch_total: batchTotal,\n    batch_count: batch.length,\n    pending_total: toFetch.length,\n    _is_retry: false,\n  });\n}\nreturn batches.map(function(b) { return { json: b }; });"
+      },
+      "id": "098a22e9-fed0-4428-983d-deba0b4d4fee",
+      "name": "Build jobs to fetch1",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        9648,
+        -720
+      ],
+      "notesInFlow": true,
+      "note": "BOQ_Checked empty/false only; resolve works_id from full works index"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "c-if-jobs",
+              "leftValue": "={{ $json._no_jobs }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "notEquals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "cebab254-7e5f-4040-8480-c716adcd5d8e",
+      "name": "IF jobs to fetch1",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        9872,
+        -720
+      ]
+    },
+    {
+      "parameters": {
+        "options": {
+          "reset": false
+        }
+      },
+      "id": "8c9cdc2c-3e59-4eae-9716-573735e70c0a",
+      "name": "Loop BOQ batches1",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        10096,
+        -736
+      ],
+      "notesInFlow": true,
+      "note": "3 jobs at a time — accumulates all results before downstream"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ ($('Set API params3').first().json.api_base_url || $('Set API params3').first().json.ngrok_base_url || '').replace(/\\/+$/, '') + '/fetch-boq-batch' }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "ngrok-skip-browser-warning",
+              "value": "true"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { items: $json.items, timeout_ms: 45000, concurrency: 3 } }}",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          },
+          "timeout": 900000
+        }
+      },
+      "id": "152d4f72-11cd-4015-8adb-6607aea958f7",
+      "name": "Fetch BOQ batch1",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        10320,
+        -640
+      ],
+      "notesInFlow": true,
+      "note": "Main loop — result stored, loop continues"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Store this batch's HTTP response in static data, then loop back.\nvar sd = $getWorkflowStaticData('global');\nif (!Array.isArray(sd.pendingBatchResults)) sd.pendingBatchResults = [];\n\nvar resp = $input.first().json || {};\nvar body = (resp.body !== undefined) ? resp.body : ((resp.data !== undefined) ? resp.data : resp);\nif (typeof body === 'string') { try { body = JSON.parse(body); } catch(e) { body = {}; } }\nif (body && body.body && body.results === undefined) body = body.body;\n\nvar batchItems = [];\ntry { var li = $('Loop BOQ batches1').item; if (li && li.json && li.json.items) batchItems = li.json.items; } catch(e) {}\n\n// If the HTTP call completely failed synthesize error results so every item is covered\nvar batchResults = Array.isArray(body.results) ? body.results : [];\nif (!batchResults.length && batchItems.length) {\n  var errMsg = body.detail || body.error || body.message || 'HTTP request failed or timed out';\n  batchResults = batchItems.map(function(item) {\n    return { success: false, address: item.address || '', smart_form_name: item.smart_form_name || '',\n      uprn: item.uprn || '', works_id: item.works_id || '', boq_url: '', sor_count: 0,\n      sor_lines: [], boq_grand_total: '', error: errMsg, skip_boq_checked_true: false, reason: null };\n  });\n}\n\nsd.pendingBatchResults.push({ items: batchItems, results: batchResults });\nreturn [{ json: { _accumulated: true, batch_count: batchItems.length, result_count: batchResults.length } }];\n"
+      },
+      "id": "fef5fb25-e8ae-4dbe-a6af-8968a5649af9",
+      "name": "Accumulate main results1",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        10544,
+        -592
+      ],
+      "notesInFlow": true,
+      "note": "Saves results to static data → loops back to continue"
+    },
+    {
+      "parameters": {
+        "jsCode": "// All main batches done — flatten everything and emit as one item for Calc.\nvar sd = $getWorkflowStaticData('global');\nvar allBatches = Array.isArray(sd.pendingBatchResults) ? sd.pendingBatchResults : [];\nsd.pendingBatchResults = [];\n\nvar allResults = [];\nvar allItems = [];\nfor (var i = 0; i < allBatches.length; i++) {\n  var batch = allBatches[i];\n  allResults = allResults.concat(Array.isArray(batch.results) ? batch.results : []);\n  allItems = allItems.concat(Array.isArray(batch.items) ? batch.items : []);\n}\n\nsd.emittedResults = allResults;\nsd.emittedItems = allItems;\nsd.emittedIsRetry = false;\n\nreturn [{ json: { all_results: allResults, all_items: allItems, _is_retry: false,\n  total_results: allResults.length, total_items: allItems.length } }];\n"
+      },
+      "id": "b2d6b905-b819-42e5-89dd-1862a8595c8f",
+      "name": "Emit main results1",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        10320,
+        -832
+      ],
+      "notesInFlow": true,
+      "note": "Fires once after ALL main batches finish → sends full list to Calc"
+    },
+    {
+      "parameters": {
+        "jsCode": "function normDocKey(raw) {\n  if (raw === null || raw === undefined) return null;\n  var digits = String(raw).replace(/[^0-9]/g, '');\n  if (!digits) return null;\n  var last6 = digits.length >= 6 ? digits.slice(-6) : digits;\n  while (last6.length < 6) last6 = '0' + last6;\n  return last6;\n}\nfunction parseSmv(raw) {\n  if (raw === null || raw === undefined) return null;\n  var s = String(raw).trim();\n  if (!s || /^subcontract/i.test(s) || /^error:#?n\\/a/i.test(s)) return null;\n  var n = parseFloat(s.replace(/[^0-9.]/g, ''));\n  return isFinite(n) ? n : null;\n}\nfunction roundUp15(m) { return Math.ceil(m / 15) * 15; }\nfunction formatHours(totalMins) {\n  if (!isFinite(totalMins) || totalMins <= 0) return '';\n  return String(Math.max(1, Math.ceil(roundUp15(totalMins) / 60)));\n}\nfunction parseQty(raw) {\n  var n = parseFloat(String(raw !== null && raw !== undefined ? raw : '').trim());\n  return isFinite(n) ? n : 1;\n}\nfunction calcJobEstimate(sorLines, lookup) {\n  var productive = 0, anySub = false, anyTbc = false;\n  for (var i = 0; i < sorLines.length; i++) {\n    var line = sorLines[i];\n    var key = normDocKey(line.sor_code);\n    var row = (key && lookup[key]) ? lookup[key] : null;\n    var detailed = row ? String(row.desc || '').trim() : '';\n    if (/^subcontract/i.test(detailed)) { anySub = true; continue; }\n    var smv = parseSmv(detailed);\n    if (smv === null) { anyTbc = true; continue; }\n    productive += smv * 0.8 * parseQty(line.quantity);\n  }\n  if (anySub && productive === 0) {\n    return { lineMinutes: 0, jobMinutes: '', jobHours: 'Subcontract - book separately' };\n  }\n  if (productive === 0 && anyTbc) {\n    return { lineMinutes: 0, jobMinutes: '', jobHours: 'Time TBC' };\n  }\n  var totalMins = productive + 30;\n  var roundedMins = roundUp15(totalMins);\n  return {\n    lineMinutes: Math.round(productive * 100) / 100,\n    jobMinutes: roundedMins,\n    jobHours: formatHours(totalMins),\n  };\n}\nfunction placeholder(address, sfn, uprn, worksId, boqUrl, rowType, description, fetchedAt) {\n  return {\n    Address: address, UPRN: uprn, 'SmartForm Name': sfn, works_id: worksId, 'BOQ URL': boqUrl,\n    'SOR Code': '', Description: description, Quantity: '', Unit: '', Rate: '', Total: '',\n    'Is Variation': '', 'SMV Raw': '', 'SMV Adjusted Mins': '', 'Line Minutes': '',\n    'Job Total Line Minutes': '', 'Job Estimated Minutes': '', 'Job Estimated Hours': '',\n    'Row Type': rowType, 'SOR Checked': '', 'Estimated Hours': '', 'BOQ Grand Total': '', fetched_at: fetchedAt,\n  };\n}\n\nvar smvLookup = {};\nvar smvItems = $('Read SMV bank1').all();\nfor (var si = 0; si < smvItems.length; si++) {\n  var r = smvItems[si].json || {};\n  var code = r['Document Code'] || r['Document code'] || r['DOCUMENT CODE'] || r['Reference'] || '';\n  var key = normDocKey(code);\n  if (!key) continue;\n  var detailed = r['Detailed Description'] || r['Detailed description'] || r['DETAILED DESCRIPTION'] || '';\n  smvLookup[key] = { desc: String(detailed).trim() };\n}\n\n// Read all results and items emitted by Emit main results / Emit retry results\nvar inp = $input.first().json || {};\nvar batchResults = Array.isArray(inp.all_results) ? inp.all_results : [];\nvar batchItems = Array.isArray(inp.all_items) ? inp.all_items : [];\nvar fetchedAt = new Date().toISOString();\nvar errDetail = 'HTTP request failed or timed out';\n\nvar out = [];\nvar seen = {};\n\nfor (var ri = 0; ri < batchResults.length; ri++) {\n  var result = batchResults[ri];\n  var resultReason = String(result.reason || '');\n  if (result.skip_boq_checked_true) continue;\n  if (/^job name:/i.test(resultReason)) continue;\n  if (/works_id is required/i.test(resultReason)) continue;\n  var address = String(result.address || '').trim();\n  var sfn = String(result.smart_form_name || '').trim();\n  var uprn = String(result.uprn || '').trim();\n  var rKey = String(result.smart_form_name || result.address || '').trim().toUpperCase();\n  seen[rKey] = true;\n  var worksId = String(result.works_id || '').trim();\n  var boqUrl = String(result.boq_url || '').trim();\n  var sorLines = Array.isArray(result.sor_lines) ? result.sor_lines : [];\n  if (!result.success || result.error) {\n    out.push({ json: placeholder(address, sfn, uprn, worksId, boqUrl, 'fetch_error', String(result.error || 'fetch failed'), fetchedAt) });\n    continue;\n  }\n  if (!sorLines.length) {\n    var ph = placeholder(address, sfn, uprn, worksId, boqUrl, 'no_sor_lines', 'No SOR lines found on BOQ tab', fetchedAt);\n    ph['SOR Checked'] = 'TRUE';\n    out.push({ json: ph });\n    continue;\n  }\n  var jobEst = calcJobEstimate(sorLines, smvLookup);\n  var grandTotal = String(result.boq_grand_total || '').trim();\n  for (var li = 0; li < sorLines.length; li++) {\n    var line = sorLines[li];\n    var lkey = normDocKey(line.sor_code);\n    var smvRow = (lkey && smvLookup[lkey]) ? smvLookup[lkey] : null;\n    var smvRaw = parseSmv(smvRow ? smvRow.desc : '');\n    var qty = parseQty(line.quantity);\n    var adjMins = smvRaw !== null ? Math.round(smvRaw * 0.8 * 100) / 100 : '';\n    var lineMins = smvRaw !== null ? Math.round(smvRaw * 0.8 * qty * 100) / 100 : '';\n    out.push({ json: {\n      Address: address, UPRN: uprn, 'SmartForm Name': sfn, works_id: worksId, 'BOQ URL': boqUrl,\n      Section: line.section || '', 'SOR Code': line.sor_code, Description: line.description,\n      'BOQ Detailed Description': line.detailed_description || '', Notes: line.notes || '',\n      'Variation Label': line.variation_label || '', Quantity: line.quantity, Unit: line.unit,\n      Rate: line.rate, Total: line.total, 'Is Variation': line.is_variation ? 'Yes' : 'No',\n      'SMV Raw': smvRaw !== null ? smvRaw : '', 'SMV Adjusted Mins': adjMins, 'Line Minutes': lineMins,\n      'Job Total Line Minutes': jobEst.lineMinutes || '',\n      'Job Estimated Minutes': jobEst.jobMinutes !== undefined && jobEst.jobMinutes !== '' ? jobEst.jobMinutes : '',\n      'Job Estimated Hours': jobEst.jobHours || '',\n      'Row Type': 'sor_line', 'SOR Checked': 'TRUE',\n      'Estimated Hours': jobEst.jobHours || '',\n      'BOQ Grand Total': grandTotal,\n      fetched_at: fetchedAt,\n    }});\n  }\n}\n\nfor (var bi2 = 0; bi2 < batchItems.length; bi2++) {\n  var item = batchItems[bi2];\n  var iKey = String(item.smart_form_name || item.address || '').trim().toUpperCase();\n  if (!iKey || seen[iKey]) continue;\n  out.push({ json: placeholder(item.address || '', item.smart_form_name || '', item.uprn || '', item.works_id || '', '', 'fetch_error', errDetail, fetchedAt) });\n}\nreturn out;\n"
+      },
+      "id": "fe7647b7-b92f-45d2-8979-c0ef703772de",
+      "name": "Calc SMV and build rows1",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        10544,
+        -832
+      ],
+      "notesInFlow": true,
+      "note": "Processes ALL batch results at once — SMV x 80% x qty"
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "1mkklLpvi8klaN4Zo4D_cBrb95PGQ4NbUvtTAvLI4CII",
+          "mode": "list",
+          "cachedResultName": "stage 6",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1mkklLpvi8klaN4Zo4D_cBrb95PGQ4NbUvtTAvLI4CII/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 2010323410,
+          "mode": "list",
+          "cachedResultName": "OJS BOQ & SMV",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1mkklLpvi8klaN4Zo4D_cBrb95PGQ4NbUvtTAvLI4CII/edit#gid=2010323410"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "Address",
+              "displayName": "Address",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "UPRN",
+              "displayName": "UPRN",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "SmartForm Name",
+              "displayName": "SmartForm Name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "works_id",
+              "displayName": "works_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "BOQ URL",
+              "displayName": "BOQ URL",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "SOR Code",
+              "displayName": "SOR Code",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Description",
+              "displayName": "Description",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Quantity",
+              "displayName": "Quantity",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Unit",
+              "displayName": "Unit",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Rate",
+              "displayName": "Rate",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Total",
+              "displayName": "Total",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Is Variation",
+              "displayName": "Is Variation",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Job Estimated Hours",
+              "displayName": "Job Estimated Hours",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "SMV Raw",
+              "displayName": "SMV Raw",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "SMV Adjusted Mins",
+              "displayName": "SMV Adjusted Mins",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Line Minutes",
+              "displayName": "Line Minutes",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Row Type",
+              "displayName": "Row Type",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Estimated Hours",
+              "displayName": "Estimated Hours",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "fetched_at",
+              "displayName": "fetched_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Section",
+              "displayName": "Section",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "BOQ Detailed Description",
+              "displayName": "BOQ Detailed Description",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Notes",
+              "displayName": "Notes",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Variation Label",
+              "displayName": "Variation Label",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "BOQ Grand Total",
+              "displayName": "BOQ Grand Total",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "SOR Checked",
+              "displayName": "SOR Checked",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Job Total Line Minutes",
+              "displayName": "Job Total Line Minutes",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Job Estimated Minutes",
+              "displayName": "Job Estimated Minutes",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "id": "8d04a215-53db-4dee-8749-74109de99fc8",
+      "name": "Append to OJS BOQ & SMV1",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        11888,
+        -912
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "0bvpVa8frZ7qSwzx",
+          "name": "hamza-sheets"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "function resultKey(r) { return String(r && (r.smart_form_name || r.address) ? (r.smart_form_name || r.address) : '').trim().toUpperCase(); }\nfunction hasBoqLines(r) {\n  if (Array.isArray(r.sor_lines) && r.sor_lines.length > 0) return true;\n  return isFinite(Number(r.sor_count)) && Number(r.sor_count) > 0;\n}\nvar WORKS_ID_MISSING_REASON = 'works_id is required — address-search path removed';\nfunction isWorksIdMissingReason(s) {\n  s = String(s || '').trim();\n  return s === WORKS_ID_MISSING_REASON || /works_id is required/i.test(s);\n}\n\nvar sd = $getWorkflowStaticData('global');\nvar batchResults = Array.isArray(sd.emittedResults) ? sd.emittedResults : [];\nvar batchItems = Array.isArray(sd.emittedItems) ? sd.emittedItems : [];\nvar isRetry = !!sd.emittedIsRetry;\nif (!isRetry) sd.boqRetryQueue = sd.boqRetryQueue || [];\n\nvar calcRows = $('Calc SMV and build rows1').all().map(function(i) { return i.json || {}; });\n\nfunction calcSaysNoSor(key) {\n  for (var i = 0; i < calcRows.length; i++) {\n    var r = calcRows[i];\n    var rKey = String(r['SmartForm Name'] || r.smart_form_name || '').trim().toUpperCase();\n    if (rKey !== key) continue;\n    var rt = String(r['Row Type'] || r.Row_Type || r.row_type || '').trim();\n    var desc = String(r.Description || r.description || '').trim();\n    if (rt === 'no_sor_lines' || /no sor lines found on boq tab/i.test(desc)) return true;\n  }\n  return false;\n}\n\nfunction jobEstimateForKey(key) {\n  for (var i = 0; i < calcRows.length; i++) {\n    var r = calcRows[i];\n    var rKey = String(r['SmartForm Name'] || r.smart_form_name || '').trim().toUpperCase();\n    if (rKey !== key) continue;\n    var rt = String(r['Row Type'] || r.Row_Type || r.row_type || '').trim();\n    if (rt !== 'sor_line') continue;\n    return {\n      minutes: r['Job Estimated Minutes'] !== undefined && r['Job Estimated Minutes'] !== null ? r['Job Estimated Minutes'] : '',\n      hours: r['Job Estimated Hours'] || r['Estimated Hours'] || '',\n      lineMinutes: r['Job Total Line Minutes'] !== undefined && r['Job Total Line Minutes'] !== null ? r['Job Total Line Minutes'] : '',\n    };\n  }\n  return { minutes: '', hours: '', lineMinutes: '' };\n}\n\nvar updates = [];\nvar seen = {};\n\nfor (var ri = 0; ri < batchResults.length; ri++) {\n  var result = batchResults[ri];\n  var key = resultKey(result);\n  if (key) seen[key] = true;\n  var item = null;\n  for (var ii = 0; ii < batchItems.length; ii++) {\n    if (resultKey(batchItems[ii]) === key) { item = batchItems[ii]; break; }\n  }\n  var resultReason = String(result.reason || '');\n  var isWrongName = /^job name:/i.test(resultReason);\n  var worksIdMissing = isWorksIdMissingReason(resultReason) || isWorksIdMissingReason(result.error);\n  var success = !!(result.success && !result.error && hasBoqLines(result));\n  var noSor = calcSaysNoSor(key) || (!result.error && result.success && !hasBoqLines(result));\n  if (!isRetry && !success && !isWrongName && !noSor && !worksIdMissing && item) sd.boqRetryQueue.push(item);\n  if (!item || item.row_number === null || item.row_number === undefined || item.row_number === '') continue;\n  var est = jobEstimateForKey(key);\n  var base = {\n    row_number: item.row_number,\n    'BOQ Estimated Minutes': est.minutes,\n    'BOQ Estimated Hours': est.hours,\n    'BOQ Total Line Minutes': est.lineMinutes,\n  };\n  if (worksIdMissing) {\n    updates.push(Object.assign({}, base, { BOQ_Checked: 'FALSE', 'SOR Checked': 'FALSE', Reason: WORKS_ID_MISSING_REASON }));\n  } else if (isWrongName) {\n    updates.push(Object.assign({}, base, { BOQ_Checked: 'FALSE', 'SOR Checked': 'FALSE', Reason: resultReason }));\n  } else if (noSor) {\n    updates.push(Object.assign({}, base, { BOQ_Checked: 'TRUE', 'SOR Checked': 'TRUE', Reason: 'No SOR lines on BOQ tab' }));\n  } else if (success) {\n    updates.push(Object.assign({}, base, { BOQ_Checked: 'TRUE', 'SOR Checked': 'TRUE', Reason: '' }));\n  } else {\n    updates.push(Object.assign({}, base, { BOQ_Checked: 'FALSE', 'SOR Checked': 'FALSE', Reason: '' }));\n  }\n}\n\nfor (var bi = 0; bi < batchItems.length; bi++) {\n  var item = batchItems[bi];\n  var key = resultKey(item);\n  if (!key || seen[key]) continue;\n  if (!isRetry) sd.boqRetryQueue.push(item);\n  if (item.row_number !== null && item.row_number !== undefined && item.row_number !== '') {\n    updates.push({ row_number: item.row_number, BOQ_Checked: 'FALSE', 'SOR Checked': 'FALSE', Reason: '',\n      'BOQ Estimated Minutes': '', 'BOQ Estimated Hours': '', 'BOQ Total Line Minutes': '' });\n  }\n}\n\nif (!updates.length) return [{ json: { _skip_update: true } }];\nreturn updates.map(function(u) { return { json: u }; });\n"
+      },
+      "id": "8cf52196-fafd-4e79-82f4-184b07b8f909",
+      "name": "Prepare BOQ_Checked updates1",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        12112,
+        -912
+      ],
+      "notesInFlow": true,
+      "note": "TRUE + SOR Checked when SOR lines found OR 0 rows confirmed on BOQ tab"
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "documentId": {
+          "__rl": true,
+          "value": "1mkklLpvi8klaN4Zo4D_cBrb95PGQ4NbUvtTAvLI4CII",
+          "mode": "list",
+          "cachedResultName": "stage 6",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1mkklLpvi8klaN4Zo4D_cBrb95PGQ4NbUvtTAvLI4CII/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list",
+          "cachedResultName": "Operative Job Sheet",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1mkklLpvi8klaN4Zo4D_cBrb95PGQ4NbUvtTAvLI4CII/edit#gid=0"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "BOQ_Checked": "={{ $json.BOQ_Checked }}",
+            "row_number": "={{ $json.row_number }}",
+            "Reason": "={{ $json.Reason }}",
+            "SOR Checked": "={{ $json['SOR Checked'] }}",
+            "BOQ Estimated Minutes": "={{ $json['BOQ Estimated Minutes'] }}",
+            "BOQ Estimated Hours": "={{ $json['BOQ Estimated Hours'] }}",
+            "BOQ Total Line Minutes": "={{ $json['BOQ Total Line Minutes'] }}"
+          },
+          "matchingColumns": [
+            "row_number"
+          ],
+          "schema": [
+            {
+              "id": "BOQ_Checked",
+              "displayName": "BOQ_Checked",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "row_number",
+              "displayName": "row_number",
+              "required": false,
+              "defaultMatch": true,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true,
+              "readOnly": true
+            },
+            {
+              "id": "Reason",
+              "displayName": "Reason",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "SOR Checked",
+              "displayName": "SOR Checked",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "BOQ Estimated Minutes",
+              "displayName": "BOQ Estimated Minutes",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "BOQ Estimated Hours",
+              "displayName": "BOQ Estimated Hours",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "BOQ Total Line Minutes",
+              "displayName": "BOQ Total Line Minutes",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "c307b082-cda0-4a7b-8c0f-949c9f3be115",
+      "name": "Update Operative BOQ_Checked1",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        12336,
+        -912
+      ],
+      "notesInFlow": true,
+      "note": "Marks BOQ_Checked on Operative Job Sheet",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "0bvpVa8frZ7qSwzx",
+          "name": "hamza-sheets"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Runs once after Update completes — reads isRetry flag to decide next step.\nvar sd = $getWorkflowStaticData('global');\nreturn [{ json: { _is_retry: !!sd.emittedIsRetry } }];\n"
+      },
+      "id": "92602553-a482-467f-9354-1760b971e602",
+      "name": "Route post-update1",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        12560,
+        -912
+      ],
+      "notesInFlow": true,
+      "note": "true → Summarize (retry pass done)\nfalse → Collect retry jobs (main pass done)"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": false,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "c-if-after-upd",
+              "leftValue": "={{ $json._is_retry }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "e28eeb7b-2067-4663-a2ef-6df6b7ad579c",
+      "name": "IF route after update1",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        12784,
+        -912
+      ],
+      "notesInFlow": true,
+      "note": "true (retry pass) → Summarize\nfalse (main pass) → Collect retry jobs"
+    },
+    {
+      "parameters": {
+        "jsCode": "var sd = $getWorkflowStaticData('global');\nvar queue = Array.isArray(sd.boqRetryQueue) ? sd.boqRetryQueue : [];\nsd.boqRetryQueue = [];\nif (!queue.length) return [{ json: { _no_retry: true, message: 'No failed jobs to retry.' } }];\nvar BATCH_LIMIT = 3;\nvar seen = {};\nvar unique = queue.filter(function(item) {\n  var key = String(item.smart_form_name || item.address || '').trim().toUpperCase();\n  if (!key || seen[key]) return false;\n  seen[key] = true; return true;\n});\nvar batchTotal = Math.ceil(unique.length / BATCH_LIMIT);\nvar batches = [];\nfor (var i = 0; i < unique.length; i += BATCH_LIMIT) {\n  var batch = unique.slice(i, i + BATCH_LIMIT);\n  batches.push({ items: batch, batch_index: Math.floor(i / BATCH_LIMIT) + 1, batch_total: batchTotal,\n    batch_count: batch.length, pending_total: unique.length, _is_retry: true });\n}\nreturn batches.map(function(b) { return { json: b }; });\n"
+      },
+      "id": "ae91dbf8-4976-4c81-932f-4a8b49c1e825",
+      "name": "Collect retry jobs1",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        13008,
+        -976
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": false,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "c-if-retry",
+              "leftValue": "={{ $json._no_retry }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "notEquals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "bee75e0f-9128-4c9f-ad3b-3305583c3ba1",
+      "name": "IF retry jobs1",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        13232,
+        -976
+      ]
+    },
+    {
+      "parameters": {
+        "options": {
+          "reset": false
+        }
+      },
+      "id": "6ab18716-338b-48fb-8f5c-74c232dd2ef0",
+      "name": "Loop retry batches1",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        13456,
+        -1024
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ ($('Set API params3').first().json.api_base_url || $('Set API params3').first().json.ngrok_base_url || '').replace(/\\/+$/, '') + '/fetch-boq-batch' }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "ngrok-skip-browser-warning",
+              "value": "true"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { items: $json.items, timeout_ms: 45000, concurrency: 3 } }}",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          },
+          "timeout": 900000
+        }
+      },
+      "id": "638de451-7fdb-4a79-bc7a-69d80e02408a",
+      "name": "Fetch BOQ batch (retry)1",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        13680,
+        -1024
+      ],
+      "notesInFlow": true,
+      "note": "Retry loop — result stored, loop continues"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Store this retry batch's HTTP response in static data, then loop back.\nvar sd = $getWorkflowStaticData('global');\nif (!Array.isArray(sd.pendingRetryResults)) sd.pendingRetryResults = [];\n\nvar resp = $input.first().json || {};\nvar body = (resp.body !== undefined) ? resp.body : ((resp.data !== undefined) ? resp.data : resp);\nif (typeof body === 'string') { try { body = JSON.parse(body); } catch(e) { body = {}; } }\nif (body && body.body && body.results === undefined) body = body.body;\n\nvar batchItems = [];\ntry { var li = $('Loop retry batches1').item; if (li && li.json && li.json.items) batchItems = li.json.items; } catch(e) {}\n\nvar batchResults = Array.isArray(body.results) ? body.results : [];\nif (!batchResults.length && batchItems.length) {\n  var errMsg = body.detail || body.error || body.message || 'HTTP request failed or timed out';\n  batchResults = batchItems.map(function(item) {\n    return { success: false, address: item.address || '', smart_form_name: item.smart_form_name || '',\n      uprn: item.uprn || '', works_id: item.works_id || '', boq_url: '', sor_count: 0,\n      sor_lines: [], boq_grand_total: '', error: errMsg, skip_boq_checked_true: false, reason: null };\n  });\n}\n\nsd.pendingRetryResults.push({ items: batchItems, results: batchResults });\nreturn [{ json: { _accumulated: true, batch_count: batchItems.length, result_count: batchResults.length } }];\n"
+      },
+      "id": "cb2699b9-48da-4540-9ced-a67743f484f7",
+      "name": "Accumulate retry results1",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        13904,
+        -960
+      ],
+      "notesInFlow": true,
+      "note": "Saves retry results → loops back"
+    },
+    {
+      "parameters": {
+        "jsCode": "// All retry batches done — flatten and emit as one item for Calc.\nvar sd = $getWorkflowStaticData('global');\nvar allBatches = Array.isArray(sd.pendingRetryResults) ? sd.pendingRetryResults : [];\nsd.pendingRetryResults = [];\n\nvar allResults = [];\nvar allItems = [];\nfor (var i = 0; i < allBatches.length; i++) {\n  var batch = allBatches[i];\n  allResults = allResults.concat(Array.isArray(batch.results) ? batch.results : []);\n  allItems = allItems.concat(Array.isArray(batch.items) ? batch.items : []);\n}\n\nsd.emittedResults = allResults;\nsd.emittedItems = allItems;\nsd.emittedIsRetry = true;\n\nreturn [{ json: { all_results: allResults, all_items: allItems, _is_retry: true,\n  total_results: allResults.length, total_items: allItems.length } }];\n"
+      },
+      "id": "01443e57-eecf-4a45-a46a-a74252bafa05",
+      "name": "Emit retry results1",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        13680,
+        -1216
+      ],
+      "notesInFlow": true,
+      "note": "Fires once after ALL retry batches finish"
+    },
+    {
+      "parameters": {
+        "jsCode": "var preview = null;\ntry { preview = $('Preview jobs to fetch').first().json; } catch(e) { preview = null; }\nif (preview && preview.message) {\n  return [{ json: { ok: true, message: preview.message } }];\n}\nreturn [{ json: { ok: true, message: 'No new jobs to fetch.' } }];\n"
+      },
+      "id": "01fb0950-d9e6-4b84-be30-2e995942da85",
+      "name": "No new jobs1",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        10096,
+        -352
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "function safeAll(name) { try { return $(name).all(); } catch(e) { return []; } }\nfunction safeFirst(name) { try { return $(name).first().json || {}; } catch(e) { return {}; } }\n\nvar startup = safeFirst('Startup: Fix Duplicates & Sync');\nvar calcItems = safeAll('Calc SMV and build rows');\nvar appended = safeAll('Append to OJS BOQ & SMV').length;\nvar noJobJson = null;\ntry { noJobJson = $('No new jobs1').first().json; } catch(e) { noJobJson = null; }\n\nvar indexResp = safeFirst('Fetch Works Index');\nvar indexTotal = indexResp.total || 0;\n\nvar sorLines = 0, noSorRows = 0, errorRows = 0;\nfor (var i = 0; i < calcItems.length; i++) {\n  var rt = calcItems[i].json['Row Type'] || calcItems[i].json.Row_Type || '';\n  if (rt === 'sor_line') sorLines++;\n  else if (rt === 'no_sor_lines') noSorRows++;\n  else if (rt === 'fetch_error') errorRows++;\n}\n\nvar message = '';\nvar dupCount = startup.dupCount || 0;\nvar opCount = startup.opUpdateCount || 0;\nif (dupCount || opCount) {\n  message += 'Startup: removed ' + dupCount + ' duplicate(s), synced ' + opCount + ' status row(s). ';\n}\nif (indexTotal) message += 'Works index: ' + indexTotal + ' row(s). ';\nif (noJobJson) {\n  message += noJobJson.message || 'No new jobs to fetch.';\n} else {\n  message += 'BOQ run done. Appended ' + appended + ' row(s) — ' + sorLines + ' SOR lines, ' + noSorRows + ' no-SOR, ' + errorRows + ' errors.';\n}\nreturn [{ json: { ok: true, message: message } }];\n"
+      },
+      "id": "bdcd1194-e7a1-469b-97bd-899f7e07c9a7",
+      "name": "Summarize BOQ run1",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        13456,
+        -816
+      ]
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "1mkklLpvi8klaN4Zo4D_cBrb95PGQ4NbUvtTAvLI4CII",
+          "mode": "list",
+          "cachedResultName": "stage 6",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1mkklLpvi8klaN4Zo4D_cBrb95PGQ4NbUvtTAvLI4CII/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 2010323410,
+          "mode": "list",
+          "cachedResultName": "OJS BOQ & SMV",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1mkklLpvi8klaN4Zo4D_cBrb95PGQ4NbUvtTAvLI4CII/edit#gid=2010323410"
+        },
+        "options": {}
+      },
+      "id": "c7add3d7-4ef6-4812-9c74-cd5d273bb13e",
+      "name": "Read OJS BOQ before replace1",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        10768,
+        -912
+      ],
+      "alwaysOutputData": true,
+      "executeOnce": true,
+      "notesInFlow": true,
+      "note": "Fresh read before replace — avoids duplicate rows on re-run",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "0bvpVa8frZ7qSwzx",
+          "name": "hamza-sheets"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Delete ALL existing OJS BOQ & SMV rows for addresses/jobs we are about to write.\nvar SHEET_GID = 2010323410;\n\nfunction norm(v) { return String(v !== null && v !== undefined ? v : '').trim(); }\nfunction normLo(v) { return norm(v).toLowerCase(); }\nfunction jobKey(s) { return norm(s).toUpperCase(); }\n\nvar calcRows = $('Calc SMV and build rows1').all().map(function(i) { return i.json || {}; });\nvar sheetRows = $('Read OJS BOQ before replace1').all().map(function(i) { return i.json || {}; });\n\nvar replaceNames = {};\nvar replaceAddrs = {};\nfor (var ci = 0; ci < calcRows.length; ci++) {\n  var cr = calcRows[ci];\n  var name = jobKey(cr['SmartForm Name'] || cr.smart_form_name || '');\n  var addr = normLo(cr.Address || cr.address || '');\n  if (name) replaceNames[name] = true;\n  if (addr) replaceAddrs[addr] = true;\n}\n\nvar rowNumbers = [];\nfor (var si = 0; si < sheetRows.length; si++) {\n  var r = sheetRows[si];\n  var name = jobKey(r['SmartForm Name'] || r.smart_form_name || '');\n  var addr = normLo(r.Address || r.address || '');\n  var match = (name && replaceNames[name]) || (addr && replaceAddrs[addr]);\n  if (!match) continue;\n  var rn = Number(r.row_number);\n  if (!isFinite(rn) || rn < 2) continue;\n  rowNumbers.push(rn);\n}\n\nvar seen = {};\nvar unique = rowNumbers.filter(function(n) {\n  if (seen[n]) return false;\n  seen[n] = true;\n  return true;\n}).sort(function(a, b) { return b - a; });\n\nif (!unique.length) {\n  return [{ json: { _skip_delete: true, delete_count: 0 } }];\n}\n\nreturn [{ json: {\n  _skip_delete: false,\n  delete_count: unique.length,\n  delete_requests: unique.map(function(rn) {\n    return { deleteDimension: { range: { sheetId: SHEET_GID, dimension: 'ROWS', startIndex: rn - 1, endIndex: rn } } };\n  }),\n}}];\n"
+      },
+      "id": "9ba343c3-ec84-4a8c-96bf-49472f3c30a5",
+      "name": "Prepare replace existing rows1",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        10992,
+        -912
+      ],
+      "notesInFlow": true,
+      "note": "Find all sheet rows for jobs being written → delete before append"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "c-if-replace",
+              "leftValue": "={{ $json._skip_delete }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "notEquals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "99ffc0cf-7460-4f4a-9241-800201c1069b",
+      "name": "IF replace existing rows1",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        11216,
+        -912
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://sheets.googleapis.com/v4/spreadsheets/1mkklLpvi8klaN4Zo4D_cBrb95PGQ4NbUvtTAvLI4CII:batchUpdate",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "googleSheetsOAuth2Api",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { requests: $json.delete_requests } }}",
+        "options": {}
+      },
+      "id": "107ecd2c-4d01-47c8-9d83-83c83aa87df2",
+      "name": "Delete existing BOQ rows1",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        11440,
+        -1024
+      ],
+      "notesInFlow": true,
+      "note": "Remove old rows for same address/job before writing new ones",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "0bvpVa8frZ7qSwzx",
+          "name": "hamza-sheets"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Pass Calc rows to append after optional delete (replace existing entries).\nreturn $('Calc SMV and build rows1').all();\n"
+      },
+      "id": "d07fbd70-1d81-4dfd-8d61-14c768e6e528",
+      "name": "Emit rows for append1",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        11664,
+        -912
+      ]
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "hours",
+              "hoursInterval": 6
+            }
+          ]
+        }
+      },
+      "id": "c6c6dd21-dcfe-46f7-9443-f2371894a382",
+      "name": "Schedule every 6h",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        4464,
+        -496
+      ],
+      "disabled": true
+    }
+  ],
+  "connections": {
+    "Preview jobs to fetch": {
+      "main": [
+        [
+          {
+            "node": "IF has pending jobs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF has pending jobs": {
+      "main": [
+        [
+          {
+            "node": "Fetch Works Index1",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "No new jobs1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Backfill estimates from existing BOQ": {
+      "main": [
+        [
+          {
+            "node": "IF has BOQ backfill",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF has BOQ backfill": {
+      "main": [
+        [
+          {
+            "node": "Emit BOQ backfill rows",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "IF has Op backfill",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Emit BOQ backfill rows": {
+      "main": [
+        [
+          {
+            "node": "IF BOQ backfill rows",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF BOQ backfill rows": {
+      "main": [
+        [
+          {
+            "node": "Update OJS BOQ job estimates",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "IF has Op backfill",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update OJS BOQ job estimates": {
+      "main": [
+        [
+          {
+            "node": "IF has Op backfill",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF has Op backfill": {
+      "main": [
+        [
+          {
+            "node": "Emit Op backfill rows",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Preview jobs to fetch",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Emit Op backfill rows": {
+      "main": [
+        [
+          {
+            "node": "IF Op backfill rows",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF Op backfill rows": {
+      "main": [
+        [
+          {
+            "node": "Update Operative BOQ estimates",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Preview jobs to fetch",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Operative BOQ estimates": {
+      "main": [
+        [
+          {
+            "node": "Preview jobs to fetch",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Set API params3": {
+      "main": [
+        [
+          {
+            "node": "Read SMV bank1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read SMV bank1": {
+      "main": [
+        [
+          {
+            "node": "Read Operative Job Sheet3",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Operative Job Sheet3": {
+      "main": [
+        [
+          {
+            "node": "Read OJS BOQ & SMV1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read OJS BOQ & SMV1": {
+      "main": [
+        [
+          {
+            "node": "Startup: Fix Duplicates & Sync1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Works Index1": {
+      "main": [
+        [
+          {
+            "node": "Build jobs to fetch1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Startup: Fix Duplicates & Sync1": {
+      "main": [
+        [
+          {
+            "node": "IF startup has work1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF startup has work1": {
+      "main": [
+        [
+          {
+            "node": "Delete duplicate no-SOR rows1",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Emit startup Operative updates1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Delete duplicate no-SOR rows1": {
+      "main": [
+        [
+          {
+            "node": "Emit startup Operative updates1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Emit startup Operative updates1": {
+      "main": [
+        [
+          {
+            "node": "IF startup Operative updates1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF startup Operative updates1": {
+      "main": [
+        [
+          {
+            "node": "Update Operative BOQ_Checked (startup)1",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Backfill estimates from existing BOQ",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Operative BOQ_Checked (startup)1": {
+      "main": [
+        [
+          {
+            "node": "Backfill estimates from existing BOQ",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build jobs to fetch1": {
+      "main": [
+        [
+          {
+            "node": "IF jobs to fetch1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF jobs to fetch1": {
+      "main": [
+        [
+          {
+            "node": "Loop BOQ batches1",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "No new jobs1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Loop BOQ batches1": {
+      "main": [
+        [
+          {
+            "node": "Emit main results1",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Fetch BOQ batch1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch BOQ batch1": {
+      "main": [
+        [
+          {
+            "node": "Accumulate main results1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Accumulate main results1": {
+      "main": [
+        [
+          {
+            "node": "Loop BOQ batches1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Emit main results1": {
+      "main": [
+        [
+          {
+            "node": "Calc SMV and build rows1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Calc SMV and build rows1": {
+      "main": [
+        [
+          {
+            "node": "Read OJS BOQ before replace1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Append to OJS BOQ & SMV1": {
+      "main": [
+        [
+          {
+            "node": "Prepare BOQ_Checked updates1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare BOQ_Checked updates1": {
+      "main": [
+        [
+          {
+            "node": "Update Operative BOQ_Checked1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Operative BOQ_Checked1": {
+      "main": [
+        [
+          {
+            "node": "Route post-update1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route post-update1": {
+      "main": [
+        [
+          {
+            "node": "IF route after update1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF route after update1": {
+      "main": [
+        [
+          {
+            "node": "Summarize BOQ run1",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Collect retry jobs1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Collect retry jobs1": {
+      "main": [
+        [
+          {
+            "node": "IF retry jobs1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF retry jobs1": {
+      "main": [
+        [
+          {
+            "node": "Loop retry batches1",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Summarize BOQ run1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Loop retry batches1": {
+      "main": [
+        [
+          {
+            "node": "Emit retry results1",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Fetch BOQ batch (retry)1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch BOQ batch (retry)1": {
+      "main": [
+        [
+          {
+            "node": "Accumulate retry results1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Accumulate retry results1": {
+      "main": [
+        [
+          {
+            "node": "Loop retry batches1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Emit retry results1": {
+      "main": [
+        [
+          {
+            "node": "Calc SMV and build rows1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "No new jobs1": {
+      "main": [
+        [
+          {
+            "node": "Summarize BOQ run1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Summarize BOQ run1": {
+      "main": [
+        []
+      ]
+    },
+    "Read OJS BOQ before replace1": {
+      "main": [
+        [
+          {
+            "node": "Prepare replace existing rows1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare replace existing rows1": {
+      "main": [
+        [
+          {
+            "node": "IF replace existing rows1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF replace existing rows1": {
+      "main": [
+        [
+          {
+            "node": "Delete existing BOQ rows1",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Emit rows for append1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Delete existing BOQ rows1": {
+      "main": [
+        [
+          {
+            "node": "Emit rows for append1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Emit rows for append1": {
+      "main": [
+        [
+          {
+            "node": "Append to OJS BOQ & SMV1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "a5cd22a95d5313a977e9ac21c3a833db76b18ca78fb8cb2cf7013465d69f17f8"
+  }
+}

@@ -1,0 +1,21 @@
+# Virtualenv and caches (keep .env — included on purpose for server branch)
+filler/.venv/
+**/__pycache__/
+*.py[cod]
+*.pyc
+.DS_Store
+
+# Session state (auto-generated at runtime)
+filler/easybop_session.json
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+Thumbs.db
+Desktop.ini
+
+# Excel downloads (runtime artifacts)
+excel_downloads/*.xlsx
+excel_downloads/*.xls

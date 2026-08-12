@@ -1,0 +1,1798 @@
+{
+  "nodes": [
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "1PRUtOeUec0uMhrj4k1sFEAdo5qvXE9cDOeyAQ67hIDI",
+          "mode": "list",
+          "cachedResultName": "SOR-Codes-Template"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "ASB_Tracking",
+          "mode": "name",
+          "cachedResultName": "ASB_Tracking"
+        },
+        "options": {
+          "returnFirstMatch": false
+        }
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        8640,
+        5200
+      ],
+      "id": "3f79afc8-5258-4bc2-a3d2-6252a2a3b918",
+      "name": "Read ASB_Tracking",
+      "executeOnce": true,
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "0bvpVa8frZ7qSwzx",
+          "name": "hamza-sheets"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const fetchedRows = $('Enrich rows with works_id').all().map((item) => item.json || {});\nconst existingRows = $('Read ASB_Tracking').all().map((item) => item.json || {});\n\nfunction rowKey(row) {\n  const contractId = String(row.contract_id || '').trim();\n  let uprn = String(row.uprn || '').trim();\n  if (/^\\d+$/.test(uprn)) uprn = String(parseInt(uprn, 10));\n  if (!contractId || !uprn) return null;\n  return `${contractId}::${uprn}`;\n}\n\nconst existingKeys = new Set(\n  existingRows.map(rowKey).filter((key) => key !== null)\n);\n\nconst newRows = fetchedRows.filter((row) => {\n  const key = rowKey(row);\n  return key !== null && !existingKeys.has(key);\n});\n\nif (!newRows.length) {\n  return [];\n}\n\nreturn newRows.map((row) => ({\n  json: {\n    ...row,\n    skipped_existing: false,\n  },\n}));"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        8864,
+        5200
+      ],
+      "id": "0784d199-9cc7-413a-97d5-8cb29dda00f1",
+      "name": "Keep only new rows1",
+      "alwaysOutputData": false
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "api-base-url",
+              "name": "api_base_url",
+              "value": "http://173.212.233.153:8000",
+              "type": "string"
+            },
+            {
+              "id": "contract-id",
+              "name": "contract_id",
+              "value": "321129",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        7968,
+        5200
+      ],
+      "id": "0e2693e8-6984-4df0-8bcb-a017cf30fac6",
+      "name": "Set API base URL2",
+      "notesInFlow": true,
+      "note": "VPS jeffway-api: http://173.212.233.153:8000"
+    },
+    {
+      "parameters": {
+        "jsCode": "function extractApiBody(resp) {\n  const statusCode = resp.statusCode ?? resp.status ?? 0;\n  let body = resp.body ?? resp.data ?? resp;\n  if (typeof body === 'string') {\n    try {\n      body = JSON.parse(body);\n    } catch (e) {\n      const m = body.match(/\\{[\\s\\S]*\\}/);\n      if (m) {\n        try { body = JSON.parse(m[0]); } catch (e2) { body = {}; }\n      } else {\n        body = {};\n      }\n    }\n  }\n  if (body && typeof body === 'object' && body.body && body.checked === undefined && body.results === undefined && body.properties === undefined) {\n    body = body.body;\n  }\n  return { statusCode, body: body || {} };\n}\n\nfunction normUprn(v) {\n  const s = String(v == null ? '' : v).trim();\n  return /^\\d+$/.test(s) ? String(parseInt(s, 10)) : (s || null);\n}\n\nconst postItems = $('POST fetch-missing-asbestos').all();\nconst respRaw = postItems.length ? (postItems[0].json || {}) : ($input.first()?.json || {});\nconst { body: response } = extractApiBody(respRaw);\nconst capturedAt = new Date().toISOString();\nconst properties = Array.isArray(response.properties) ? response.properties : [];\n\nif (!properties.length) {\n  return [{\n    json: {\n      contract_id: response.contract_id || null,\n      easybop_row_id: null,\n      uprn: null,\n      address: null,\n      captured_at: capturedAt,\n      run_total: response.total ?? 0,\n      run_message: response.message || 'No missing asbestos rows found.',\n      success: String(response.success ?? false),\n    },\n  }];\n}\n\nreturn properties.map((row) => ({\n  json: {\n    contract_id: response.contract_id || null,\n    easybop_row_id: row.row_id || null,\n    uprn: normUprn(row.uprn),\n    address: row.address || null,\n    works_id: row.works_id || '',\n    captured_at: capturedAt,\n    run_total: response.total ?? properties.length,\n    run_message: response.message || '',\n    success: String(response.success ?? false),\n  },\n}));"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        8416,
+        5200
+      ],
+      "id": "e9d0ec26-7adc-4fdd-bc9a-a076ce91fa73",
+      "name": "Shape rows for sheet"
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "1PRUtOeUec0uMhrj4k1sFEAdo5qvXE9cDOeyAQ67hIDI",
+          "mode": "list",
+          "cachedResultName": "SOR-Codes-Template"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "ASB_Tracking",
+          "mode": "name",
+          "cachedResultName": "ASB_Tracking"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {
+            "contract_id": "={{ $json.contract_id }}",
+            "easybop_row_id": "={{ $json.easybop_row_id }}",
+            "uprn": "={{ $json.uprn }}",
+            "address": "={{ $json.address }}",
+            "works_id": "={{ $json.works_id }}",
+            "captured_at": "={{ $json.captured_at }}",
+            "run_total": "={{ $json.run_total }}",
+            "run_message": "={{ $json.run_message }}",
+            "success": "={{ $json.success }}",
+            "pending_note": "FALSE",
+            "pending_task": "FALSE"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "contract_id",
+              "displayName": "contract_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "easybop_row_id",
+              "displayName": "easybop_row_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "uprn",
+              "displayName": "uprn",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "address",
+              "displayName": "address",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "works_id",
+              "displayName": "works_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "captured_at",
+              "displayName": "captured_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "run_total",
+              "displayName": "run_total",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "run_message",
+              "displayName": "run_message",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "success",
+              "displayName": "success",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "skipped_existing",
+              "displayName": "skipped_existing",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "status",
+              "displayName": "status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "pending_note",
+              "displayName": "pending_note",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "pending_task",
+              "displayName": "pending_task",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        9104,
+        5200
+      ],
+      "id": "7d1275c9-086f-4d56-b777-33137c6ccb54",
+      "name": "Append ASB_Tracking rows",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "0bvpVa8frZ7qSwzx",
+          "name": "hamza-sheets"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "content": "## [VPS] 1. find missing asbestos → **ASB_Tracking** sheet (SOR-Codes-Template)",
+        "height": 144,
+        "width": 288
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        7312,
+        5200
+      ],
+      "id": "0a9090cf-9d4f-4949-958d-512488a0955d",
+      "name": "Sticky Note1"
+    },
+    {
+      "parameters": {
+        "content": "## [VPS] 2. suspend missing asbestos reports (bulk)",
+        "width": 288
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        7296,
+        5600
+      ],
+      "id": "903732f8-a633-43a6-98f5-5cfc6fab1bb4",
+      "name": "Sticky Note"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "skip-monitor-upsert",
+              "leftValue": "={{ String($json.uprn || '') }}",
+              "rightValue": "__SKIP__",
+              "operator": {
+                "type": "string",
+                "operation": "notEquals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        9072,
+        5600
+      ],
+      "id": "074b88b3-3bd2-422e-83b0-19428d3aab04",
+      "name": "Has monitor upserts?"
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "1PRUtOeUec0uMhrj4k1sFEAdo5qvXE9cDOeyAQ67hIDI",
+          "mode": "list",
+          "cachedResultName": "SOR-Codes-Template"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "ASB_Tracking",
+          "mode": "name",
+          "cachedResultName": "ASB_Tracking"
+        },
+        "options": {
+          "returnFirstMatch": false
+        }
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        8192,
+        5600
+      ],
+      "id": "3deac0e5-f65e-4d4f-89b7-03cb3d0a2f52",
+      "name": "Read ASB_Tracking suspend",
+      "executeOnce": true,
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "0bvpVa8frZ7qSwzx",
+          "name": "hamza-sheets"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ ($json.api_base_url || '').replace(/\\/+$/, '') + '/suspend-works' }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ contract_id: $json.contract_id || '321129', addresses: $json.addresses, keep_page_open: true }) }}",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          },
+          "timeout": 600000
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        8624,
+        5600
+      ],
+      "id": "f4b4f551-b9ce-4add-a33e-b3bba09fcde9",
+      "name": "POST suspend-works2",
+      "notesInFlow": true,
+      "note": "Calls POST /suspend-works. Checks missing addresses in EasyBOP, clicks 'Bulk Suspend Works', and sets reason to Awaiting asbestos info."
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "api-base-url",
+              "name": "api_base_url",
+              "value": "http://173.212.233.153:8000",
+              "type": "string"
+            },
+            {
+              "id": "contract-id",
+              "name": "contract_id",
+              "value": "321129",
+              "type": "string"
+            },
+            {
+              "id": "update-monitor-suspend-status",
+              "name": "update_monitor_suspend_status",
+              "value": true,
+              "type": "boolean"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        7968,
+        5600
+      ],
+      "id": "b70fa1b3-4b3c-44b1-ac3f-7a9dadd7aaae",
+      "name": "Set API base URL6",
+      "notesInFlow": true,
+      "note": "VPS jeffway-api: http://173.212.233.153:8000"
+    },
+    {
+      "parameters": {
+        "jsCode": "const rows = $input.all().map((i) => i.json);\nconst settings = $('Set API base URL6').first().json || {};\nconst api_base_url = settings.api_base_url;\nconst contract_id = settings.contract_id;\nconst syncStatus =\n  settings.update_monitor_suspend_status !== false &&\n  String(settings.update_monitor_suspend_status).toLowerCase() !== 'false';\n\nfunction normStatus(s) {\n  return String(s ?? '')\n    .trim()\n    .toLowerCase();\n}\n\nconst newRowIds = new Set(\n  $('Keep only new rows1').all()\n    .map((i) => String((i.json || {}).easybop_row_id || '').trim())\n    .filter((v) => v)\n);\n\nlet filtered = rows;\nif (syncStatus) {\n  filtered = rows.filter((r) => {\n    const st = normStatus(r.status);\n    const isBlank = st === '' || st === 'null';\n    const rid = String(r.easybop_row_id || '').trim();\n    return isBlank && rid && newRowIds.has(rid);\n  });\n}\n\nconst seenKey = new Set();\nconst eligible_rows = [];\nfor (const r of filtered) {\n  const addr = String(r.address || '').trim();\n  if (!addr) continue;\n  const cid = String(r.contract_id || '').trim();\n  const uprn = String(r.uprn || '').trim();\n  const key = `${cid}::${uprn}::${addr.toLowerCase()}`;\n  if (seenKey.has(key)) continue;\n  seenKey.add(key);\n  eligible_rows.push({ contract_id: r.contract_id, uprn: r.uprn, address: addr });\n}\n\nconst addresses = eligible_rows.map((e) => e.address);\n\nif (!addresses.length) {\n  return [];\n}\n\nconst unique = [...new Set(addresses)];\n\nreturn [\n  {\n    json: {\n      addresses: unique,\n      contract_id,\n      api_base_url,\n      eligible_rows,\n    },\n  },\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        8416,
+        5600
+      ],
+      "id": "aa7210ef-a684-46fd-927d-ef63b7155483",
+      "name": "Aggregate matched addresses3"
+    },
+    {
+      "parameters": {
+        "jsCode": "function extractApiBody(resp) {\n  const statusCode = resp.statusCode ?? resp.status ?? 0;\n  let body = resp.body ?? resp.data ?? resp;\n  if (typeof body === 'string') {\n    try {\n      body = JSON.parse(body);\n    } catch (e) {\n      const m = body.match(/\\{[\\s\\S]*\\}/);\n      if (m) {\n        try { body = JSON.parse(m[0]); } catch (e2) { body = {}; }\n      } else {\n        body = {};\n      }\n    }\n  }\n  if (body && typeof body === 'object' && body.body && body.checked === undefined && body.results === undefined && body.properties === undefined) {\n    body = body.body;\n  }\n  return { statusCode, body: body || {} };\n}\n\nconst settings = $('Set API base URL6').first().json || {};\nconst syncStatus =\n  settings.update_monitor_suspend_status !== false &&\n  String(settings.update_monitor_suspend_status).toLowerCase() !== 'false';\n\nif (!syncStatus) {\n  return [];\n}\n\nconst postItems = $('POST suspend-works2').all();\nconst respRaw = postItems.length ? (postItems[0].json || {}) : {};\nconst { body: response } = extractApiBody(respRaw);\n\nconst checkedAddresses = Array.isArray(response.checked) ? response.checked : [];\nconst agg = $('Aggregate matched addresses3').first().json || {};\nconst eligible = Array.isArray(agg.eligible_rows) ? agg.eligible_rows : [];\n\nfunction norm(value) {\n  return String(value || '')\n    .toLowerCase()\n    .replace(/[^a-z0-9]+/g, ' ')\n    .replace(/\\s+/g, ' ')\n    .trim();\n}\n\nfunction addressesMatch(left, right) {\n  const leftKey = norm(left);\n  const rightKey = norm(right);\n  if (!leftKey || !rightKey) return false;\n  return leftKey === rightKey || leftKey.includes(rightKey) || rightKey.includes(leftKey);\n}\n\nconst seen = new Set();\nconst updates = [];\n\nfor (const row of eligible) {\n  const address = row.address;\n  if (!address || !String(address).trim()) continue;\n\n  const wasSuspended = checkedAddresses.some((checked) => addressesMatch(address, checked));\n  if (!wasSuspended) continue;\n\n  const contractId = String(row.contract_id || '').trim();\n  const uprn = String(row.uprn || '').trim();\n  if (!contractId || !uprn) continue;\n\n  const key = `${contractId}::${uprn}`;\n  if (seen.has(key)) continue;\n  seen.add(key);\n\n  updates.push({\n    json: {\n      contract_id: row.contract_id,\n      uprn: row.uprn,\n      status: 'suspended',\n      pending_note: true,\n      pending_task: true,\n    },\n  });\n}\n\nif (updates.length) {\n  return updates;\n}\nreturn [\n  {\n    json: {\n      contract_id: '',\n      uprn: '__SKIP__',\n      status: '',\n      pending_note: false,\n      pending_task: false,\n    },\n  },\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        8848,
+        5600
+      ],
+      "id": "c7ecfa26-33bf-4361-812c-eb44d88c59e3",
+      "name": "Prepare monitor status updates3"
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "documentId": {
+          "__rl": true,
+          "value": "1PRUtOeUec0uMhrj4k1sFEAdo5qvXE9cDOeyAQ67hIDI",
+          "mode": "list",
+          "cachedResultName": "SOR-Codes-Template"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "ASB_Tracking",
+          "mode": "name",
+          "cachedResultName": "ASB_Tracking"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {
+            "uprn": "={{ $json.uprn }}",
+            "status": "={{ $json.status }}",
+            "pending_note": "={{ $json.pending_note }}",
+            "pending_task": "={{ $json.pending_task }}",
+            "row_number": 0
+          },
+          "matchingColumns": [
+            "uprn"
+          ],
+          "schema": [
+            {
+              "id": "contract_id",
+              "displayName": "contract_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "easybop_row_id",
+              "displayName": "easybop_row_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "uprn",
+              "displayName": "uprn",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "address",
+              "displayName": "address",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "works_id",
+              "displayName": "works_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "captured_at",
+              "displayName": "captured_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "run_total",
+              "displayName": "run_total",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "run_message",
+              "displayName": "run_message",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "success",
+              "displayName": "success",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "skipped_existing",
+              "displayName": "skipped_existing",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "status",
+              "displayName": "status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "pending_note",
+              "displayName": "pending_note",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "pending_task",
+              "displayName": "pending_task",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "row_number",
+              "displayName": "row_number",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true,
+              "readOnly": true,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        9296,
+        5408
+      ],
+      "id": "a27d6795-0c7e-46e5-81f8-1b0b52dcd266",
+      "name": "Update ASB_Tracking suspended",
+      "alwaysOutputData": true,
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "0bvpVa8frZ7qSwzx",
+          "name": "hamza-sheets"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "function extractApiBody(resp) {\n  const statusCode = resp.statusCode ?? resp.status ?? 0;\n  let body = resp.body ?? resp.data ?? resp;\n  if (typeof body === 'string') {\n    try {\n      body = JSON.parse(body);\n    } catch (e) {\n      const m = body.match(/\\{[\\s\\S]*\\}/);\n      if (m) {\n        try { body = JSON.parse(m[0]); } catch (e2) { body = {}; }\n      } else {\n        body = {};\n      }\n    }\n  }\n  if (body && typeof body === 'object' && body.body && body.checked === undefined && body.results === undefined && body.properties === undefined) {\n    body = body.body;\n  }\n  return { statusCode, body: body || {} };\n}\n\nconst postItems = $('POST suspend-works2').all();\nconst respRaw = postItems.length ? (postItems[0].json || {}) : {};\nconst { body: response } = extractApiBody(respRaw);\nconst success = !!response.success;\nconst checkedAddresses = Array.isArray(response.checked) ? response.checked : [];\nconst agg = $('Aggregate matched addresses3').first().json || {};\nconst eligible = Array.isArray(agg.eligible_rows) ? agg.eligible_rows : [];\nconst contractId = String(agg.contract_id || ($('Set API base URL6').first().json || {}).contract_id || '');\nfunction norm(v) {\n  return String(v || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').replace(/\\s+/g, ' ').trim();\n}\nfunction addressesMatch(a, b) {\n  const L = norm(a), R = norm(b);\n  if (!L || !R) return false;\n  return L === R || L.includes(R) || R.includes(L);\n}\nconst raw = [];\nfor (const ca of checkedAddresses) {\n  const m = eligible.find((e) => addressesMatch(e.address, ca));\n  raw.push({ uprn: m ? String(m.uprn || '—') : '—', address: m ? String(m.address || ca) : String(ca), status: 'Suspended' });\n}\nconst seen = new Set();\nconst tableRows = [];\nfor (const r of raw) {\n  const k = norm(r.address) + '::' + String(r.uprn);\n  if (seen.has(k)) continue;\n  seen.add(k);\n  tableRows.push(r);\n}\nfunction esc(t) {\n  return String(t ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');\n}\nconst recipientName = 'Hamza';\nconst senderName = 'Jeffway Group';\nconst senderEmail = 'info@jeffway.co.uk';\nconst website = 'https://jeffway.co.uk/construction/';\nconst logo = 'https://jeffway.co.uk/wp-content/uploads/2025/05/jeffway-group-1.svg';\nconst rowsHtml = tableRows.length\n  ? tableRows.map((r) => '<tr><td style=\"border:1px solid #e9e9e9;padding:8px;\">' + esc(r.uprn) + '</td><td style=\"border:1px solid #e9e9e9;padding:8px;\">' + esc(r.address) + '</td><td style=\"border:1px solid #e9e9e9;padding:8px;\">' + esc(r.status) + '</td></tr>').join('')\n  : '<tr><td colspan=\"3\" style=\"border:1px solid #e9e9e9;padding:12px;color:#666;\">No addresses were returned in the suspend response for this run.</td></tr>';\nconst apiNote = success ? '' : '<p style=\"color:#c00;font-size:14px;\"><strong>API reported failure.</strong> ' + esc(JSON.stringify(response).slice(0, 800)) + '</p>';\nconst html = ['<!DOCTYPE html><html><head><meta charset=\"UTF-8\"><title>Jeffway - Bulk suspend</title></head><body style=\"margin:0;padding:0;font-family:Arial,sans-serif;background-color:#f4f4f4;\">', '<table width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" style=\"background-color:#f4f4f4;padding:20px;\"><tr><td align=\"center\">', '<table width=\"600\" cellpadding=\"0\" cellspacing=\"0\" style=\"background:#ffffff;border-radius:8px;overflow:hidden;\">', '<tr><td style=\"background:#000000;padding:20px;text-align:center;\"><img src=\"' + logo + '\" alt=\"Jeffway Group\" style=\"max-width:180px;\"></td></tr>', '<tr><td style=\"padding:30px;text-align:left;\"><h2 style=\"margin:0;color:#000;\">Hi ' + recipientName + ',</h2>', '<p style=\"color:#555;font-size:16px;line-height:1.5;margin-top:12px;\">The scheduled <strong>asbestos missing monitor → bulk suspend works</strong> run has finished. Below are <strong>UPRN</strong>, <strong>address</strong>, and <strong>status</strong> for each property reported as suspended in this run.</p></td></tr>', '<tr><td style=\"padding:0 30px 20px 30px;\">', apiNote, '<p style=\"margin:0 0 8px 0;color:#111;font-size:14px;\"><strong>Contract ID:</strong> ' + esc(contractId) + '</p>', '<table width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" style=\"border:1px solid #e9e9e9;border-collapse:collapse;font-size:14px;color:#333;\">', '<thead><tr style=\"background:#f5f5f5;\"><th style=\"border:1px solid #e9e9e9;padding:8px;text-align:left;\">UPRN</th>', '<th style=\"border:1px solid #e9e9e9;padding:8px;text-align:left;\">Address</th>', '<th style=\"border:1px solid #e9e9e9;padding:8px;text-align:left;\">Status</th></tr></thead><tbody>', rowsHtml, '</tbody></table></td></tr>', '<tr><td align=\"center\" style=\"padding:20px;\"><a href=\"' + website + '\" target=\"_blank\" style=\"background:#000000;color:#ffffff;padding:12px 24px;text-decoration:none;border-radius:5px;font-size:14px;\">Jeffway Website</a></td></tr>', '<tr><td style=\"background:#f9f9f9;padding:20px;text-align:center;\"><p style=\"margin:0;font-size:13px;color:#777;\">' + senderName + '</p>', '<p style=\"margin:5px 0 0 0;font-size:13px;color:#777;\"><a href=\"' + website + '\" style=\"color:#000;text-decoration:none;\">' + website + '</a></p>', '<p style=\"margin:5px 0 0 0;font-size:13px;color:#777;\">' + senderEmail + '</p></td></tr>', '</table></td></tr></table></body></html>'].join('');\nconst textBody = ['Contract ID: ' + contractId, 'API success: ' + success, '', 'UPRN | Address | Status', ...tableRows.map((r) => r.uprn + ' | ' + r.address + ' | ' + r.status)].join('\\n');\nreturn [{ json: { success, suspended_count: tableRows.length, _alert_subject: 'Jeffway Asbestos Monitor - Bulk suspend summary [' + contractId + ']', _alert_html: html, _alert_text: textBody } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        9296,
+        5616
+      ],
+      "id": "4c6d843f-47df-4918-ae39-9bd356ad65fb",
+      "name": "Build suspend email template1",
+      "executeOnce": true
+    },
+    {
+      "parameters": {
+        "sendTo": "hamza@eynvision.com",
+        "subject": "={{ $json._alert_subject }}",
+        "message": "={{ $json._alert_html }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        9488,
+        5616
+      ],
+      "id": "bbb87714-3399-4de4-870d-f8247beb63e9",
+      "name": "Send suspend notification1",
+      "executeOnce": true,
+      "webhookId": "fb787df8-5f1c-4656-8103-34ae0975a487",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "5zI2J63c77B4YZ0i",
+          "name": "hamza-gmail"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "content": "## [VPS] 3. write note for suspended jobs - fetching from missing report ASB_Tracking sheet (bulk)",
+        "height": 208,
+        "width": 288
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        7296,
+        5984
+      ],
+      "id": "5382f54c-496e-4a7c-80df-c2f5f44c129d",
+      "name": "Sticky Note3"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ ($json.api_base_url || '').replace(/\\/+$/, '') + '/bulk-add-notes' }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ contract_id: $json.contract_id || '321129', addresses: $json.addresses, keep_page_open: true }) }}",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          },
+          "timeout": 600000
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        8640,
+        6032
+      ],
+      "id": "0f227357-5a1c-4364-a71f-493282510a4b",
+      "name": "POST bulk-add-notes",
+      "notesInFlow": true,
+      "note": "Adds notes in bulk via the bulk-add-notes endpoint for pending rows.",
+      "executeOnce": true
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "api-base-url",
+              "name": "api_base_url",
+              "value": "http://173.212.233.153:8000",
+              "type": "string"
+            },
+            {
+              "id": "contract-id",
+              "name": "contract_id",
+              "value": "321129",
+              "type": "string"
+            },
+            {
+              "id": "only-pending-notes",
+              "name": "only_pending_notes",
+              "value": true,
+              "type": "boolean"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        7968,
+        6032
+      ],
+      "id": "e945812a-2510-4852-99fe-1df3cd0d1b0c",
+      "name": "Set API base URL1",
+      "notesInFlow": true,
+      "note": "VPS jeffway-api: http://173.212.233.153:8000"
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "1PRUtOeUec0uMhrj4k1sFEAdo5qvXE9cDOeyAQ67hIDI",
+          "mode": "list",
+          "cachedResultName": "SOR-Codes-Template"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "ASB_Tracking",
+          "mode": "name",
+          "cachedResultName": "ASB_Tracking"
+        },
+        "options": {
+          "returnFirstMatch": false
+        }
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        8192,
+        6032
+      ],
+      "id": "73eda569-2ade-4598-8d5f-2ac2ca16d1ce",
+      "name": "Read ASB_Tracking notes",
+      "executeOnce": true,
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "0bvpVa8frZ7qSwzx",
+          "name": "hamza-sheets"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const rows = $input.all().map((i) => i.json || {});\nconst settings = $('Set API base URL1').first().json || {};\nconst contract_id = settings.contract_id;\nconst api_base_url = settings.api_base_url;\nconst onlyPending =\n  settings.only_pending_notes !== false &&\n  String(settings.only_pending_notes).toLowerCase() !== 'false';\n\nfunction isPendingNote(row) {\n  const p = row.pending_note;\n  return p === true || p === 1 || String(p).toLowerCase() === 'true';\n}\n\nlet filtered = rows;\nif (onlyPending) {\n  filtered = rows.filter(isPendingNote);\n}\n\nconst rows_cleared_pending = [];\nconst seenAddr = new Set();\n\nfor (const r of filtered) {\n  const addr = String(r.address || '').trim();\n  if (!addr) continue;\n  const key = addr.toLowerCase();\n  if (seenAddr.has(key)) continue;\n  seenAddr.add(key);\n  rows_cleared_pending.push({\n    contract_id: r.contract_id,\n    uprn: r.uprn,\n    address: addr,\n  });\n}\n\nconst addresses = rows_cleared_pending.map((x) => x.address);\n\nif (!addresses.length) {\n  return [];\n}\n\nreturn [\n  {\n    json: {\n      addresses,\n      contract_id,\n      api_base_url,\n      rows_cleared_pending,\n    },\n  },\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        8416,
+        6032
+      ],
+      "id": "0e486456-e60a-4c0f-9182-a6e48b7e59f0",
+      "name": "Aggregate Addresses1",
+      "alwaysOutputData": false
+    },
+    {
+      "parameters": {
+        "jsCode": "function extractApiBody(resp) {\n  const statusCode = resp.statusCode ?? resp.status ?? 0;\n  let body = resp.body ?? resp.data ?? resp;\n  if (typeof body === 'string') {\n    try {\n      body = JSON.parse(body);\n    } catch (e) {\n      const m = body.match(/\\{[\\s\\S]*\\}/);\n      if (m) {\n        try { body = JSON.parse(m[0]); } catch (e2) { body = {}; }\n      } else {\n        body = {};\n      }\n    }\n  }\n  if (body && typeof body === 'object' && body.body && body.checked === undefined && body.results === undefined && body.properties === undefined) {\n    body = body.body;\n  }\n  return { statusCode, body: body || {} };\n}\n\nconst settings = $('Set API base URL1').first().json || {};\nconst onlyPending =\n  settings.only_pending_notes !== false &&\n  String(settings.only_pending_notes).toLowerCase() !== 'false';\n\nif (!onlyPending) {\n  return [];\n}\n\nconst postItems = $('POST bulk-add-notes').all();\nconst respRaw = postItems.length ? (postItems[0].json || {}) : ($input.first()?.json || {});\nconst { body: res } = extractApiBody(respRaw);\nconst agg = $('Aggregate Addresses1').first().json || {};\nconst pendingRows = Array.isArray(agg.rows_cleared_pending) ? agg.rows_cleared_pending : [];\n\nfunction norm(value) {\n  return String(value || '')\n    .toLowerCase()\n    .replace(/[^a-z0-9]+/g, ' ')\n    .replace(/\\s+/g, ' ')\n    .trim();\n}\n\nconst checkedAddresses = Array.isArray(res.checked) ? res.checked : [];\nconst succeeded = new Set(checkedAddresses.map(norm));\n\nconst out = [];\nconst seen = new Set();\n\nfor (const row of pendingRows) {\n  const addr = String(row.address || '').trim();\n  if (!addr) continue;\n  if (!succeeded.has(norm(addr))) continue;\n\n  const cid = String(row.contract_id || '').trim();\n  const uprn = String(row.uprn || '').trim();\n  if (!cid || !uprn) continue;\n\n  const key = `${cid}::${uprn}`;\n  if (seen.has(key)) continue;\n  seen.add(key);\n\n  out.push({\n    json: {\n      contract_id: row.contract_id,\n      uprn: row.uprn,\n      pending_note: false,\n    },\n  });\n}\n\nreturn out;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        8864,
+        6032
+      ],
+      "id": "65f56da8-80a5-4c59-81ec-6ec7b2ff58b1",
+      "name": "Clear pending_note after notes1"
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "documentId": {
+          "__rl": true,
+          "value": "1PRUtOeUec0uMhrj4k1sFEAdo5qvXE9cDOeyAQ67hIDI",
+          "mode": "list",
+          "cachedResultName": "SOR-Codes-Template"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "ASB_Tracking",
+          "mode": "name",
+          "cachedResultName": "ASB_Tracking"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {
+            "uprn": "={{ $json.uprn }}",
+            "pending_note": "={{ $json.pending_note }}",
+            "row_number": 0
+          },
+          "matchingColumns": [
+            "uprn"
+          ],
+          "schema": [
+            {
+              "id": "contract_id",
+              "displayName": "contract_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "easybop_row_id",
+              "displayName": "easybop_row_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "uprn",
+              "displayName": "uprn",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "address",
+              "displayName": "address",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "works_id",
+              "displayName": "works_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "captured_at",
+              "displayName": "captured_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "run_total",
+              "displayName": "run_total",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "run_message",
+              "displayName": "run_message",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "success",
+              "displayName": "success",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "skipped_existing",
+              "displayName": "skipped_existing",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "status",
+              "displayName": "status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "pending_note",
+              "displayName": "pending_note",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "pending_task",
+              "displayName": "pending_task",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "row_number",
+              "displayName": "row_number",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true,
+              "readOnly": true,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        9088,
+        6032
+      ],
+      "id": "a5c9db7a-e308-42cb-bb38-e59bf82424c3",
+      "name": "Update ASB_Tracking clear note",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "0bvpVa8frZ7qSwzx",
+          "name": "hamza-sheets"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "api-base-url",
+              "name": "api_base_url",
+              "value": "http://173.212.233.153:8000",
+              "type": "string"
+            },
+            {
+              "id": "contract-id",
+              "name": "contract_id",
+              "value": "321129",
+              "type": "string"
+            },
+            {
+              "id": "only-pending-tasks",
+              "name": "only_pending_tasks",
+              "value": true,
+              "type": "boolean"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        7968,
+        6400
+      ],
+      "id": "43dc8794-b857-4a58-8cbc-2087d215fe3e",
+      "name": "Set API base URL",
+      "notesInFlow": true,
+      "note": "VPS jeffway-api: http://173.212.233.153:8000"
+    },
+    {
+      "parameters": {
+        "jsCode": "const rows = $input.all().map((i) => i.json || {});\nconst settings = $('Set API base URL').first().json || {};\nconst contract_id = settings.contract_id;\nconst api_base_url = settings.api_base_url;\nconst onlyPending =\n  settings.only_pending_tasks !== false &&\n  String(settings.only_pending_tasks).toLowerCase() !== 'false';\n\nfunction isPendingTask(row) {\n  const p = row.pending_task;\n  return p === true || p === 1 || String(p).toLowerCase() === 'true';\n}\nfunction cleanAddrKey(str) {\n  return String(str || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').replace(/\\s+/g, ' ').trim();\n}\n\nconst sd = $getWorkflowStaticData('global');\nconst uprnMap = sd.asbUprnToWorksId || {};\nconst addrMap = sd.asbAddrToWorksId || {};\n\nlet filtered = rows;\nif (onlyPending) {\n  filtered = rows.filter(isPendingTask);\n}\n\nconst items = [];\nconst rows_cleared_pending = [];\nconst seen = new Set();\n\nfor (const r of filtered) {\n  const addr = String(r.address || '').trim();\n  const uprn = String(r.uprn || '').trim();\n  if (!addr && !uprn) continue;\n  const works_id = String(r.works_id || uprnMap[uprn] || addrMap[cleanAddrKey(addr)] || '').trim();\n  const key = works_id || `${uprn}::${cleanAddrKey(addr)}`;\n  if (seen.has(key)) continue;\n  seen.add(key);\n  if (!works_id) {\n    console.log(`Skip task row — no works_id for uprn=${uprn} address=${addr}`);\n    continue;\n  }\n  items.push({ works_id, address: addr, uprn });\n  rows_cleared_pending.push({ contract_id: r.contract_id, uprn, address: addr, works_id });\n}\n\nif (!items.length) {\n  return [];\n}\n\nreturn [{\n  json: {\n    items,\n    contract_id,\n    api_base_url,\n    rows_cleared_pending,\n    use_works_id_navigation: true,\n  },\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        8352,
+        6400
+      ],
+      "id": "c517aac6-a917-4edf-8bc9-712947857dd4",
+      "name": "Aggregate Addresses",
+      "alwaysOutputData": false
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ ($json.api_base_url || '').replace(/\\/+$/, '') + '/add-asbestos-tasks' }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ contract_id: $json.contract_id || \"321129\", items: $json.items, use_works_id_navigation: true, keep_page_open: true }) }}",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          },
+          "timeout": 600000
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        8576,
+        6400
+      ],
+      "id": "47186b6e-87aa-4ec7-b927-14b171005b04",
+      "name": "POST add-asbestos-tasks",
+      "notesInFlow": true,
+      "note": "Creates tasks via works_id direct navigation (works_details.php?tab_nav_item=tasks).",
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const settings = $('Set API base URL').first().json || {};\nconst onlyPending =\n  settings.only_pending_tasks !== false &&\n  String(settings.only_pending_tasks).toLowerCase() !== 'false';\nif (!onlyPending) return [];\n\nconst agg = $('Aggregate Addresses').first().json || {};\nconst pendingRows = Array.isArray(agg.rows_cleared_pending) ? agg.rows_cleared_pending : [];\n\nfunction norm(value) {\n  return String(value || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').replace(/\\s+/g, ' ').trim();\n}\nfunction extractResults(resp) {\n  const statusCode = resp.statusCode ?? resp.status ?? 0;\n  let body = resp.body ?? resp.data ?? resp;\n  if (typeof body === 'string') {\n    try { body = JSON.parse(body); } catch (e) {\n      const m = body.match(/\\{[\\s\\S]*\"results\"[\\s\\S]*\\}/);\n      body = m ? JSON.parse(m[0]) : {};\n    }\n  }\n  if (body && typeof body === 'object' && body.body && !body.results) body = body.body;\n  const results = Array.isArray(body?.results) ? body.results : [];\n  return { statusCode, body: body || {}, results };\n}\n\nconst postItems = $('POST add-asbestos-tasks').all();\nconst resp = postItems.length ? (postItems[0].json || {}) : ($input.first()?.json || {});\nconst { results } = extractResults(resp);\n\nconst succeededWid = new Set();\nconst succeededAddr = new Set();\nfor (const r of results) {\n  if (!r) continue;\n  const msg = String(r.message || '').toLowerCase();\n  const ok = !!(r.success || r.already_created || msg.includes('already exists'));\n  if (!ok) continue;\n  const wid = String(r.works_id || '').trim();\n  if (wid) succeededWid.add(wid);\n  const addr = norm(r.address);\n  if (addr) succeededAddr.add(addr);\n}\n\nconst out = [];\nconst seen = new Set();\nfor (const row of pendingRows) {\n  const uprn = String(row.uprn || '').trim();\n  const wid = String(row.works_id || '').trim();\n  const addr = norm(row.address);\n  const ok = (wid && succeededWid.has(wid)) || (addr && succeededAddr.has(addr));\n  if (!ok || !uprn) continue;\n  const key = `${row.contract_id || ''}::${uprn}`;\n  if (seen.has(key)) continue;\n  seen.add(key);\n  out.push({ json: { uprn, pending_task: 'FALSE' } });\n}\nconsole.log(`Clear pending_task for ${out.length}/${pendingRows.length} rows`);\nreturn out;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        8800,
+        6400
+      ],
+      "id": "426ebec4-086b-498f-8f74-2878c8cd9f99",
+      "name": "Clear pending_task after tasks"
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "1PRUtOeUec0uMhrj4k1sFEAdo5qvXE9cDOeyAQ67hIDI",
+          "mode": "list",
+          "cachedResultName": "SOR-Codes-Template"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "ASB_Tracking",
+          "mode": "name",
+          "cachedResultName": "ASB_Tracking"
+        },
+        "options": {
+          "returnFirstMatch": false
+        }
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        8144,
+        6400
+      ],
+      "id": "ed8bd134-ae4d-46ac-8702-2698bc4f4ec8",
+      "name": "Read ASB_Tracking tasks",
+      "executeOnce": true,
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "0bvpVa8frZ7qSwzx",
+          "name": "hamza-sheets"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "content": "## [VPS] 4. create task (works_id from enrich — no second /works-index call)",
+        "height": 128,
+        "width": 288
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        7312,
+        6400
+      ],
+      "id": "024a3a73-d7eb-4b1a-8c1a-ad2005cf2938",
+      "name": "Sticky Note8"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ ($('Set API base URL2').first().json.api_base_url || '').replace(/\\/+$/, '') + '/works-index' }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ timeout_ms: 120000 }) }}",
+        "options": {
+          "timeout": 180000
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        8640,
+        5008
+      ],
+      "id": "c786f2d6-dc77-4645-a8c6-6360c994c9d2",
+      "name": "POST works-index enrich",
+      "executeOnce": true
+    },
+    {
+      "parameters": {
+        "jsCode": "function bodyFrom(resp) {\n  let body = resp.body ?? resp.data ?? resp;\n  if (typeof body === 'string') {\n    try { body = JSON.parse(body); } catch (e) { body = {}; }\n  }\n  if (body && body.body && body.items === undefined && body.total === undefined) {\n    body = body.body;\n  }\n  return body || {};\n}\nfunction cleanAddrKey(str) {\n  return String(str || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').replace(/\\s+/g, ' ').trim();\n}\nconst indexResp = bodyFrom($('POST works-index enrich').first().json || {});\nconst items = Array.isArray(indexResp.items) ? indexResp.items : [];\nconst uprnToWorksId = {};\nconst addrToWorksId = {};\nfor (const item of items) {\n  const wid = String(item.works_id || '').trim();\n  if (!wid) continue;\n  const uprn = String(item.property_ref || '').trim();\n  if (uprn) uprnToWorksId[uprn] = wid;\n  const addr = cleanAddrKey(item.address || '');\n  if (addr) addrToWorksId[addr] = wid;\n}\nconst sd = $getWorkflowStaticData('global');\nsd.asbUprnToWorksId = uprnToWorksId;\nsd.asbAddrToWorksId = addrToWorksId;\nreturn $('Shape rows for sheet').all().map((item) => {\n  const row = { ...(item.json || {}) };\n  const uprn = String(row.uprn || '').trim();\n  const addrKey = cleanAddrKey(row.address || '');\n  row.works_id = uprnToWorksId[uprn] || addrToWorksId[addrKey] || row.works_id || '';\n  return { json: row };\n});"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        8880,
+        5008
+      ],
+      "id": "d172dc9a-8104-4a1d-96dd-040dacd56503",
+      "name": "Enrich rows with works_id",
+      "executeOnce": true
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "documentId": {
+          "__rl": true,
+          "value": "1PRUtOeUec0uMhrj4k1sFEAdo5qvXE9cDOeyAQ67hIDI",
+          "mode": "list",
+          "cachedResultName": "SOR-Codes-Template"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "ASB_Tracking",
+          "mode": "name",
+          "cachedResultName": "ASB_Tracking"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {
+            "uprn": "={{ $json.uprn }}",
+            "pending_task": "={{ $json.pending_task }}",
+            "row_number": 0
+          },
+          "matchingColumns": [
+            "uprn"
+          ],
+          "schema": [
+            {
+              "id": "contract_id",
+              "displayName": "contract_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "easybop_row_id",
+              "displayName": "easybop_row_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "uprn",
+              "displayName": "uprn",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "address",
+              "displayName": "address",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "works_id",
+              "displayName": "works_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "captured_at",
+              "displayName": "captured_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "run_total",
+              "displayName": "run_total",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "run_message",
+              "displayName": "run_message",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "success",
+              "displayName": "success",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "skipped_existing",
+              "displayName": "skipped_existing",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "status",
+              "displayName": "status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "pending_note",
+              "displayName": "pending_note",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "pending_task",
+              "displayName": "pending_task",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "row_number",
+              "displayName": "row_number",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true,
+              "readOnly": true,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        9008,
+        6400
+      ],
+      "id": "0b8c75e5-f22e-4736-b623-79c482f223ed",
+      "name": "Update ASB_Tracking clear task",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "0bvpVa8frZ7qSwzx",
+          "name": "hamza-sheets"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ ($json.api_base_url || '').replace(/\\/+$/, '') + '/fetch-missing-asbestos' }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ contract_id: $json.contract_id || '321129' }) }}",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          },
+          "timeout": 600000
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        8192,
+        5200
+      ],
+      "id": "96f41b53-9a40-4a90-928a-9a56e37ed4e5",
+      "name": "POST fetch-missing-asbestos",
+      "notesInFlow": true,
+      "note": "VPS: POST /fetch-missing-asbestos on jeffway-api (port 8000)."
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "15 9-19/1 * * 1-5"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.3,
+      "position": [
+        7776,
+        5200
+      ],
+      "id": "ea9c34d7-fa86-4f73-b3c8-7ecc675f8977",
+      "name": "Schedule Trigger8",
+      "notesInFlow": true,
+      "note": "Mon–Fri 09:00–19:00 Europe/London, every hour (cron: 0 9-19 * * 1-5)"
+    }
+  ],
+  "connections": {
+    "Read ASB_Tracking": {
+      "main": [
+        [
+          {
+            "node": "Keep only new rows1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Keep only new rows1": {
+      "main": [
+        [
+          {
+            "node": "Append ASB_Tracking rows",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Set API base URL2": {
+      "main": [
+        [
+          {
+            "node": "POST fetch-missing-asbestos",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Shape rows for sheet": {
+      "main": [
+        [
+          {
+            "node": "POST works-index enrich",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Append ASB_Tracking rows": {
+      "main": [
+        [
+          {
+            "node": "Set API base URL6",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has monitor upserts?": {
+      "main": [
+        [
+          {
+            "node": "Update ASB_Tracking suspended",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Build suspend email template1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read ASB_Tracking suspend": {
+      "main": [
+        [
+          {
+            "node": "Aggregate matched addresses3",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "POST suspend-works2": {
+      "main": [
+        [
+          {
+            "node": "Prepare monitor status updates3",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Set API base URL6": {
+      "main": [
+        [
+          {
+            "node": "Read ASB_Tracking suspend",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Aggregate matched addresses3": {
+      "main": [
+        [
+          {
+            "node": "POST suspend-works2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare monitor status updates3": {
+      "main": [
+        [
+          {
+            "node": "Has monitor upserts?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update ASB_Tracking suspended": {
+      "main": [
+        [
+          {
+            "node": "Build suspend email template1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build suspend email template1": {
+      "main": [
+        [
+          {
+            "node": "Send suspend notification1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send suspend notification1": {
+      "main": [
+        [
+          {
+            "node": "Set API base URL1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "POST bulk-add-notes": {
+      "main": [
+        [
+          {
+            "node": "Clear pending_note after notes1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Set API base URL1": {
+      "main": [
+        [
+          {
+            "node": "Read ASB_Tracking notes",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read ASB_Tracking notes": {
+      "main": [
+        [
+          {
+            "node": "Aggregate Addresses1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Aggregate Addresses1": {
+      "main": [
+        [
+          {
+            "node": "POST bulk-add-notes",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Clear pending_note after notes1": {
+      "main": [
+        [
+          {
+            "node": "Update ASB_Tracking clear note",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update ASB_Tracking clear note": {
+      "main": [
+        [
+          {
+            "node": "Set API base URL",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Set API base URL": {
+      "main": [
+        [
+          {
+            "node": "Read ASB_Tracking tasks",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Aggregate Addresses": {
+      "main": [
+        [
+          {
+            "node": "POST add-asbestos-tasks",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "POST add-asbestos-tasks": {
+      "main": [
+        [
+          {
+            "node": "Clear pending_task after tasks",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Clear pending_task after tasks": {
+      "main": [
+        [
+          {
+            "node": "Update ASB_Tracking clear task",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read ASB_Tracking tasks": {
+      "main": [
+        [
+          {
+            "node": "Aggregate Addresses",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "POST works-index enrich": {
+      "main": [
+        [
+          {
+            "node": "Enrich rows with works_id",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Enrich rows with works_id": {
+      "main": [
+        [
+          {
+            "node": "Read ASB_Tracking",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "POST fetch-missing-asbestos": {
+      "main": [
+        [
+          {
+            "node": "Shape rows for sheet",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Schedule Trigger8": {
+      "main": [
+        [
+          {
+            "node": "Set API base URL2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "a5cd22a95d5313a977e9ac21c3a833db76b18ca78fb8cb2cf7013465d69f17f8"
+  }
+}

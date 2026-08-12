@@ -1,0 +1,1228 @@
+{
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "triggerAtHour": 11
+            },
+            {
+              "triggerAtHour": 17
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.3,
+      "position": [
+        -80,
+        -1872
+      ],
+      "id": "9bdef639-08f0-47e9-930b-32e43445eea8",
+      "name": "Schedule Trigger4"
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        816,
+        -1872
+      ],
+      "id": "a21fef10-2e4d-4cc5-a799-dafd924093f5",
+      "name": "Loop Over Items4"
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "1mkklLpvi8klaN4Zo4D_cBrb95PGQ4NbUvtTAvLI4CII",
+          "mode": "list",
+          "cachedResultName": "stage 6",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1mkklLpvi8klaN4Zo4D_cBrb95PGQ4NbUvtTAvLI4CII/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list",
+          "cachedResultName": "Operative Job Sheet",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1mkklLpvi8klaN4Zo4D_cBrb95PGQ4NbUvtTAvLI4CII/edit#gid=0"
+        },
+        "filtersUI": {
+          "values": [
+            {
+              "lookupColumn": "Q2.4 Did you complete any additonal work or variations?",
+              "lookupValue": "Yes"
+            },
+            {
+              "lookupColumn": "Job Status",
+              "lookupValue": "completed"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        144,
+        -1872
+      ],
+      "id": "c43114a9-6ccd-4dff-9662-8b14d42482e1",
+      "name": "Get All completed and variations jobs2",
+      "executeOnce": true,
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "0bvpVa8frZ7qSwzx",
+          "name": "hamza-sheets"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "content": "# Part 1: \n## From Operatives Sheet to Adding a Variation Full Workflow.",
+        "height": 672,
+        "width": 3252,
+        "color": 5
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        -144,
+        -2160
+      ],
+      "typeVersion": 1,
+      "id": "c2dc1d8d-9d12-404d-b115-2898e5b3f06a",
+      "name": "Sticky Note11"
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "1PRUtOeUec0uMhrj4k1sFEAdo5qvXE9cDOeyAQ67hIDI",
+          "mode": "list",
+          "cachedResultName": "SOR-Codes-Template",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1PRUtOeUec0uMhrj4k1sFEAdo5qvXE9cDOeyAQ67hIDI/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list",
+          "cachedResultName": "Sheet1",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1PRUtOeUec0uMhrj4k1sFEAdo5qvXE9cDOeyAQ67hIDI/edit#gid=0"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        1040,
+        -1936
+      ],
+      "id": "28bc32a1-14bb-4acc-9c65-15c13d14053b",
+      "name": "Get All SOR Code Mappings2",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "0bvpVa8frZ7qSwzx",
+          "name": "hamza-sheets"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Change 'Webhook' to whatever node name holds the Q2.7 worker description\nconst workerText = $('Loop Over Items4').first().json['Q2.7 Please provide some detail on the variations? Task, QTY, Location. e.g. skimmed extra 3 sqm in lounge.'] ?? '';\nconst TOP_N = 15;\n\n// ── STOPWORDS ────────────────────────────────────────────────────────────────\nconst STOPWORDS = new Set([\n  'the','a','an','to','for','in','of','and','or','with',\n  'ne','any','all','new','existing','both','sides','supply',\n  'lay','take','up','clean','make','good','remove','waste','debris'\n]);\n\n// ── TOKENIZE ─────────────────────────────────────────────────────────────────\nfunction tokenize(text) {\n  return String(text ?? '')\n    .toLowerCase()\n    .replace(/[^a-z0-9\\s]/g, ' ')\n    .split(/\\s+/)\n    .filter(w => w.length > 2 && !STOPWORDS.has(w));\n}\n\nconst queryTokens = tokenize(workerText);\n\n// ── SCORE ALL ROWS ────────────────────────────────────────────────────────────\nconst sorRows = $input.all();\n\nconst scored = sorRows.map(item => {\n  const row = item.json;\n\n  const haystack = [\n    row['Short Description']  ?? '',\n    row['Medium Description'] ?? '',\n    row['Detailed Description'] ?? '',\n    row['Element']    ?? '',\n    row['Section']    ?? '',\n    row['Subsection'] ?? '',\n    row['NHF_Trade_Code'] ?? '',\n  ].join(' ').toLowerCase();\n\n  let score = 0;\n\n  for (const token of queryTokens) {\n    if (haystack.includes(token)) {\n      score++;\n      // Extra weight when token hits the Short Description (most concise)\n      if ((row['Short Description'] ?? '').toLowerCase().includes(token)) {\n        score += 2;\n      }\n    }\n  }\n\n  // Bonus if the full phrase appears verbatim anywhere\n  if (workerText.length > 3 && haystack.includes(workerText.toLowerCase())) {\n    score += 10;\n  }\n\n  return {\n    score,\n    document_code:      row['Document Code'],\n    short_description:  row['Short Description'],\n    medium_description: row['Medium Description'],\n    sor_rate:           row['SOR Rate'],\n    uom:                row['UOM'],\n    trade_code:         row['NHF_Trade_Code'],\n    element:            row['Element'],\n    section:            row['Section'],\n    subsection:         row['Subsection'],\n  };\n});\n\n// ── TOP N ─────────────────────────────────────────────────────────────────────\nconst topCandidates = scored\n  .filter(r => r.score > 0)\n  .sort((a, b) => b.score - a.score)\n  .slice(0, TOP_N);\n\n// Single output item: worker text + ranked candidates for Claude node\nreturn [{\n  json: {\n    worker_description: workerText,\n    top_candidates:     topCandidates,\n    candidate_count:    topCandidates.length,\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1264,
+        -1936
+      ],
+      "id": "4198b10e-bb02-4702-9d7f-bd49beb27b7a",
+      "name": "Score SOR Descriptions agains Worker Description2"
+    },
+    {
+      "parameters": {
+        "modelId": {
+          "__rl": true,
+          "value": "gpt-5.4-mini",
+          "mode": "list",
+          "cachedResultName": "GPT-5.4-MINI"
+        },
+        "responses": {
+          "values": [
+            {
+              "content": "=You are matching a maintenance worker's free-text job description to a Schedule of Rates (SOR) code.\n\nPart 1:\nA maintenance worker wrote: \"{{ $json.worker_description }}\"\n\nThese are the top matching SOR codes:\n{{ JSON.stringify($json.top_candidates, null, 2) }}\n\nPART 2 — Extract quantity:\nRead the worker's description given above and extract any quantity mentioned (e.g. \"2 windows\", \"3 doors\", \"replaced 4 vents\"). If a specific number is mentioned, use it. If no quantity is mentioned, use 1.\n\n\nReturn ONLY a valid JSON object in this exact format, nothing else:\n{\n  \"document_code\": 318105,\n  \"quantity\": 1\n}\n\nNo explanation, no extra text.\n\n"
+            }
+          ]
+        },
+        "builtInTools": {},
+        "options": {
+          "textFormat": {
+            "textOptions": {
+              "type": "json_schema",
+              "schema": "{\n  \"type\": \"object\",\n  \"properties\": {\n    \"code\": {\n      \"type\": \"number\"\n    },\n    \"quantity\":{\n      \"type\": \"number\"\n    }\n  },\n  \"additionalProperties\": false,\n  \"required\": [\"code\",\"quantity\" ]\n}"
+            }
+          }
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "typeVersion": 2.3,
+      "position": [
+        1488,
+        -1936
+      ],
+      "id": "df2b17bf-da5a-4330-92d6-20caaba859e7",
+      "name": "Final AI Scoring2",
+      "credentials": {
+        "openAiApi": {
+          "id": "aBG3b1KH705oNjYs",
+          "name": "jeffway open ai"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const ai = $('Final AI Scoring2').first().json;\nconst score = $('Score SOR Descriptions agains Worker Description2').first().json;\nconst loop = $('Loop Over Items4').item.json;\n\nconst parsed = ai.output?.[0]?.content?.[0]?.text ?? {};\nconst code = parsed.code ?? parsed.document_code;\nconst quantity = Number(parsed.quantity ?? 1) || 1;\n\nconst candidates = Array.isArray(score.top_candidates) ? score.top_candidates : [];\nconst matched = candidates.find((item) => String(item.document_code) === String(code));\nconst fallback = candidates.length ? candidates[candidates.length - 1] : null;\nconst sorDescription = (matched || fallback)?.short_description || '';\n\nconst smartFormName = String(loop['SmartForm Name'] ?? '');\nconst address = smartFormName.split(':')[0].trim();\n\nreturn [{\n  json: {\n    address,\n    days: 2,\n    subject: 'Test Variation',\n    sor_ref: String(code ?? ''),\n    quantity,\n    sor_description: sorDescription,\n    worker_description: String(score.worker_description ?? ''),\n  },\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1840,
+        -1936
+      ],
+      "id": "46ee9985-0672-41c2-b8ea-3d21f9dd540a",
+      "name": "Build variation API payload"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=http://173.212.233.153:8000/stage7/add-variation-and-tasks",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "ngrok-skip-browser-warning",
+              "value": "true"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $json }}",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          },
+          "timeout": 900000
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2064,
+        -1936
+      ],
+      "id": "84589021-deb4-48f2-960b-46d183576772",
+      "name": "stage7_add_variation_post_And_create_tasks2",
+      "notesInFlow": true,
+      "note": "Skips PDFs for rows already on sheet; no extract limit",
+      "executeOnce": true
+    },
+    {
+      "parameters": {
+        "content": "## Sheet columns (add to Operative Job Sheet if missing):\n- **Variation Created** — date DD/MM/YYYY after EasyBOP variation saved\n- **QS Review Task Created** — date DD/MM/YYYY after QS task created\n\nRows with either column set are skipped on the next run.",
+        "height": 192,
+        "width": 256,
+        "color": 3
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        1472,
+        -2160
+      ],
+      "typeVersion": 1,
+      "id": "0079e4f9-0361-4dbb-a348-0e38f0744d3d",
+      "name": "Sticky Note13"
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.limit",
+      "typeVersion": 1,
+      "position": [
+        592,
+        -1872
+      ],
+      "id": "a7b9d2dd-0fd3-4f09-9597-5ed2b64f5b87",
+      "name": "Limit1",
+      "disabled": true
+    },
+    {
+      "parameters": {
+        "jsCode": "const SOURCE = 'Get All completed and variations jobs2';\n\nfunction rowsFrom(name) {\n  try { return $(name).all().map((i) => i.json || {}); } catch (e) { return []; }\n}\n\nfunction isHeader(row) {\n  return /^smartform name$/i.test(String(row['SmartForm Name'] ?? '').trim());\n}\n\nfunction isNoOrEmpty(v) {\n  const s = String(v ?? '').trim();\n  if (!s) return true;\n  const low = s.toLowerCase();\n  return low === 'no' || low === 'n' || low === 'false' || low === '0';\n}\n\nfunction normJobStatus(v) {\n  const s = String(v ?? '').trim().toLowerCase();\n  if (s.startsWith('comp')) return 'completed';\n  return s;\n}\n\nfunction q24Yes(row) {\n  return String(row['Q2.4 Did you complete any additonal work or variations?'] ?? '').trim().toLowerCase() === 'yes';\n}\n\nconst rows = rowsFrom(SOURCE).filter((r) => !isHeader(r));\nconst queue = [];\n\nfor (const row of rows) {\n  if (!q24Yes(row)) continue;\n  if (normJobStatus(row['Job Status']) !== 'completed') continue;\n  if (!isNoOrEmpty(row['Variation Created'])) continue;\n  if (!isNoOrEmpty(row['QS Review Task Created'])) continue;\n  queue.push(row);\n}\n\nif (!queue.length) {\n  return [];\n}\n\nreturn queue.map((row, i) => ({\n  json: {\n    ...row,\n    _job_index: i + 1,\n    _job_total: queue.length,\n  },\n}));\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        368,
+        -1872
+      ],
+      "id": "2723ebac-9a91-47ff-a13e-e2e310709dd2",
+      "name": "Build variation queue"
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "documentId": {
+          "__rl": true,
+          "value": "1mkklLpvi8klaN4Zo4D_cBrb95PGQ4NbUvtTAvLI4CII",
+          "mode": "list",
+          "cachedResultName": "stage 6",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1mkklLpvi8klaN4Zo4D_cBrb95PGQ4NbUvtTAvLI4CII/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list",
+          "cachedResultName": "Operative Job Sheet",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1mkklLpvi8klaN4Zo4D_cBrb95PGQ4NbUvtTAvLI4CII/edit#gid=0"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": [
+            "row_number"
+          ],
+          "schema": [
+            {
+              "id": "smart_form_x_id",
+              "displayName": "smart_form_x_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "SmartForm Name",
+              "displayName": "SmartForm Name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Date Created",
+              "displayName": "Date Created",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "SmartForm Template Name",
+              "displayName": "SmartForm Template Name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Status",
+              "displayName": "Status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Completed Date",
+              "displayName": "Completed Date",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Completed Time",
+              "displayName": "Completed Time",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Created By",
+              "displayName": "Created By",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Module",
+              "displayName": "Module",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "CORF",
+              "displayName": "CORF",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Job Header",
+              "displayName": "Job Header",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "pdf_url",
+              "displayName": "pdf_url",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "extracted_at",
+              "displayName": "extracted_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Q1.1 Address",
+              "displayName": "Q1.1 Address",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Q1.2 Date",
+              "displayName": "Q1.2 Date",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Q1.3 Job details",
+              "displayName": "Q1.3 Job details",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Q1.4 Have you read and understood the asbestos report for the property or checked the status with a Manager or Supervisor before",
+              "displayName": "Q1.4 Have you read and understood the asbestos report for the property or checked the status with a Manager or Supervisor before",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Q2.1 Daily Jobs Table",
+              "displayName": "Q2.1 Daily Jobs Table",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Q2.1 Daily Jobs Table Price/Hours",
+              "displayName": "Q2.1 Daily Jobs Table Price/Hours",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Q2.2 Were you able to complete your work in full?",
+              "displayName": "Q2.2 Were you able to complete your work in full?",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Q2.4 Did you complete any additonal work or variations?",
+              "displayName": "Q2.4 Did you complete any additonal work or variations?",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Q3.1 Notes, if applicable",
+              "displayName": "Q3.1 Notes, if applicable",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Q4.1 Employee Name",
+              "displayName": "Q4.1 Employee Name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Q2.3 Please provide photos of completed work",
+              "displayName": "Q2.3 Please provide photos of completed work",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Q2.5 Please explain why you could not complete your job",
+              "displayName": "Q2.5 Please explain why you could not complete your job",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Q2.6 Please provide photos of variations",
+              "displayName": "Q2.6 Please provide photos of variations",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Q2.6 Please provide photos of variations ( if Variation was yes)",
+              "displayName": "Q2.6 Please provide photos of variations ( if Variation was yes)",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Q2.8 Please provide details of any outstanding works you are aware of for this property",
+              "displayName": "Q2.8 Please provide details of any outstanding works you are aware of for this property",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Q2.7 Please provide some detail on the variations? Task, QTY, Location. e.g. skimmed extra 3 sqm in lounge.",
+              "displayName": "Q2.7 Please provide some detail on the variations? Task, QTY, Location. e.g. skimmed extra 3 sqm in lounge.",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Q4.2 Employee Signature",
+              "displayName": "Q4.2 Employee Signature",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "BOQ_Checked",
+              "displayName": "BOQ_Checked",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Reason",
+              "displayName": "Reason",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Job Status",
+              "displayName": "Job Status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Ready To Hand over",
+              "displayName": "Ready To Hand over",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Hand Over Task Created",
+              "displayName": "Hand Over Task Created",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Hand Over Photos Extracted",
+              "displayName": "Hand Over Photos Extracted",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Job Status Notes",
+              "displayName": "Job Status Notes",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "In Jeopardy",
+              "displayName": "In Jeopardy",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Jeopardy Reason",
+              "displayName": "Jeopardy Reason",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Job Status Confidence",
+              "displayName": "Job Status Confidence",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Job Time Spent Hours",
+              "displayName": "Job Time Spent Hours",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Visit Hours",
+              "displayName": "Visit Hours",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Operative Time Breakdown",
+              "displayName": "Operative Time Breakdown",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Job SMV Allowed Hours",
+              "displayName": "Job SMV Allowed Hours",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Job SMV Allowed Minutes",
+              "displayName": "Job SMV Allowed Minutes",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Time vs SMV",
+              "displayName": "Time vs SMV",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Job Status Checked At",
+              "displayName": "Job Status Checked At",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Appointment Date",
+              "displayName": "Appointment Date",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Next appointment date",
+              "displayName": "Next appointment date",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Completed",
+              "displayName": "Completed",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Internal Notes",
+              "displayName": "Internal Notes",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "_sync_stats",
+              "displayName": "_sync_stats",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Jeopardy Type",
+              "displayName": "Jeopardy Type",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "_skip_sheet",
+              "displayName": "_skip_sheet",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "client_order_reference",
+              "displayName": "client_order_reference",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "works_id",
+              "displayName": "works_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "smart_form_name",
+              "displayName": "smart_form_name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "task_success",
+              "displayName": "task_success",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "task_already_exists",
+              "displayName": "task_already_exists",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "task_message",
+              "displayName": "task_message",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Job Status Input Hash",
+              "displayName": "Job Status Input Hash",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Variation Created",
+              "displayName": "Variation Created",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "QS Review Task Created",
+              "displayName": "QS Review Task Created",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "contract_id",
+              "displayName": "contract_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "sor_ref",
+              "displayName": "sor_ref",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "api_message",
+              "displayName": "api_message",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "row_number",
+              "displayName": "row_number",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true,
+              "readOnly": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        2736,
+        -2080
+      ],
+      "id": "ac00e13f-f6bc-4856-80f6-2199cafb6523",
+      "name": "Update Variation Created",
+      "notesInFlow": true,
+      "note": "DD/MM/YYYY on success",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "0bvpVa8frZ7qSwzx",
+          "name": "hamza-sheets"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "function bodyFrom(resp) {\n  let body = resp.body ?? resp.data ?? resp;\n  if (typeof body === 'string') {\n    try { body = JSON.parse(body); } catch (e) { body = {}; }\n  }\n  if (body && body.body && body.success === undefined && body.works_id === undefined) {\n    body = body.body;\n  }\n  return body || {};\n}\n\nconst job = $('Loop Over Items4').item.json || {};\nconst result = bodyFrom($input.first().json || {});\nconst rn = job.row_number ?? job.rowNumber ?? null;\nconst ok = result.success === true;\n\nif (!ok || rn === null || rn === undefined || rn === '') {\n  return [{\n    json: {\n      _skip_sheet: true,\n      row_number: rn,\n      api_success: ok,\n      works_id: result.works_id || '',\n      message: result.message || result.detail || 'API did not return success',\n    },\n  }];\n}\n\nconst now = new Date();\nconst today = `${String(now.getDate()).padStart(2, '0')}/${String(now.getMonth() + 1).padStart(2, '0')}/${now.getFullYear()}`;\n\nreturn [{\n  json: {\n    _skip_sheet: false,\n    row_number: rn,\n    'Variation Created': today,\n    'QS Review Task Created': today,\n    works_id: result.works_id || '',\n    contract_id: result.contract_id || '',\n    sor_ref: result.qs_task?.sor_code || '',\n    api_message: result.message || '',\n  },\n}];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2288,
+        -1936
+      ],
+      "id": "2313af10-4fdb-4d03-a2c0-97cd9f9d0e0b",
+      "name": "Prepare sheet mark1"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "c-skip-sheet-var",
+              "leftValue": "={{ $json._skip_sheet }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "notEquals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        2512,
+        -1936
+      ],
+      "id": "0179785f-26c7-4e93-9d85-f5f4e13a200c",
+      "name": "IF mark sheet1"
+    },
+    {
+      "parameters": {
+        "jsCode": "return [{ json: { _loop_continue: true } }];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2736,
+        -1840
+      ],
+      "id": "cc48da30-9d02-43e8-94e6-579a83f45996",
+      "name": "Continue loop1"
+    }
+  ],
+  "connections": {
+    "Schedule Trigger4": {
+      "main": [
+        [
+          {
+            "node": "Get All completed and variations jobs2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Loop Over Items4": {
+      "main": [
+        [],
+        [
+          {
+            "node": "Get All SOR Code Mappings2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get All completed and variations jobs2": {
+      "main": [
+        [
+          {
+            "node": "Build variation queue",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get All SOR Code Mappings2": {
+      "main": [
+        [
+          {
+            "node": "Score SOR Descriptions agains Worker Description2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Score SOR Descriptions agains Worker Description2": {
+      "main": [
+        [
+          {
+            "node": "Final AI Scoring2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Final AI Scoring2": {
+      "main": [
+        [
+          {
+            "node": "Build variation API payload",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build variation API payload": {
+      "main": [
+        [
+          {
+            "node": "stage7_add_variation_post_And_create_tasks2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "stage7_add_variation_post_And_create_tasks2": {
+      "main": [
+        [
+          {
+            "node": "Prepare sheet mark1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Limit1": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items4",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build variation queue": {
+      "main": [
+        [
+          {
+            "node": "Limit1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Variation Created": {
+      "main": [
+        [
+          {
+            "node": "Continue loop1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare sheet mark1": {
+      "main": [
+        [
+          {
+            "node": "IF mark sheet1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF mark sheet1": {
+      "main": [
+        [
+          {
+            "node": "Update Variation Created",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Continue loop1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Continue loop1": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items4",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "a5cd22a95d5313a977e9ac21c3a833db76b18ca78fb8cb2cf7013465d69f17f8"
+  }
+}

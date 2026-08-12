@@ -1,0 +1,372 @@
+{
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 18 * * 5"
+            }
+          ]
+        }
+      },
+      "id": "cc4782b3-1613-4811-8917-1ff4b8798afe",
+      "name": "Schedule weekly Friday",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        2176,
+        1392
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## WIP Report PDF → Gmail (weekly)\n\nRuns **weekly** (Friday 18:00 UK). Reads **Operative Job Sheet** + **OJS BOQ & SMV**.\n\n**Weekly filter:** all **open jobs** (WIP / jeopardy / OJS scope complete) **plus** jobs **completed in the past 7 days** (Europe/London). All visit rows for matched jobs are included so jeopardy/status stay accurate.\n\nPOSTs to `/generate-job-report-pdf`. Requires **Job Status Check** to have run first.\n\n**Redeploy `job_report.py` on the API server** after backend changes.",
+        "height": 336,
+        "width": 560
+      },
+      "id": "d2863895-1671-484d-b266-feb0c54f6f7c",
+      "name": "Note — Job Report PDF1",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        2144,
+        976
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "ngrok-base",
+              "name": "ngrok_base_url",
+              "value": "http://173.212.233.153:8000",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "5b9ac46d-cc62-4215-9fbc-fb9e68f96282",
+      "name": "Set API params1",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        2368,
+        1392
+      ],
+      "notesInFlow": true,
+      "note": "Update ngrok URL each session"
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "1mkklLpvi8klaN4Zo4D_cBrb95PGQ4NbUvtTAvLI4CII",
+          "mode": "list",
+          "cachedResultName": "stage 6",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1mkklLpvi8klaN4Zo4D_cBrb95PGQ4NbUvtTAvLI4CII/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list",
+          "cachedResultName": "Operative Job Sheet",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1mkklLpvi8klaN4Zo4D_cBrb95PGQ4NbUvtTAvLI4CII/edit#gid=0"
+        },
+        "options": {}
+      },
+      "id": "e5fbe838-2346-4637-8a26-019bc51bc115",
+      "name": "Read Operative Job Sheet5",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        2592,
+        1392
+      ],
+      "alwaysOutputData": true,
+      "executeOnce": true,
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "0bvpVa8frZ7qSwzx",
+          "name": "hamza-sheets"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "1mkklLpvi8klaN4Zo4D_cBrb95PGQ4NbUvtTAvLI4CII",
+          "mode": "list",
+          "cachedResultName": "stage 6",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1mkklLpvi8klaN4Zo4D_cBrb95PGQ4NbUvtTAvLI4CII/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 2010323410,
+          "mode": "list",
+          "cachedResultName": "OJS BOQ & SMV",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1mkklLpvi8klaN4Zo4D_cBrb95PGQ4NbUvtTAvLI4CII/edit#gid=2010323410"
+        },
+        "options": {}
+      },
+      "id": "02f5a440-a1d1-4dbb-ba7d-347823bbdcd7",
+      "name": "Read OJS BOQ & SMV4",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        2816,
+        1392
+      ],
+      "alwaysOutputData": true,
+      "executeOnce": true,
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "0bvpVa8frZ7qSwzx",
+          "name": "hamza-sheets"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Cache OJS + BOQ rows — weekly WIP report: open jobs + jobs completed in past 7 days (Europe/London).\nconst OJS_NAMES = [\n  'Read Operative Job Sheet4',\n  'Read Operative Job Sheet',\n  'Read Operative Job Sheet1',\n  'Read Operative Job Sheet5',\n];\nconst BOQ_NAMES = [\n  'Read OJS BOQ & SMV3',\n  'Read OJS BOQ & SMV',\n  'Read OJS BOQ & SMV1',\n  'Read OJS BOQ & SMV4',\n];\nconst WEEK_DAYS = 7;\nconst TZ = 'Europe/London';\n\nfunction pullRows(names) {\n  let best = [];\n  for (let i = 0; i < names.length; i++) {\n    try {\n      const items = $(names[i]).all();\n      if (items && items.length > best.length) {\n        best = items.map(function (it) { return it.json || {}; });\n      }\n    } catch (e) {}\n  }\n  return best;\n}\n\nfunction jobKey(row) {\n  const key = String(row['SmartForm Name'] || row.smart_form_name || row.form_name || '').trim().toUpperCase();\n  return key && !/^SMARTFORM NAME$/i.test(key) ? key : '';\n}\n\nfunction pickCompletedDate(row) {\n  const keys = Object.keys(row || {});\n  for (let i = 0; i < keys.length; i++) {\n    const k = keys[i];\n    if (/^completed(\\s*date)?$/i.test(String(k).trim())) {\n      const v = String(row[k] ?? '').trim();\n      if (v) return v;\n    }\n  }\n  return String(row['Completed Date'] || row['Completed'] || row.completed_date || row.completed || '').trim();\n}\n\nfunction parseDateParts(s) {\n  const t = String(s || '').trim();\n  if (!t) return null;\n  const iso = t.match(/^(\\d{4})-(\\d{2})-(\\d{2})/);\n  if (iso) return { y: +iso[1], m: +iso[2], d: +iso[3] };\n  const m = t.match(/^(\\d{1,2})[\\/\\-](\\d{1,2})[\\/\\-](\\d{2,4})/);\n  if (!m) return null;\n  let a = parseInt(m[1], 10), b = parseInt(m[2], 10), y = parseInt(m[3], 10);\n  if (y < 100) y += 2000;\n  let day, mo;\n  if (a > 12) { day = a; mo = b; }\n  else if (b > 12) { mo = a; day = b; }\n  else { day = a; mo = b; }\n  return { y: y, m: mo, d: day };\n}\n\nfunction ymdKey(parts) {\n  if (!parts) return '';\n  const pad = function (n) { return n < 10 ? '0' + n : String(n); };\n  return parts.y + '-' + pad(parts.m) + '-' + pad(parts.d);\n}\n\nfunction londonTodayParts() {\n  const fmt = new Intl.DateTimeFormat('en-GB', {\n    timeZone: TZ,\n    year: 'numeric',\n    month: '2-digit',\n    day: '2-digit',\n  });\n  const bits = fmt.formatToParts(new Date());\n  const out = {};\n  for (let i = 0; i < bits.length; i++) {\n    if (bits[i].type !== 'literal') out[bits[i].type] = bits[i].value;\n  }\n  return { y: +out.year, m: +out.month, d: +out.day };\n}\n\nfunction addDays(parts, delta) {\n  const dt = new Date(Date.UTC(parts.y, parts.m - 1, parts.d));\n  dt.setUTCDate(dt.getUTCDate() + delta);\n  return { y: dt.getUTCFullYear(), m: dt.getUTCMonth() + 1, d: dt.getUTCDate() };\n}\n\nfunction isInWeeklyWindow(dateRaw) {\n  const parts = parseDateParts(dateRaw);\n  if (!parts) return false;\n  const key = ymdKey(parts);\n  const end = londonTodayParts();\n  const start = addDays(end, -(WEEK_DAYS - 1));\n  const startKey = ymdKey(start);\n  const endKey = ymdKey(end);\n  return key >= startKey && key <= endKey;\n}\n\nconst allOjsRows = pullRows(OJS_NAMES);\nconst allBoqRows = pullRows(BOQ_NAMES);\n\nfunction jobIsClosed(row) {\n  const easybop = String(row['Completed'] || row.completed || '').trim();\n  const js = String(row['Job Status'] || row.job_status || '').trim().toLowerCase();\n  return !!easybop || js === 'completed';\n}\n\nconst jobClosed = {};\nconst jobCompletedInWindow = {};\nconst jobKeysAll = new Set();\nfor (let i = 0; i < allOjsRows.length; i++) {\n  const row = allOjsRows[i];\n  const k = jobKey(row);\n  if (!k) continue;\n  jobKeysAll.add(k);\n  if (jobIsClosed(row)) jobClosed[k] = true;\n  // Recency: prefer EasyBOP `Completed`, fall back to the form `Completed Date`.\n  const cd = String(row['Completed'] || row.completed || '').trim() || pickCompletedDate(row);\n  if (cd && isInWeeklyWindow(cd)) jobCompletedInWindow[k] = true;\n}\n\n// Include a job if it is still open (WIP / in jeopardy / OJS scope complete awaiting date)\n// or if it was completed within the last 7 days.\nconst weeklyJobKeys = new Set();\njobKeysAll.forEach(function (k) {\n  if (!jobClosed[k] || jobCompletedInWindow[k]) weeklyJobKeys.add(k);\n});\n\nconst ojsRows = allOjsRows.filter(function (row) {\n  const k = jobKey(row);\n  return k && weeklyJobKeys.has(k);\n});\n\nconst boqRows = allBoqRows.filter(function (row) {\n  const k = jobKey(row);\n  return k && weeklyJobKeys.has(k);\n});\n\nconst sd = $getWorkflowStaticData('global');\nsd._reportOjsRows = ojsRows;\nsd._reportBoqRows = boqRows;\n\nconst end = londonTodayParts();\nconst start = addDays(end, -(WEEK_DAYS - 1));\nconst pad = function (n) { return n < 10 ? '0' + n : String(n); };\nconst weekLabel = pad(start.d) + '/' + pad(start.m) + '/' + start.y + ' – ' + pad(end.d) + '/' + pad(end.m) + '/' + end.y;\n\nreturn [{\n  json: {\n    ojs_rows_stored: ojsRows.length,\n    boq_rows_stored: boqRows.length,\n    ojs_rows_total: allOjsRows.length,\n    weekly_job_count: weeklyJobKeys.size,\n    week_window_label: weekLabel,\n  },\n}];"
+      },
+      "id": "32ced813-8121-4c04-a47e-6c43bbda2218",
+      "name": "Store sheet rows1",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3024,
+        1392
+      ],
+      "executeOnce": true,
+      "notesInFlow": true,
+      "note": "Caches OJS + BOQ rows into static data for Build report payload"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Reads cached rows from static data — set by Store sheet rows node upstream.\nconst sd = $getWorkflowStaticData('global');\nconst ojsRows = sd._reportOjsRows || [];\nconst boqRows = sd._reportBoqRows || [];\nconst storeMeta = (function () {\n  try { return $('Store sheet rows1').first().json || {}; } catch (e) { return {}; }\n})();\nconst dateSlug = new Date().toISOString().slice(0, 10);\nconst weekLabel = storeMeta.week_window_label || '';\nconst weeklyJobCount = storeMeta.weekly_job_count != null ? storeMeta.weekly_job_count : null;\nconst ojsRowsTotal = storeMeta.ojs_rows_total != null ? storeMeta.ojs_rows_total : ojsRows.length;\n\nfunction jobKey(row) {\n  const key = String(row['SmartForm Name'] || row.smart_form_name || row.form_name || '').trim().toUpperCase();\n  return key && !/^SMARTFORM NAME$/i.test(key) ? key : '';\n}\n\nconst jeopardyJobs = new Set();\nconst nextApptJobs = new Set();\nconst managerJobs = new Set();\n\nfor (let i = 0; i < ojsRows.length; i++) {\n  const row = ojsRows[i];\n  const key = jobKey(row);\n  if (!key) continue;\n  const flag = String(row['In Jeopardy'] || row.in_jeopardy || '').trim().toLowerCase();\n  if (flag === 'yes' || flag === 'true' || flag === '1') {\n    jeopardyJobs.add(key);\n    const jt = String(row['Jeopardy Type'] || row.jeopardy_type || '').trim().toLowerCase();\n    if (jt === 'next_appointment_needed') nextApptJobs.add(key);\n    if (jt === 'manager_review') managerJobs.add(key);\n  }\n}\n\nreturn [{\n  json: {\n    ojs_rows: ojsRows,\n    boq_rows: boqRows,\n    ojs_rows_read: ojsRows.length,\n    boq_rows_read: boqRows.length,\n    jeopardy_job_count: jeopardyJobs.size,\n    next_appointment_needed_count: nextApptJobs.size,\n    manager_review_count: managerJobs.size,\n    pdf_filename: 'wip-report-weekly-' + dateSlug + '.pdf',\n    week_window_label: weekLabel,\n    weekly_job_count: weeklyJobCount,\n    ojs_rows_total: ojsRowsTotal,\n  },\n}];"
+      },
+      "id": "294eb2d1-aa6f-467b-afa9-06573f8e4821",
+      "name": "Build report payload1",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3248,
+        1392
+      ],
+      "executeOnce": true,
+      "notesInFlow": true,
+      "note": "Reads OJS + BOQ from static data (set by Store sheet rows) — never empty"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ ($('Set API params1').first().json.ngrok_base_url || '').replace(/\\/+$/, '') + '/generate-job-report-pdf' }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "ngrok-skip-browser-warning",
+              "value": "true"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { ojs_rows: $json.ojs_rows, boq_rows: $json.boq_rows } }}",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "file",
+              "outputPropertyName": "report_pdf"
+            }
+          }
+        }
+      },
+      "id": "b84bc68f-061a-4a08-ba92-c03d3216796b",
+      "name": "Generate PDF1",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        3472,
+        1392
+      ],
+      "notesInFlow": true,
+      "note": "POST sheet data → PDF bytes"
+    },
+    {
+      "parameters": {
+        "jsCode": "function esc(t) {\n  return String(t ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');\n}\n\nconst built = $('Build report payload1').first().json || {};\nconst http = $input.first();\nconst pdf = http.binary && http.binary.report_pdf;\nif (!pdf) {\n  throw new Error('PDF not returned — check API is running and ngrok URL is correct');\n}\n\nconst reportDate = new Date().toLocaleString('en-GB', { timeZone: 'Europe/London' }).replace(',', '');\nconst sheetUrl = 'https://docs.google.com/spreadsheets/d/1mkklLpvi8klaN4Zo4D_cBrb95PGQ4NbUvtTAvLI4CII/edit';\nconst logo = 'https://jeffway.co.uk/wp-content/uploads/2025/05/jeffway-group-1.svg';\n\nconst html = [\n  '<!DOCTYPE html><html><head><meta charset=\"UTF-8\"></head>',\n  '<body style=\"margin:0;padding:0;font-family:Arial,sans-serif;background:#f4f4f4;\">',\n  '<table width=\"100%\" style=\"background:#f4f4f4;padding:20px;\"><tr><td align=\"center\">',\n  '<table width=\"640\" style=\"background:#fff;border-radius:8px;\">',\n  '<tr><td style=\"background:#145c63;padding:20px;text-align:center;\"><img src=\"' + logo + '\" style=\"max-width:160px;\" alt=\"Jeffway Group\"></td></tr>',\n  '<tr><td style=\"padding:24px;\"><h2 style=\"margin:0;color:#145c63;\">Stage 6 — WIP Report</h2>',\n  '<p style=\"color:#56616b;\">Generated: <strong style=\"color:#17212b;\">' + esc(reportDate) + '</strong> (Europe/London)</p>',\n  '<p style=\"color:#444;font-size:14px;\">The attached PDF uses <strong>BCC Tracker Status</strong> sections: <strong>WIP</strong>, <strong>Awaiting next appointment</strong>, <strong>Manager review needed</strong>, and <strong>Awaiting handover info</strong>.</p>',\n  '<p style=\"color:#56616b;font-size:13px;\">OJS rows: ' + esc(built.ojs_rows_read) + ' · BOQ rows: ' + esc(built.boq_rows_read) +\n    ' · Awaiting next appointment: ' + esc(built.next_appointment_needed_count != null ? built.next_appointment_needed_count : '—') +\n    ' · Manager review needed: ' + esc(built.manager_review_count != null ? built.manager_review_count : '—') + '</p></td></tr>',\n  '<tr><td style=\"padding:0 24px 24px;text-align:center;\">',\n  '<a href=\"' + sheetUrl + '\" style=\"display:inline-block;margin:6px;padding:10px 18px;background:#145c63;color:#fff;text-decoration:none;border-radius:4px;font-size:13px;\">Open Stage 6 sheet</a>',\n  '</td></tr>',\n  '<tr><td style=\"background:#f7fafb;padding:16px;text-align:center;font-size:11px;color:#56616b;\">Jeffway Group · Stage 6 WIP report automation</td></tr>',\n  '</table></td></tr></table></body></html>',\n].join('');\n\nconst filename = built.pdf_filename || 'wip-report.pdf';\n\nreturn [{\n  json: {\n    _alert_subject: 'Stage 6 WIP Report — ' + reportDate,\n    _alert_html: html,\n    pdf_filename: filename,\n    ojs_rows_read: built.ojs_rows_read,\n    boq_rows_read: built.boq_rows_read,\n    jeopardy_job_count: built.jeopardy_job_count,\n    next_appointment_needed_count: built.next_appointment_needed_count,\n    manager_review_count: built.manager_review_count,\n  },\n  binary: {\n    report_pdf: Object.assign({}, pdf, { fileName: filename }),\n  },\n}];"
+      },
+      "id": "5d195522-7cdf-447e-b60a-bbfaa0a1b9a4",
+      "name": "Prepare Gmail1",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3696,
+        1392
+      ],
+      "executeOnce": true
+    },
+    {
+      "parameters": {
+        "jsCode": "const prep = (function () {\n  try { return $('Prepare Gmail1').first().json || {}; } catch (e) { return {}; }\n})();\n\nreturn [{\n  json: {\n    ok: true,\n    message: 'WIP report PDF emailed to hamza@eynvision.com',\n    subject: prep._alert_subject || '',\n    pdf_filename: prep.pdf_filename || '',\n    ojs_rows_read: prep.ojs_rows_read,\n    boq_rows_read: prep.boq_rows_read,\n    jeopardy_job_count: prep.jeopardy_job_count,\n    next_appointment_needed_count: prep.next_appointment_needed_count,\n    manager_review_count: prep.manager_review_count,\n    sent_at: new Date().toISOString(),\n  },\n}];"
+      },
+      "id": "f632ea0f-14c1-4ebe-8e23-eb125f4cd82f",
+      "name": "Summarize send1",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4128,
+        1392
+      ],
+      "executeOnce": true
+    },
+    {
+      "parameters": {
+        "sendTo": "hamza@eynvision.com",
+        "subject": "={{ $json._alert_subject }}",
+        "message": "={{ $json._alert_html }}",
+        "options": {
+          "attachmentsUi": {
+            "attachmentsBinary": [
+              {
+                "property": "report_pdf"
+              }
+            ]
+          }
+        }
+      },
+      "id": "fcba526b-9ae9-4b3e-9bda-f75c93ef5e41",
+      "name": "Send Gmail1",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        3904,
+        1392
+      ],
+      "executeOnce": true,
+      "webhookId": "03c4a8dc-0c18-4df9-a402-90d3b6a76d59",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "5zI2J63c77B4YZ0i",
+          "name": "hamza-gmail"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Schedule weekly Friday": {
+      "main": [
+        [
+          {
+            "node": "Set API params1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Set API params1": {
+      "main": [
+        [
+          {
+            "node": "Read Operative Job Sheet5",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Operative Job Sheet5": {
+      "main": [
+        [
+          {
+            "node": "Read OJS BOQ & SMV4",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read OJS BOQ & SMV4": {
+      "main": [
+        [
+          {
+            "node": "Store sheet rows1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Store sheet rows1": {
+      "main": [
+        [
+          {
+            "node": "Build report payload1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build report payload1": {
+      "main": [
+        [
+          {
+            "node": "Generate PDF1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate PDF1": {
+      "main": [
+        [
+          {
+            "node": "Prepare Gmail1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Gmail1": {
+      "main": [
+        [
+          {
+            "node": "Send Gmail1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Gmail1": {
+      "main": [
+        [
+          {
+            "node": "Summarize send1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "a5cd22a95d5313a977e9ac21c3a833db76b18ca78fb8cb2cf7013465d69f17f8"
+  }
+}

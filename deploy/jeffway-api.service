@@ -1,0 +1,18 @@
+[Unit]
+Description=Jeffway EasyBOP FastAPI (port 8010)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/root/projects/jeffway/filler
+EnvironmentFile=-/root/projects/jeffway/.env
+Environment=EASYBOP_RELOAD=false
+ExecStart=/root/projects/jeffway/filler/.venv/bin/python main.py
+Restart=on-failure
+RestartSec=5
+# Playwright/Chromium: use project home for caches and session file paths
+Environment=HOME=/root
+
+[Install]
+WantedBy=multi-user.target

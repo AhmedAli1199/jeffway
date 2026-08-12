@@ -1,0 +1,221 @@
+Stage 4 - catch up  - July 30
+VIEW RECORDING - 28 mins (No highlights): 
+
+---
+
+0:03 - Mark Bence
+  dates against pre-works, that means no one short-circuited the process. But here, we know now pre-completion items to complete means all of those things are green.  So now it's a case of going down that, and anything there, I guess without an appointment date, needs to process.  Oh yeah, we also need to check if it has already been booked. Because, if you remember as well, don't want appointment, appointment date will get updated automatically.  What we use is next appointment date. See it there, next postcode. So that's the one that the AI then needs to update with the appointment once it's, once it's in.  Because that's the other report you do, Hamza. Remember the next appointment date cleanse? Yeah. So if there's a date on the scheduling register, the closest future date should be in next appointment.
+
+1:04 - Hamza Cybix (Cybix)
+  Okay, but from here, how are we going to know which jobs qualify for the first initial appointment?
+
+1:14 - Mark Bence
+  First initial appointment? Well, all of them that don't have an appointment date.
+
+1:22 - Hamza Cybix (Cybix)
+  No, doesn't have a next appointment date.
+
+1:25 - Mark Bence
+  Yeah, all of them without appointment dates. If you go to the... Every job that doesn't have an appointment date must not have had appointments created.  Yeah. So if there's no appointment created, then that means it requires the AI to create the appointments.
+
+1:46 - Ahmed Ali
+  So we don't have to process all of these, like, whichever has an appointment date, we don't process it at all?  I don't think so.
+
+1:55 - Mark Bence
+  No, because they're kind of midway through our initial kind of process. And we're good if we just draw a line.  So anything that we haven't started booking, I think we're happy for you guys to start on with the agent process where they assess and you've produced the appointment list for us and put it in.  Anything else that we've started booking, I think it would just cause a bit of administrational carnage if we start mixing the two processes together.  Yeah, you're right.
+
+2:27 - Ahmed Ali
+  I think it would be clear.
+
+2:29 - Mark Bence
+  that then means you're going to create the appointments and put them in jobs to allocate. Yes. Then what would be really useful is for a report to be sent saying we have created these appointments and it's these jobs that you now need to book off the scheduling board.  So like a separate little summary sent to Chris and the team so they know, OK, they're the ones that have been created today for appointments.  Let's get them booked and basically just saying appointment one and the description that you've added in the appointment so they can.  Do the detail of what's needed. So one fake street, appointment one, two, and three. Two fake street, appointment one.  Do you see what I mean? it's the address, the appointments, the detail as a little summary. And then if they're the next stage is, so that's kind of stage one.  Stage two is we've now put them on the scheduling board and you check and phone. Then there needs another one coming back saying, out of those ones you put on the scheduling board, this one's confirmed, this one's requested X, Y, and Z.  So there's two reports that would come every day, yeah? So you'd get the report of jobs and appointments created and the detail.  You'd then get us doing the bit in the middle saying, I've put this in for these people. Then you've got you guys going, I've taken that, I've booked the appointments for these, these, and these, but Mrs.  Jones couldn't make that time. We've agreed this time because Clayton was free then, so book it for him then.  We couldn't agree a time, so book it 15 days in advance. So like an outcome for each one of the appointments from the previous deck.  Perfect, perfect.
+
+4:16 - Hamza Cybix (Cybix)
+  Yeah, makes sense. Yeah, makes sense. So when all of these...
+
+4:20 - Mark Bence
+  Yeah, I mean, you're going to be classed first. Yeah, because you said about the report before, you? Well, I said about it, you know, it's...  I like the tasks, it's stance. Yeah, there's the reports, thanks, there's the reports. Yeah, I think because then the following day, you'll get the same report, and you'll get...  You can't make some action. Could we have the reports in Excel format would probably be there, with a separate column for the works order number, so then we can actually move the data around if we needed to.  Yeah, yeah, we can send it in Excel.
+
+5:03 - Hamza Cybix (Cybix)
+  So... So when exactly do these two reports needed to be sent daily, at one time, basically?
+
+5:11 - Mark Bence
+  So if you said the report for jobs that the appointments have been created, you may as well have that first thing in the morning.  So first thing in the morning for the jobs that you've created, so what should we say, like 6 a.m.?  Yeah. So 6 a.m. for the jobs that were created by the agent the previous day. And then in terms of the, I've made all the appointments, this is now what you need to do, I would say, yeah, but then you're going to not catch people who are answering the phone in the afternoon, because Michael's going to phone them too late in time.  Well, why don't we get? Do you want one at the end of the day? Well, they're not going to anything.  Yeah. So whether they first come through at 6 a.m. or.
+
+6:08 - Hamza Cybix (Cybix)
+  I mean, we can also add a column in the Excel that we sent in the first sheet, saying that, have you dragged all the appointments to the scheduling board, and once from any of your team members selects that, yes, we have done, then we can check that column, and when that's done, we can send out the second report.
+
+6:34 - Mark Bence
+  So, hang on, if we're booking three weeks, I think, and I think if we do it at 6am every morning, and really clearly title the Excel, appointments have been created by us, appointments created, and appointments confirmed, yeah.  I think that's all right. then... I'm happy.
+
+7:06 - Hamza Cybix (Cybix)
+  Yeah. think that's right.
+
+7:10 - Mark Bence
+  So how quickly could we get that set up?
+
+7:18 - Hamza Cybix (Cybix)
+  The appointments being dragged onto the jobs to allocate board. The first initial appointments.
+
+7:23 - Mark Bence
+  can't do that part, can you? The jobs will appear on the allocation board. But we have to drag them across.  So I think the creation of the jobs, the job bookings, what should we call them?
+
+7:38 - Hamza Cybix (Cybix)
+  No. What are appointments?
+
+7:40 - Mark Bence
+  What are we calling them? Yeah, sorry. Come on. That's good. I'll be working out now. So yeah, the appointment creation, I think.  And then there was some time needed for the actual booking and the appointment, it, to set Michael up there?
+
+7:56 - Hamza Cybix (Cybix)
+  Yeah. Yeah, we also need the studio setup for the Michael part as well, from you guys. Okay. I'm wondering as well how we can cross-check it the next day.
+
+8:06 - Mark Bence
+  So say you've set a big list, and I'm just wondering as well whether we need to cap the amount of jobs that receive appointments, because otherwise in jobs that allocate you can have like 200 over there, and then that's going to be a real thing.  I'm just wondering whether you stagger it over like five days initially, because once we've cleared the Fathom, I don't think there's an excuse.  If they're all on there, then the bottom line at the end of the study, the objective of the sit-down box is clear.  Yeah. If they're just literally dragging and dropping the box, then. They're not even making appointments like that now. You're right.  Should be done in about half a while. Yeah. Okay, yeah. And then I'm just wondering, what checkpoints could we put in?  So you've done your, these are the appointments we've created for you. That report's gone. I'm wondering now, because. The next day, you're going to get a list of new appointments you've created in the last 24-hour window, and that first 24-hour window, all that data has essentially been lost.  So do we just add to it, once it does the check of appointments created, can it then go, well, all of these appointments that I've done yesterday still haven't had a date, so here's your batch of addresses that you need putting on the schedule.  So it's continuously known. So does it, does it visit it again, check which ones are missing from it, which ones are remaining, and then it doesn't add those again?  It doesn't add them again. But it pushes through. Well, it pulls them through to it and say, here's the list, and you add the new ones to it.  So once you've added the new ones you've created, it's got this big list of all of it's ever created, and then it goes, let me check the scheduling register for addresses, appointments that have been booked, for all of these, and then it does a new, fresh list is sent.  Do you see what I mean? Yeah, yeah.
+
+10:03 - Ahmed Ali
+  We can also make a column in the Excel that says that, okay, yes or no. If it is on the schedule register, then yes.
+  ACTION ITEM: Set up agent: 2h sweep to Jobs to Allocate; 6am Excel (WO, address, appts, desc); filter booked; send to Chris - WATCH: https://fathom.video/calls/765448972?timestamp=3.3562329999999996  Or you can just filter out the blanks. Yeah, yeah, filter out so that everything would be in the same shape, but you can apply that filter to only see the ones that you need to put back on the scheduling register.
+  ACTION ITEM: Set up agent: 2h sweep to Jobs to Allocate; 6am Excel (WO, address, appts, desc); filter booked; send to Chris - WATCH: https://fathom.video/calls/765448972?timestamp=3.3562329999999996  Yeah, perfect.
+
+10:25 - Mark Bence
+  So, can we run them independent of it? So, can the agent do like a sweep twice a day? And any new orders that have come through, they can get loaded onto the scheduling board, and then we just get a report of which ones are left on there at the end of the day.  Does that make more sense?
+
+10:44 - Ahmed Ali
+  Then you will get, I think, two reports for per day, in that case.
+
+10:50 - Mark Bence
+  You're saying you're just, you're highlighting the ones that are, that were on there, that are not. Well, get, we get 20 orders a day, and, you know, 10 of them are sort of late in the afternoon, so we...  only get 10 loaded for that day, and they're sitting there, and they've done their 10, whereas it's another 10 that can peer in, because it's not doing the pressure they haven't had at all.  So if the AI is checking for new orders every couple of hours, and then once it recognises a new order that isn't on that scheduling book, then can it then create that appointment?  So it's basically a revolving risk for them, for anything that's in that account to be able to do, is that what works for That's exactly what it would do, because it's basically said, it starts with, I've created all of these appointments, here's all the appointments, here's the description of the work.  So it refreshes those appointments throughout the day. Not throughout the day, we're saying at one point in time, aren't we?  Yeah. But what I'm saying is that if we miss, like, we're losing the days worth of productivity, so if it refreshes it, all the appointments arrive on there at 6 in the morning, it's not until the following morning at 6 in the new appointments.  Yes, there's not a great deal of appointments. During the day, to load up for that, I'm not making sense.  No, we're talking about the same thing, Seth. Yeah. All we're saying is, it's 6am the next day, what I want to avoid, which I think is what you're saying is, it going, here's your fresh list of appointments created yesterday when day one's this, won't be forgotten about.  So what I want is like day wins, is for that jobs to be allocated box to continually refresh throughout the day.  So if they're sitting there and they think they've cleared it at 11, we get any work orders come through after 11, then they are automatically populated on that, so they're on them immediately.  Yeah, it would do that, because it's going to create them and then give a summary of what it created the previous day.  But then it's also going to check off, well, I don't need to worry about that one now, though, because it's on the schedule.  So you still only need one report. The jobs to allocate is going to continuously be added to, guys, isn't it?  Because if something falls into pre-completion... Items to complete, and we run the agent to do the sweep every two hours.  It's going to populate the jobs to allocate for it, but it won't be on the report for that morning.  So if they then, they can still action it and do what they need to do, it just means that it might, it won't appear on the report the next day if it's been scheduled in the meantime.  it's two separate actions. the refreshing of the scheduling board is a separate action, and then the report will only identify anything that's left on there that they haven't booked.  So if they booked everything, then that report will show nothing, because all the work will be on the Because it's going to say, I created all of these reports, all of these appointments yesterday, but actually they're all done.  So you're not, that report would show all appointments, what he booked up today. Are we on the same page, guys?
+
+13:46 - Ahmed Ali
+  Okay, yeah. So yeah, before sending out the report, the agent can check that, okay, all of these appointments I've created, so which one are already on the scheduling board?  So we can then filter them out and only present you with those appointments that are not actually on the scheduling register.  Yeah, so yeah, we can do that.
+
+14:06 - Mark Bence
+  Perfect. I think as well, just like another little check on that report would be, like a possible issue section, which says, hang on, you've booked appointment two before appointment one at Fake Street.  Right. Or not. I think, just to check. I mean, if it can be done, then obviously, yeah, I just think it may be slightly other than the same thing.  If the appointments are labelled, I mean, as we spoke yesterday, mean, how are we going to know? If we get, like, five appointments to one Fake Street, unless they're labelled, they're going to have to physically go into them and check that that's appointment one.  Because appointment one. Yeah, but that's exactly what I'm saying, because it will flag up if you've done it by accident.  But, so if appointment one is to foster three bedrooms and appointment two is to remove the rate. ...in the kitchen, then appointment one and appointment two can be made on the same day.  Yeah, but then it wouldn't be on the JIS as two separate appointments. Or without advances. So the job information sheet will allow you to schedule.  So if you have work in five different areas of property, you can just do that in one visit. Yeah.  And the job information sheet will As long as they're not dependent on each other. That's how it should be set up.  Is that not what's going to be set up?
+
+15:32 - Ahmed Ali
+  I must admit, I'm connected to double-checking this.
+
+15:35 - Mark Bence
+  mean, those guys... All of this is going to come out in the watch anyway. Yeah. But I think that's...  I think having a little summary somewhere that just says that... Because it would be an easy enough check if it's checking the schedule and register anyway, right?  To go, hang on, I've noticed appointment two comes in date order before appointment one. I'll just flag that as something that someone may need to look at.  Might not need action, but just flagging that that's actually happened.
+
+16:01 - Ahmed Ali
+  Yeah, the only problem with that... That's exactly what you're What also about to ask you is that how do we know the ordering?  Because Hamza told me that the GIS is being made by the AI agent. So I don't know if you guys have like seen all of them and you can actually confirm that the appointments, the order in which it makes the appointment is actually accurate or not.  Uh, well, I thought it was.
+
+16:29 - Mark Bence
+  Chris has just asked the same thing. So you probably need to look at it. Yeah, we need to have a feedback on that.
+
+16:38 - Hamza Cybix (Cybix)
+  So we can, if it's been incorrectly failed, we will have to figure it also.
+
+16:43 - Mark Bence
+  I think, I think that doesn't need to hold up what we're planning to do. If it's identifying different tasks and identifying different jobs, as I was just discussing with Mark, if, if all of those jobs are in different rooms in the property, there's no reason why we can't attend in one visit and they're not dependent.  So we can schedule them accordingly ourselves, because we're physically doing the scheduling at the moment by dragging and dropping across.  But if I spend a bit more time reviewing the JIS and on quite complicated multiple measure jobs and see how that's determining them, that might merit us a further conversation later.  I'm sure you'll find some things that need to change. But yeah, that certainly doesn't need to hold up progress of what we've been talking about today.
+
+17:32 - Ahmed Ali
+  Yeah, now we can build it up to the point that we discussed, but afterwards, the rescheduling part that we discussed, that needs to have the order in place for us to like actually know whether there is a conflict or not.
+
+17:55 - Mark Bence
+  Well, yeah, there's always a chance. I just mean, say you looked at five big jobs. Because all you you want.  So then, guys, is Chris to look at it and review five big jobs, for example. Once he then explains the logic and rationale, you just apply that over everything, don't you?
+  ACTION ITEM: Email JIS AI prompt to Mark - WATCH: https://fathom.video/calls/765448972?timestamp=3.3562329999999996  So then that would then, the way that the job information sheet is then completed would always have that logic that Chris has put to you, yeah?  Yeah.
+
+18:23 - Hamza Cybix (Cybix)
+  Or we can also send you the AI prompt that we are giving to the AI to make the GIS, and then you can confirm or add anything to it.
+  ACTION ITEM: Review 5 large JIS; prep feedback for 4pm - WATCH: https://fathom.video/calls/765448972?timestamp=3.3562329999999996
+
+18:34 - Mark Bence
+  Yeah, if we do both, if you send that to me, and what I'll do, when I leave here, I'll set aside a couple of hours, and I'll go through some of those job information sheets.  I'll pick some particularly large jobs that we've got, and see how the agent's handling the production of those, and make sure everything's as unique to it.  Because that's quite, that's an area that, if it's not 100% right, will almost certainly pull down at the start.  And it's really important, especially at the moment. I you know, we give everyone a confidence that this is going to kind of work in what we're telling them to do.  And I'm not saying that, you know, your agent and the way that you're setting up isn't. I just think we need to be sure that we've covered all kind of aspects of it because from experience, once you start rolling it out operationally to our admin team, then they're going to be looking for holes in it and they're going to be looking for errors.  And the slightest thing is going to be, the AI doesn't work as well as it's brought in the rest of it.  We just need to head that off in the past because I'm sure that isn't going to be the case.  know, it's not there that we've done it. It's happened before and like 99.8% of the issues they raised were user error.  You know, and the other 0.2% were something we had to go back to the developers. And it's that kind of level that we're dealing with.  So, but the first stage of it, going right back to the start of job received, order on system, into easy.  The order is now saved on EasyBot, the GIS is created, the special support is in or suspended, etc. All of that is happening, isn't it?  Yeah, yeah, it's like clicking, response repair is safe in the inbox. Yeah, that's already happening.
+  ACTION ITEM: Confirm RR tag vs folder handling; update Mark - WATCH: https://fathom.video/calls/765448972?timestamp=3.3562329999999996
+
+20:22 - Hamza Cybix (Cybix)
+  And then we're moving them into the folders.
+
+20:25 - Mark Bence
+  The RR South folder and the RR North folder are set up. That's where the email's being categorised now. But is that, do you guys look for the tag of RR South, or do you look in the folder RR South?  Because I thought it was using the tag and then they can move it to RR South.
+
+20:44 - Hamza Cybix (Cybix)
+  I think currently we are looking at the RR tag folder, basically. The tag. And yeah, and it also moves the work order, the .msc file to the corresponding South and North folder also.  You can also move it. That's fine.
+
+21:02 - Mark Bence
+  just tag it. Pick it up if it's been already been moved into the folder.
+  ACTION ITEM: Move RR North/South emails to inbox; tag new uploads RR North/South - WATCH: https://fathom.video/calls/765448972?timestamp=3.3562329999999996
+
+21:09 - Hamza Cybix (Cybix)
+  I will confirm it, but that's not a big issue. I mean, we can also filter that also.
+
+21:16 - Mark Bence
+  Well, alternatively, I can go back and move everything. So if I move everything out of those folders and replace them back into the inbox, and then we do a kind of refresh on it, it will pick up the ones it hasn't already dealt with, I'm presuming?
+
+21:32 - Hamza Cybix (Cybix)
+  Yeah, it will take it. So is it better off just to move everything back out?
+
+21:35 - Mark Bence
+  Yeah, I'll do that. So we just move everything back out of our safe into the main inbox, and then it can just run everything in, and it'll pick up the duplicates that it's made, wouldn't it?
+
+21:46 - Hamza Cybix (Cybix)
+  Yeah, it should. It should.
+
+21:48 - Mark Bence
+  Is there a date restriction on that? So if there, you know, I imagine it's only going to be a month or so worth of information, but if it's any further than that, it searches through the whole of the inbox?  It doesn't stop at a certain specific date, I mean?
+
+22:04 - Hamza Cybix (Cybix)
+  Basically, it runs at the interval of two hours, and it basically checks every day that if any new work order has arrived or not.
+
+22:14 - Mark Bence
+  I'll just take everything from the RR South inbox or folder and the RR North folder and move it back into the inbox, and then if that procedure works properly, then everything should be moved back, am I right in thinking?  Yeah. Yeah, sure. Yeah, so just make sure the team there now, whenever to upload the job, I'm going to tag it, response repairs north or south.  And if it says response repairs north, you guys are dealing with that as well, yeah? Yeah, we are also building the north side.  Yeah. So she just needs to say north or south, and that is it. Okay. Okay, that's good. So that, if we do that today, then we'll know exactly where we are with everything.  That part of the pressure. This is done. Then we're saying, you guys, have this part built within, when do you reckon this would be ready?
+
+23:12 - Ahmed Ali
+  Up till what point? So creating the appointments and everything like that.
+
+23:19 - Mark Bence
+  So the reports being set up so they come through with the information we need. The appointments being created on EasyBop, etc.  Is that ready now? Yeah, appointment creation is almost ready.
+
+23:30 - Ahmed Ali
+  We just needed to confirm the filter. So that part is almost done. The next part that we are going to do is to build out the agent as you want to, like, call all of them.  So the agent is already built, but, you know, we need to set it up how you want the Excel sheet and all of the format and the reports that you want.  So you said you just want one report per day, but you want the agent to work every two hours for any new appointments.
+
+23:56 - Mark Bence
+  Yeah, so search for new appointments that's been created and populate the jobs that allocate forward is one thing. Yeah.  Yeah. The other thing is a morning report at 6am. It says, here's all the appointments that we created for you yesterday that aren't booked.  So we've created all of these and they are not booked. And then the other thing is, here is all the appointments that we made based on your scheduling register.  So the appointment confirmation report, so definitely two separate ones to avoid confusion.
+
+24:28 - Hamza Cybix (Cybix)
+  Appointment confirmation report.
+
+24:30 - Mark Bence
+  I phoned all of these people and these are the appointments that they can make based on what you've dragged on your scheduling board.  Right. They couldn't make these, but they can make these dates and then move the report, remove them in the schedule.  But that's the second part of the process once you make the call. But in the meantime, before Michael set up, what would be really helpful if it's ready is the appointment creation and sending the document.  To the team saying, we've created all of these appointments and here's all the detail of them. Get on. We them because they could manually phone until my call was ready.  Yeah. that's one thing that we've got existing on our system without an appointment date, as we went through at the top of the call, and then any new orders that we receive, say, from today.  Okay. Is that right? Yeah, yeah. Perfect. Makes sense.
+
+25:25 - Ahmed Ali
+  Okay. Excellent.
+
+25:27 - Mark Bence
+  Brilliant. I guess the only thing is the job information sheet logic could be a massive downfall that is creating the importance based on the general information sheet.  I you're about to see the logic, I'm sure the logic, no, I'm just not sure that it's  everything at the moment.  I'm not as comfortable, I need more refreshing of mine. I need to look at it. Yeah, so do you want to just wait until Chris has an opportunity to look at the job info sheets?  I think I'll hold that up. Well, yeah, but if you're looking at that... Today, then you could let the guys know, if you're staying a couple of hours after this, one-inch, you've looked to some, then they could apply their logic before we do the mass job information sheet and appointment thing.
+  ACTION ITEM: Send 4pm invite to Mark + Chris - WATCH: https://fathom.video/calls/765448972?timestamp=56.97835699999996  Do you want to give me, do you want to send me that information you were going to send me, Santa?  Can I have a problem? I schedule another, just a quick meet, this afternoon at four? Have you got any availability?  Yeah, availability. If we do it just a very quick, half-hour meeting at four, and I'll go, yeah, there's either some issues that we raised here, here's what we're doing with them.  Can you help out? Or everything's good to go, and at least then we're not delaying it by days, we're just delaying it by hours.  Are you right with that? Yeah, that's okay.
+
+26:49 - Hamza Cybix (Cybix)
+  That's all right. All right.
+
+26:51 - Mark Bence
+  And I'll make sure I do my bit, and I'll start looking at them now, so I'm prepped and ready for you at three, four, four.
+
+26:59 - Ahmed Ali
+  Yeah, sure.
+
+26:59 - Hamza Cybix (Cybix)
+  Yeah, okay.
+
+27:01 - Mark Bence
+  Perfect. Sorry to mess about.
+
+27:03 - Ahmed Ali
+  Yeah, just as a last question, how do you want to receive that report, like from email or like a document that has to be emailed to your team?  Like, what's your preferred format?
+
+27:16 - Mark Bence
+  Excel format as an email attachment. So an attachment in an email as Excel would be ideal.
+
+27:24 - Hamza Cybix (Cybix)
+  Perfect.
+
+27:26 - Ahmed Ali
+  Yeah, we'll build it up. No worries. That sounds great. Looking forward to that.
+
+27:30 - Mark Bence
+  Yeah. Okay.
+
+27:31 - Hamza Cybix (Cybix)
+  So I'll send out an invite to Chris at 4. you very much. Yeah, I'll see you again at 4.  Nice. Thanks a lot, guys. See you soon. Thank you. Okay. Bye. Cheers, guys.

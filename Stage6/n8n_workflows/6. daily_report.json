@@ -1,0 +1,1387 @@
+{
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## Daily Exception Report\n\nThis branch builds the daily exception report by identifying jobs that require another appointment, incorrectly completed forms, and forms with missing photos. It returns summary counts and detailed job records, including operative, date, CORF, form PDF, status, and issue reason. The total exception count includes all records across the three categories, so the same job may be counted more than once.",
+        "height": 252,
+        "width": 672
+      },
+      "id": "dfa64ce1-fc93-4bc2-ac05-b8a1234660ca",
+      "name": "Note — Job Summary Review1",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        2128,
+        1856
+      ]
+    },
+    {
+      "parameters": {
+        "sendTo": "=hamza@eynvision.com",
+        "subject": "={{ $json.email_subject }}",
+        "message": "={{ $json.email_html }}",
+        "options": {
+          "attachmentsUi": {
+            "attachmentsBinary": [
+              {
+                "property": "report_pdf"
+              }
+            ]
+          }
+        }
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        5888,
+        2336
+      ],
+      "id": "137d8113-ffc8-4da4-a64f-9fdc417c58b9",
+      "name": "Send a message",
+      "webhookId": "a2032be5-e6bf-4000-8bcb-1d35f7ee287a",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "5zI2J63c77B4YZ0i",
+          "name": "hamza-gmail"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "1mkklLpvi8klaN4Zo4D_cBrb95PGQ4NbUvtTAvLI4CII",
+          "mode": "list",
+          "cachedResultName": "stage 6"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list",
+          "cachedResultName": "Operative Job Sheet"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        4096,
+        2448
+      ],
+      "id": "8e693013-7d50-4eb0-abe0-ddaf57785691",
+      "name": "Read Job Summary for Daily Report",
+      "executeOnce": true,
+      "alwaysOutputData": true,
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "0bvpVa8frZ7qSwzx",
+          "name": "hamza-sheets"
+        }
+      }
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        4320,
+        2336
+      ],
+      "id": "25b29bd1-47f7-4936-b60d-d98e0e1c4476",
+      "name": "Merge Daily Sources"
+    },
+    {
+      "parameters": {
+        "jsCode": "const JOB_SUMMARY_NODE = 'Read Job Summary for Daily Report';\nconst OPERATIVE_SHEET_NODE = 'Attach Access Classification';\n// Disable only if EasyBOP confirms Q2.8 is optional.\nconst VALIDATE_OUTSTANDING_WORKS = true;\n\nconst FIELDS = {\n  address: 'Q1.1 Address',\n  date: 'Q1.2 Date',\n  jobDetails: 'Q1.3 Job details',\n  asbestos:\n    'Q1.4 Have you read and understood the asbestos report for the property or checked the status with a Manager or Supervisor before',\n  dailyJobs: 'Q2.1 Daily Jobs Table',\n  dailyHours: 'Q2.1 Daily Jobs Table Price/Hours',\n  completedInFull:\n    'Q2.2 Were you able to complete your work in full?',\n  completedPhotos:\n    'Q2.3 Please provide photos of completed work',\n  variations:\n    'Q2.4 Did you complete any additonal work or variations?',\n  incompleteReason:\n    'Q2.5 Please explain why you could not complete your job',\n  variationPhotos:\n    'Q2.6 Please provide photos of variations',\n  variationDetails:\n    'Q2.7 Please provide some detail on the variations? Task, QTY, Location. e.g. skimmed extra 3 sqm in lounge.',\n  outstandingWorks:\n    'Q2.8 Please provide details of any outstanding works you are aware of for this property',\n  notes: 'Q3.1 Notes, if applicable',\n  employeeName: 'Q4.1 Employee Name',\n  employeeSignature: 'Q4.2 Employee Signature',\n};\n\nfunction clean(value) {\n  return value === null || value === undefined\n    ? ''\n    : String(value).trim();\n}\n\nfunction normalized(value) {\n  return clean(value).toLowerCase();\n}\n\nfunction isMissing(value) {\n  const result = normalized(value);\n\n  return result === '' || result === 'not answered';\n}\n\nfunction isNotAnswered(value) {\n  return normalized(value) === 'not answered';\n}\n\nfunction hasValue(value) {\n  return !isMissing(value);\n}\n\nfunction flattenItems(items) {\n  const rows = [];\n\n  for (const item of items) {\n    const json = item.json;\n\n    if (Array.isArray(json)) {\n      rows.push(...json);\n    } else if (Array.isArray(json?.data)) {\n      rows.push(...json.data);\n    } else if (Array.isArray(json?.rows)) {\n      rows.push(...json.rows);\n    } else if (json && typeof json === 'object') {\n      rows.push(json);\n    }\n  }\n\n  return rows.filter(\n    row => row && typeof row === 'object',\n  );\n}\n\nfunction getOptionalNodeRows(nodeName) {\n  try {\n    return flattenItems($(nodeName).all());\n  } catch {\n    return [];\n  }\n}\n\nfunction getRequiredNodeRows(nodeName) {\n  let items;\n\n  try {\n    items = $(nodeName).all();\n  } catch {\n    throw new Error(\n      `Cannot read required node \"${nodeName}\".`,\n    );\n  }\n\n  const rows = flattenItems(items);\n\n  if (rows.length === 0) {\n    throw new Error(\n      `Required node \"${nodeName}\" returned no rows.`,\n    );\n  }\n\n  return rows;\n}\n\nfunction extractCorf(row) {\n  const direct =\n    clean(row.CORF) ||\n    clean(row.corf) ||\n    clean(row['CORF Number']);\n\n  if (direct) {\n    return direct;\n  }\n\n  const source =\n    clean(row['SmartForm Name']) ||\n    clean(row['Job Header']) ||\n    clean(row['Job Summary']);\n\n  return source.match(/:\\s*(\\d+)\\s*$/)?.[1] || '';\n}\n\nfunction extractFirstDate(value) {\n  return clean(value).match(\n    /\\d{2}\\/\\d{2}\\/\\d{4}/,\n  )?.[0] || '';\n}\n\nfunction isTruthyFlag(value) {\n  return [\n    'true',\n    'yes',\n    '1',\n    'access issue',\n    'access issue detected',\n  ].includes(normalized(value));\n}\n\nfunction getAccessIssue(row) {\n  const explicitValue =\n    row['Access Issue'] ??\n    row['Access Issue Detected'] ??\n    row['Has Access Issue'] ??\n    row.access_issue;\n\n  if (\n    explicitValue !== null &&\n    explicitValue !== undefined &&\n    clean(explicitValue) !== ''\n  ) {\n    return isTruthyFlag(explicitValue);\n  }\n\n  // Fallback: detect the exact marker written into notes by OpenAI.\n  return normalized(row[FIELDS.notes]).includes(\n    'access issue',\n  );\n}\n\nfunction dateTimestamp(value) {\n  const date = extractFirstDate(value);\n  const match = date.match(\n    /^(\\d{2})\\/(\\d{2})\\/(\\d{4})$/,\n  );\n\n  if (!match) {\n    return 0;\n  }\n\n  const [, day, month, year] = match;\n\n  return Date.UTC(\n    Number(year),\n    Number(month) - 1,\n    Number(day),\n  );\n}\n\nfunction formKey(row) {\n  return (\n    clean(row.smart_form_x_id) ||\n    [\n      extractCorf(row),\n      extractFirstDate(row[FIELDS.date]),\n      clean(row[FIELDS.employeeName]),\n      clean(row['SmartForm Name']),\n    ].join('|')\n  );\n}\n\nfunction jobKey(row) {\n  return (\n    extractCorf(row) ||\n    clean(row['Job Header']) ||\n    clean(row['SmartForm Name']) ||\n    clean(row['Job Summary'])\n  );\n}\n\nfunction uniqueRows(rows, keyFunction) {\n  const seen = new Set();\n  const result = [];\n\n  for (const row of rows) {\n    const key = keyFunction(row);\n\n    if (!key || seen.has(key)) {\n      continue;\n    }\n\n    seen.add(key);\n    result.push(row);\n  }\n\n  return result;\n}\n\nfunction baseRecord(row) {\n  return {\n    smart_form_name:\n      clean(row['SmartForm Name']) ||\n      clean(row['Job Header']) ||\n      clean(row['Job Summary']),\n\n    corf: extractCorf(row),\n\n    operative:\n      clean(row[FIELDS.employeeName]) ||\n      clean(row['Created By']) ||\n      clean(row.Operative),\n\n    form_date:\n      extractFirstDate(row[FIELDS.date]) ||\n      extractFirstDate(row['Date Created']) ||\n      extractFirstDate(row.Date),\n\n    date_created:\n      extractFirstDate(row['Date Created']) ||\n      extractFirstDate(row[FIELDS.date]),\n\n    smart_form_x_id: clean(row.smart_form_x_id),\n    pdf_url: clean(row.pdf_url),\n    job_status: normalized(row['Job Status']),\n\n    notes: isMissing(row[FIELDS.notes])\n      ? ''\n      : clean(row[FIELDS.notes]),\n\n    access_issue: getAccessIssue(row),\n\n    access_issue_reason: clean(row.access_issue_reason),\n  };\n}\n\nconst jobSummaryRows = uniqueRows(\n  getOptionalNodeRows(JOB_SUMMARY_NODE),\n  jobKey,\n);\n\nconst operativeRows = uniqueRows(\n  getOptionalNodeRows(OPERATIVE_SHEET_NODE).filter(row => !row._no_rows_in_scope),\n  formKey,\n);\n\n/*\n * Index operative forms by CORF so Section 1 can include\n * a link to the latest available operative form.\n */\nconst operativeFormsByCorf = new Map();\n\nfor (const row of operativeRows) {\n  const corf = extractCorf(row);\n\n  if (!corf) {\n    continue;\n  }\n\n  if (!operativeFormsByCorf.has(corf)) {\n    operativeFormsByCorf.set(corf, []);\n  }\n\n  operativeFormsByCorf.get(corf).push(row);\n}\n\nfor (const forms of operativeFormsByCorf.values()) {\n  forms.sort((a, b) => {\n    return dateTimestamp(\n      b[FIELDS.date] || b['Date Created'],\n    ) - dateTimestamp(\n      a[FIELDS.date] || a['Date Created'],\n    );\n  });\n}\n\n/*\n * Condition 1:\n * Job Summary rows where Job Status = incomplete.\n */\nconst nextAppointments = jobSummaryRows\n  .filter(row =>\n    normalized(row['Job Status']) === 'incomplete',\n  )\n  .map(row => {\n    const record = baseRecord(row);\n    const matchingForms =\n  operativeFormsByCorf.get(record.corf) || [];\n\n  const matchingForm = matchingForms[0];\n\n  const accessForm = matchingForms.find(\n    form => form.access_issue === true,\n  );\n\n    if (matchingForm) {\n      record.smart_form_x_id =\n        clean(matchingForm.smart_form_x_id);\n    \n      record.pdf_url =\n        clean(matchingForm.pdf_url);\n    \n      record.notes = isMissing(\n        matchingForm[FIELDS.notes],\n      )\n        ? ''\n        : clean(matchingForm[FIELDS.notes]);\n    \n      record.access_issue = Boolean(accessForm);\n\n      record.access_issue_reason = accessForm\n        ? clean(accessForm.access_issue_reason)\n        : '';\n      \n      if (!record.form_date) {\n        record.form_date =\n          extractFirstDate(matchingForm[FIELDS.date]) ||\n          extractFirstDate(\n            matchingForm['Date Created'],\n          );\n      }\n    }\n\n    return {\n      ...record,\n      reason:\n        clean(row['Job Status Notes']) ||\n        clean(row.Reason) ||\n        'Job marked incomplete',\n    };\n  })\n  .sort((a, b) =>\n    a.smart_form_name.localeCompare(\n      b.smart_form_name,\n      undefined,\n      { numeric: true },\n    ),\n  );\n\n/*\n * Condition 2:\n * Validate each Operative Job Sheet form.\n */\nconst incorrectForms = [];\n\nfor (const row of operativeRows) {\n  const issues = [];\n\n  const requiredFields = [\n    [FIELDS.address, 'Address missing'],\n    [FIELDS.date, 'Form date missing'],\n    [FIELDS.jobDetails, 'Job details missing'],\n    [FIELDS.asbestos, 'Asbestos confirmation missing'],\n    [FIELDS.dailyJobs, 'Daily Jobs description missing'],\n    [FIELDS.dailyHours, 'Daily Jobs hours missing'],\n    [\n      FIELDS.completedInFull,\n      'Work completed in full answer missing',\n    ],\n    [\n      FIELDS.variations,\n      'Additional work/variation answer missing',\n    ],\n    [FIELDS.employeeName, 'Employee name missing'],\n  ];\n\n  for (const [field, message] of requiredFields) {\n    if (isMissing(row[field])) {\n      issues.push(message);\n    }\n  }\n\n  const completedAnswer = normalized(\n    row[FIELDS.completedInFull],\n  );\n\n  const variationAnswer = normalized(\n    row[FIELDS.variations],\n  );\n\n  if (\n    completedAnswer === 'no' &&\n    isMissing(row[FIELDS.incompleteReason])\n  ) {\n    issues.push(\n      'Reason job was not completed is missing',\n    );\n  }\n\n  if (\n    VALIDATE_OUTSTANDING_WORKS &&\n    completedAnswer === 'no' &&\n    isMissing(row[FIELDS.outstandingWorks])\n  ) {\n    issues.push(\n      'Outstanding works details are missing',\n    );\n  }\n\n  if (\n    variationAnswer === 'yes' &&\n    isMissing(row[FIELDS.variationDetails])\n  ) {\n    issues.push('Variation details are missing');\n  }\n\n  if (issues.length > 0) {\n    incorrectForms.push({\n      ...baseRecord(row),\n      issues,\n      issue_summary: issues.join('; '),\n    });\n  }\n}\n\n/*\n * Condition 3:\n * Only literal \"Not Answered\" photo values are missing.\n */\nconst missingPhotos = [];\n\nfor (const row of operativeRows) {\n  const issues = [];\n\n  const dailyJobsContainWork = hasValue(\n    row[FIELDS.dailyJobs],\n  );\n\n  const variationAnswer = normalized(\n    row[FIELDS.variations],\n  );\n\n  if (\n    dailyJobsContainWork &&\n    isNotAnswered(row[FIELDS.completedPhotos])\n  ) {\n    issues.push('Completed-work photos missing');\n  }\n\n  if (\n    variationAnswer === 'yes' &&\n    isNotAnswered(row[FIELDS.variationPhotos])\n  ) {\n    issues.push('Variation photos missing');\n  }\n\n  if (issues.length > 0) {\n    missingPhotos.push({\n      ...baseRecord(row),\n      issues,\n      issue_summary: issues.join('; '),\n    });\n  }\n}\n\nreturn [\n  {\n    json: {\n      report_generated_at: new Date().toISOString(),\n\n      summary: {\n        next_appointment_jobs:\n          nextAppointments.length,\n        incorrectly_completed_forms:\n          incorrectForms.length,\n        forms_missing_photos:\n          missingPhotos.length,\n        operative_rows_in_scope:\n          operativeRows.length,\n      },\n\n      operative_rows_in_scope: operativeRows.length,\n      next_appointments: nextAppointments,\n      incorrect_forms: incorrectForms,\n      missing_photos: missingPhotos,\n\n      total_exception_count:\n        nextAppointments.length +\n        incorrectForms.length +\n        missingPhotos.length,\n    },\n  },\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4544,
+        2336
+      ],
+      "id": "77fc4f17-86f5-4f68-93fe-6806294b9bec",
+      "name": "Build Daily Exception Report"
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 18 * * 1-5"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.3,
+      "position": [
+        2176,
+        2448
+      ],
+      "id": "16176464-44c6-470f-b8b4-5951e5855dc5",
+      "name": "Daily Exception Report"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{\n  (\n    $('Set Daily PDF API Params').first().json.ngrok_base_url || ''\n  ).replace(/\\/+$/, '') +\n  '/extract-operative-job-sheets'\n}}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "ngrok-skip-browser-warning",
+              "value": "true"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({\n  days_to_look_back: ($('Set Daily PDF API Params').first().json.backfill_all_dates === true)\n    ? null\n    : ($('Set Daily PDF API Params').first().json.days_to_look_back ?? 1),\n  only_complete: $('Set Daily PDF API Params').first().json.only_complete !== false,\n  max_form_age_weeks: 0\n}) }}",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          },
+          "timeout": 900000
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2624,
+        2240
+      ],
+      "id": "1bab48e5-e1c9-4e28-9e01-8d1406221d07",
+      "name": "Fetch OJS From EasyBOP",
+      "executeOnce": true,
+      "alwaysOutputData": true,
+      "notesInFlow": true,
+      "note": "Scrapes register.php directly: only Complete OJS forms within days_to_look_back (Created By, Date Created, Status + Q fields)."
+    },
+    {
+      "parameters": {
+        "jsCode": "function extractApiBody(resp) {\n  const statusCode = resp.statusCode ?? resp.status ?? 0;\n  let body = resp.body ?? resp.data ?? resp;\n  if (typeof body === 'string') {\n    try {\n      body = JSON.parse(body);\n    } catch (e) {\n      const m = body.match(/\\{[\\s\\S]*\\}/);\n      if (m) {\n        try { body = JSON.parse(m[0]); } catch (e2) { body = {}; }\n      } else {\n        body = {};\n      }\n    }\n  }\n  if (\n    body &&\n    typeof body === 'object' &&\n    body.body &&\n    body.results === undefined &&\n    body.total_extracted === undefined\n  ) {\n    body = body.body;\n  }\n  return { statusCode, body: body || {} };\n}\n\nfunction clean(v) {\n  return v === null || v === undefined ? '' : String(v).trim();\n}\n\nfunction isBccResponseRepairsName(name) {\n  return /:\\s*BCC\\s+Respon(?:se|sive)\\s+Repairs\\b/i.test(String(name || '').trim());\n}\n\nconst Q21_DESC_COL = 'Q2.1 Daily Jobs Table';\nconst Q21_PRICE_COL = 'Q2.1 Daily Jobs Table Price/Hours';\n\nfunction addLabeledFields(target, parsed) {\n  const labeled = parsed.labeled_fields || {};\n  for (const [col, val] of Object.entries(labeled)) {\n    if (val == null) continue;\n    if (Array.isArray(val) || (typeof val === 'object' && val !== null)) {\n      const text = JSON.stringify(val);\n      if (text && text !== '[]' && text !== '{}') target[col] = text;\n      continue;\n    }\n    const text = String(val).trim();\n    if (col === Q21_PRICE_COL || text) target[col] = text;\n  }\n}\n\n// Photos: 'Not Answered' when none attached (so missing-photo validation fires),\n// 'Yes' when the operative attached at least one.\nfunction photoValue(parsed, key) {\n  const photos = parsed.photos || {};\n  const count = Array.isArray(photos[key]) ? photos[key].length : 0;\n  return count > 0 ? 'Yes' : 'Not Answered';\n}\n\nfunction corfFromQ11Address(addr) {\n  const s = String(addr ?? '').trim();\n  const m = s.match(/-(\\d+\\/\\d+)\\s*$/);\n  return m ? m[1] : '';\n}\n\nconst respRaw = $('Fetch OJS From EasyBOP').first().json || {};\nconst { statusCode, body } = extractApiBody(respRaw);\nconst results = Array.isArray(body.results) ? body.results : [];\n\nconst out = [];\nfor (const r of results) {\n  const grid = r.grid || {};\n  const cells = grid.cells || {};\n  const parsed = r.parsed || {};\n\n  const smartFormName = grid.form_name || cells.list_form_name || parsed.job_header || '';\n  if (!isBccResponseRepairsName(smartFormName)) continue;\n\n  const row = {\n    smart_form_x_id: clean(r.smart_form_x_id),\n    'SmartForm Name': clean(smartFormName),\n    'Date Created': clean(grid.date_created || cells.list_date_created),\n    'SmartForm Template Name': clean(grid.template_name || cells.list_template_name || parsed.template_title),\n    Status: clean(grid.status || cells.list_status || 'Complete'),\n    'Completed Date': clean(grid.date_completed || cells.list_date_completed),\n    'Completed Time': clean(grid.time_completed || cells.list_time_completed),\n    'Created By': clean(grid.created_by || cells.list_created_by),\n    Module: clean(grid.module_name || cells.list_module_name),\n    CORF: '',\n    'Job Header': clean(parsed.job_header),\n    pdf_url: clean(r.pdf_url),\n    extracted_at: new Date().toISOString(),\n  };\n\n  addLabeledFields(row, parsed);\n  row['Q2.3 Please provide photos of completed work'] = photoValue(parsed, 'completed_work');\n  row['Q2.6 Please provide photos of variations'] = photoValue(parsed, 'variations');\n  row.CORF = corfFromQ11Address(row['Q1.1 Address']) || clean(parsed.corf);\n\n  out.push({ json: row });\n}\n\nif (!out.length) {\n  return [{\n    json: {\n      _no_rows_in_scope: true,\n      _fetch_status: statusCode,\n      _fetch_message: body.message || (statusCode >= 400\n        ? `extract HTTP ${statusCode}`\n        : 'No Complete OJS forms in scope'),\n      total_extracted: body.total_extracted ?? 0,\n      total_grid_matched: body.total_grid_matched ?? 0,\n      total_skipped_part_complete: body.total_skipped_part_complete ?? 0,\n      total_skipped_out_of_scope: body.total_skipped_out_of_scope ?? 0,\n    },\n  }];\n}\n\nreturn out;\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2848,
+        2080
+      ],
+      "id": "2fc70f81-aef8-426c-b6d3-d133e6374ac4",
+      "name": "Map EasyBOP OJS Rows",
+      "notesInFlow": true,
+      "note": "Extract results -> Operative Job Sheet row shape (Q fields, photos Yes/Not Answered) for validation + access AI."
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "ecf6bedc-139b-432c-a069-0717cb14cfca",
+              "name": "ngrok_base_url",
+              "value": "http://173.212.233.153:8000",
+              "type": "string"
+            },
+            {
+              "id": "days-to-look-back",
+              "name": "days_to_look_back",
+              "value": 1,
+              "type": "number"
+            },
+            {
+              "id": "backfill-all-dates",
+              "name": "backfill_all_dates",
+              "value": false,
+              "type": "boolean"
+            },
+            {
+              "id": "only-complete",
+              "name": "only_complete",
+              "value": true,
+              "type": "boolean"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        2400,
+        2448
+      ],
+      "id": "d89e4f59-0a94-4202-872f-fe0c4e4055bd",
+      "name": "Set Daily PDF API Params",
+      "notesInFlow": true,
+      "note": "days_to_look_back: 0=today, 1=today+yesterday. only_complete=true drops Part Complete. backfill_all_dates=true ignores date filter."
+    },
+    {
+      "parameters": {
+        "jsCode": "const payload =\n  $('Build Daily Form Issue Cases').first().json;\n\nreturn [\n  {\n    json: {\n      report_type: payload.report_type,\n      report_generated_at: payload.report_generated_at,\n      report_date: payload.report_date,\n      summary: payload.summary,\n      operative_groups: payload.operative_groups,\n      pdf_filename: payload.pdf_filename,\n    },\n  },\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        5216,
+        2336
+      ],
+      "id": "3e1abf31-94f8-499d-95b8-d068a75ef633",
+      "name": "Build Daily PDF Payload"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{\n  (\n    $('Set Daily PDF API Params')\n      .first()\n      .json\n      .ngrok_base_url || ''\n  ).replace(/\\/+$/, '') +\n  '/generate-daily-exception-report-pdf'\n}}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "ngrok-skip-browser-warning",
+              "value": "true"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{\n  {\n    report_type: $json.report_type,\n    report_generated_at: $json.report_generated_at,\n    report_date: $json.report_date,\n    summary: $json.summary,\n    operative_groups: $json.operative_groups\n  }\n}}",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "file",
+              "outputPropertyName": "report_pdf"
+            }
+          }
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        5440,
+        2336
+      ],
+      "id": "3a5369a7-6dee-41f6-b969-4889124b8d92",
+      "name": "Generate Daily Exception PDF"
+    },
+    {
+      "parameters": {
+        "jsCode": "function escapeHtml(value) {\n  return String(value ?? '')\n    .replaceAll('&', '&amp;')\n    .replaceAll('<', '&lt;')\n    .replaceAll('>', '&gt;');\n}\n\nfunction statCard(value, label, accent) {\n  const color = accent ? 'color:' + accent + ';' : '';\n  return '<td style=\"background:#f7fafb;border:1px solid #dce3e8;border-radius:8px;padding:14px;text-align:center;width:16%;\">'\n    + '<div style=\"font-size:22px;font-weight:700;' + color + '\">' + escapeHtml(value) + '</div>'\n    + '<div style=\"font-size:10px;color:#56616b;text-transform:uppercase;\">' + escapeHtml(label) + '</div></td>';\n}\n\nconst payload = $('Build Daily PDF Payload').first().json;\nconst response = $input.first();\nconst pdf = response.binary?.report_pdf;\nif (!pdf) throw new Error('Daily form report PDF was not returned by the API.');\n\nconst reportDate = new Date().toLocaleString('en-GB', { timeZone: 'Europe/London' }).replace(',', '');\nconst logo = 'https://jeffway.co.uk/wp-content/uploads/2025/05/jeffway-group-1.svg';\nconst sheetUrl = 'https://docs.google.com/spreadsheets/d/1mkklLpvi8klaN4Zo4D_cBrb95PGQ4NbUvtTAvLI4CII/edit';\nconst s = payload.summary || {};\n\nconst statsRow = '<table width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" style=\"margin-bottom:20px;\"><tr>'\n  + statCard(s.new_issue_count, 'New today', '#145c63')\n  + '<td width=\"6\"></td>'\n  + statCard(s.existing_open_count || 0, 'Still open', '#56616b')\n  + '<td width=\"6\"></td>'\n  + statCard(s.total_issue_count || s.new_issue_count, 'Total in PDF', '#145c63')\n  + '<td width=\"6\"></td>'\n  + statCard(s.affected_operatives, 'Operatives', null)\n  + '<td width=\"6\"></td>'\n  + statCard(s.access_issue_forms, 'Access issues', '#b23c17')\n  + '</tr></table>';\n\nconst html = [\n  '<!DOCTYPE html><html><head><meta charset=\"UTF-8\"></head>',\n  '<body style=\"margin:0;padding:0;font-family:Arial,Helvetica,sans-serif;background:#f4f4f4;\">',\n  '<table width=\"100%\" style=\"background:#f4f4f4;padding:20px;\"><tr><td align=\"center\">',\n  '<table width=\"640\" style=\"background:#fff;border-radius:8px;overflow:hidden;\">',\n  '<tr><td style=\"background:#145c63;padding:20px;text-align:center;\"><img src=\"' + logo + '\" style=\"max-width:160px;\" alt=\"Jeffway Group\"></td></tr>',\n  '<tr><td style=\"padding:24px 24px 8px;\"><h2 style=\"margin:0;color:#145c63;\">Daily Form Quality Report</h2>',\n  '<p style=\"color:#56616b;font-size:13px;margin:8px 0 0;\">Report date: <strong style=\"color:#17212b;\">' + escapeHtml(payload.report_date) + '</strong> · Generated ' + escapeHtml(reportDate) + ' (Europe/London)</p></td></tr>',\n  '<tr><td style=\"padding:8px 24px 8px;\"><p style=\"color:#444;font-size:14px;margin:0 0 16px;\">The daily form quality report is attached as a PDF. Summary:</p>',\n  statsRow,\n  '</td></tr>',\n  '<tr><td style=\"padding:0 24px 24px;text-align:center;\">',\n  '<a href=\"' + sheetUrl + '\" style=\"display:inline-block;padding:10px 18px;background:#145c63;color:#fff;text-decoration:none;border-radius:4px;font-size:13px;\">Open Form Issue Cases sheet</a>',\n  '</td></tr>',\n  '<tr><td style=\"background:#f7fafb;padding:16px;text-align:center;font-size:11px;color:#56616b;\">Jeffway Group · Stage 6 daily form quality automation</td></tr>',\n  '</table></td></tr></table></body></html>',\n].join('');\n\nreturn [{\n  json: {\n    email_subject: 'Daily Form Report — ' + payload.report_date,\n    email_html: html,\n    new_issue_count: s.new_issue_count,\n    existing_open_count: s.existing_open_count || 0,\n    total_issue_count: s.total_issue_count || s.new_issue_count,\n    affected_operatives: s.affected_operatives,\n    affected_forms: s.affected_forms,\n    access_issue_forms: s.access_issue_forms,\n  },\n  binary: {\n    report_pdf: {\n      ...pdf,\n      fileName: payload.pdf_filename,\n      mimeType: 'application/pdf',\n      fileExtension: 'pdf',\n    },\n  },\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        5664,
+        2336
+      ],
+      "id": "86eac071-ae34-41d2-9d81-cef8977f078d",
+      "name": "Prepare Daily Report Gmail"
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "1mkklLpvi8klaN4Zo4D_cBrb95PGQ4NbUvtTAvLI4CII",
+          "mode": "list",
+          "cachedResultName": "stage 6",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1mkklLpvi8klaN4Zo4D_cBrb95PGQ4NbUvtTAvLI4CII/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 1568362364,
+          "mode": "list",
+          "cachedResultName": "Form Issue Cases",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1mkklLpvi8klaN4Zo4D_cBrb95PGQ4NbUvtTAvLI4CII/edit#gid=1568362364"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        4544,
+        2624
+      ],
+      "id": "ab41d0ac-7c35-4b63-8db1-7621f8d14510",
+      "name": "Read Form Issue Cases",
+      "alwaysOutputData": true,
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "0bvpVa8frZ7qSwzx",
+          "name": "hamza-sheets"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const TZ = 'Europe/London';\nconst DATE_COL = 'date_created';\n\nfunction clean(value) {\n  return value === null || value === undefined ? '' : String(value).trim();\n}\n\nfunction extractFirstDate(value) {\n  return clean(value).match(/\\d{2}\\/\\d{2}\\/\\d{4}/)?.[0] || '';\n}\n\nfunction londonTodayParts() {\n  const fmt = new Intl.DateTimeFormat('en-GB', {\n    timeZone: TZ,\n    year: 'numeric',\n    month: '2-digit',\n    day: '2-digit',\n  });\n  const bits = fmt.formatToParts(new Date());\n  const out = {};\n  for (const bit of bits) {\n    if (bit.type !== 'literal') out[bit.type] = bit.value;\n  }\n  return { y: +out.year, m: +out.month, d: +out.day };\n}\n\nfunction formatParts(parts) {\n  const pad = n => (n < 10 ? '0' + n : String(n));\n  return `${pad(parts.d)}/${pad(parts.m)}/${parts.y}`;\n}\n\nfunction addDays(parts, delta) {\n  const dt = new Date(Date.UTC(parts.y, parts.m - 1, parts.d));\n  dt.setUTCDate(dt.getUTCDate() + delta);\n  return { y: dt.getUTCFullYear(), m: dt.getUTCMonth() + 1, d: dt.getUTCDate() };\n}\n\nfunction todayUkDate() {\n  return formatParts(londonTodayParts());\n}\n\nfunction readParams() {\n  try {\n    return $('Set Daily PDF API Params').first().json || {};\n  } catch {\n    return {};\n  }\n}\n\nfunction daysToLookBack() {\n  const params = readParams();\n  if (params.backfill_all_dates === true) return null;\n  const raw = params.days_to_look_back;\n  const n = Number(raw);\n  if (!Number.isFinite(n) || n < 0) return 0;\n  return Math.floor(n);\n}\n\nfunction scopeDateSet() {\n  const lookback = daysToLookBack();\n  if (lookback === null) return null;\n  const dates = new Set();\n  const end = londonTodayParts();\n  for (let i = 0; i <= lookback; i++) {\n    dates.add(formatParts(addDays(end, -i)));\n  }\n  return dates;\n}\n\nconst FORM_DATE_COL = 'Q1.2 Date';\n\nfunction rowDateCreated(row) {\n  return (\n    extractFirstDate(row.date_created || row[DATE_COL]) ||\n    extractFirstDate(row[FORM_DATE_COL] || row.form_date)\n  );\n}\n\nfunction dateInScope(dateCreated) {\n  const scope = scopeDateSet();\n  if (!scope) return true;\n  return scope.has(dateCreated);\n}\n\nfunction normalize(value) { return clean(value).toLowerCase(); }\n\nfunction issueKey(row, issueType) {\n  return [row.smart_form_x_id || row.corf, row.date_created || row.form_date, row.operative, issueType]\n    .map(value => normalize(value)).join('|');\n}\n\nfunction combineIssues(issues, fallback) {\n  const parts = (Array.isArray(issues) && issues.length ? issues : [fallback])\n    .map(value => clean(value))\n    .filter(Boolean);\n  return [...new Set(parts)].join('; ');\n}\n\nfunction isAccessIssue(value) {\n  return ['true', 'yes', '1', 'access issue'].includes(normalize(value));\n}\n\nfunction existingRows() {\n  try {\n    return $('Read Form Issue Cases').all().map(item => item.json || {});\n  } catch { return []; }\n}\n\nfunction sheetRowToIssue(row) {\n  const issueSummary = clean(\n    row.issue_summary || row['Issue Summary'] || row.issue_detail || row['Issue Detail']\n  );\n  return {\n    issue_key: clean(row.issue_key || row['Issue Key']),\n    status: clean(row.status || row.Status) || 'Open',\n    first_detected_date: extractFirstDate(row.first_detected_date || row['First Detected Date']),\n    last_seen_date: extractFirstDate(row.last_seen_date || row['Last Seen Date']),\n    resolved_date: extractFirstDate(row.resolved_date || row['Resolved Date']),\n    operative: clean(row.operative || row['Created By']) || 'Unknown operative',\n    corf: clean(row.corf || row.CORF),\n    smart_form_x_id: clean(row.smart_form_x_id || row['SmartForm X ID']),\n    form_date: extractFirstDate(row.form_date || row['Date Created'] || row.date_created),\n    date_created: extractFirstDate(row.date_created || row['Date Created'] || row.form_date),\n    smart_form_name: clean(\n      row.smart_form_name || row['SmartForm Name'] || row['SmartForm Template Name']\n    ),\n    issue_type: clean(row.issue_type || row['Issue Type']),\n    issue_detail: clean(row.issue_detail || row['Issue Detail'] || issueSummary),\n    issue_summary: issueSummary,\n    issue_resolved: clean(row.issue_resolved || row['Issue Resolved']),\n    pdf_url: clean(row.pdf_url),\n    access_issue: isAccessIssue(row.access_issue || row['Access Issue']),\n    access_issue_reason: clean(row.access_issue_reason || row['Access Issue Reason']),\n    is_new: false,\n  };\n}\n\nfunction buildOperativeGroups(issues) {\n  const groupsByOperative = new Map();\n  const seenKeys = new Set();\n  for (const issue of issues) {\n    const nk = normalize(issue.issue_key);\n    if (!nk || seenKeys.has(nk)) continue;\n    seenKeys.add(nk);\n    const op = issue.operative || 'Unknown operative';\n    if (!groupsByOperative.has(op)) groupsByOperative.set(op, []);\n    groupsByOperative.get(op).push(issue);\n  }\n  return [...groupsByOperative.entries()]\n    .sort(([a], [b]) => a.localeCompare(b))\n    .map(([operative, forms]) => ({ operative, issue_count: forms.length, forms }));\n}\n\nconst reportDate = todayUkDate();\nconst lookback = daysToLookBack();\nconst scope = scopeDateSet();\n\nconst existingOpenKeys = new Set(\n  existingRows()\n    .filter(row => normalize(row.status || row.Status) === 'open')\n    .map(row => normalize(row.issue_key || row['Issue Key']))\n    .filter(Boolean),\n);\n\nconst newIssues = [];\nconst diagnostics = {\n  incorrect_forms_in_report: 0,\n  missing_photos_in_report: 0,\n  candidate_issues: 0,\n  skipped_date_scope: 0,\n  skipped_existing_open: 0,\n  existing_open_in_pdf: 0,\n  scope_dates: scope ? [...scope].sort() : ['all'],\n  days_to_look_back: lookback === null ? 'all' : lookback,\n  existing_open_keys: existingOpenKeys.size,\n};\n\nfunction addIssue(row, issueType, issueDetail) {\n  diagnostics.candidate_issues += 1;\n  const dateCreated = rowDateCreated(row) || clean(row.form_date);\n  if (!dateInScope(dateCreated)) {\n    diagnostics.skipped_date_scope += 1;\n    return;\n  }\n\n  const key = issueKey({ ...row, date_created: dateCreated }, issueType);\n  if (!key || existingOpenKeys.has(normalize(key))) {\n    diagnostics.skipped_existing_open += 1;\n    return;\n  }\n\n  newIssues.push({\n    issue_key: key,\n    status: 'Open',\n    first_detected_date: reportDate,\n    last_seen_date: reportDate,\n    resolved_date: '',\n    operative: clean(row.operative) || 'Unknown operative',\n    corf: clean(row.corf),\n    smart_form_x_id: clean(row.smart_form_x_id),\n    form_date: clean(row.form_date),\n    date_created: dateCreated,\n    smart_form_name: clean(row.smart_form_name),\n    issue_type: issueType,\n    issue_detail: issueDetail,\n    issue_summary: clean(row.issue_summary || row.reason || issueDetail),\n    issue_resolved: '',\n    pdf_url: clean(row.pdf_url),\n    access_issue: row.access_issue === true,\n    access_issue_reason: clean(row.access_issue_reason),\n    is_new: true,\n  });\n}\n\nconst report = $('Build Daily Exception Report').first().json;\ndiagnostics.incorrect_forms_in_report = (report.incorrect_forms || []).length;\ndiagnostics.missing_photos_in_report = (report.missing_photos || []).length;\ndiagnostics.next_appointments_in_report = (report.next_appointments || []).length;\ndiagnostics.operative_rows_in_scope = report.operative_rows_in_scope ?? report.summary?.operative_rows_in_scope ?? 0;\ndiagnostics.total_exception_count = report.total_exception_count ?? 0;\ndiagnostics.form_issue_cases_source = 'incorrect_forms and missing_photos only (not next_appointments)';\n\nfor (const row of report.incorrect_forms || []) {\n  const detail = combineIssues(row.issues, row.issue_summary || 'Incorrectly completed form');\n  addIssue({ ...row, issue_summary: detail }, 'Incorrect form', detail);\n}\nfor (const row of report.missing_photos || []) {\n  const detail = combineIssues(row.issues, row.issue_summary || 'Required photos missing');\n  addIssue({ ...row, issue_summary: detail }, 'Missing photos', detail);\n}\n\nconst newIssueKeys = new Set(newIssues.map(i => normalize(i.issue_key)).filter(Boolean));\nconst existingOpenForPdf = [];\nfor (const row of existingRows()) {\n  if (normalize(row.status || row.Status) !== 'open') continue;\n  const mapped = sheetRowToIssue(row);\n  if (!mapped.issue_key) continue;\n  if (newIssueKeys.has(normalize(mapped.issue_key))) continue;\n  existingOpenForPdf.push(mapped);\n}\ndiagnostics.existing_open_in_pdf = existingOpenForPdf.length;\n\nconst pdfIssues = [...newIssues, ...existingOpenForPdf];\nconst operative_groups = buildOperativeGroups(pdfIssues);\n\nconst uniqueForms = new Set(\n  pdfIssues.map(i => i.smart_form_x_id || `${i.corf}:${i.date_created || i.form_date}`)\n);\nconst accessForms = new Set(\n  pdfIssues.filter(i => i.access_issue).map(i => i.smart_form_x_id || `${i.corf}:${i.date_created || i.form_date}`)\n);\nconst dateSlug = new Date().toISOString().slice(0, 10);\n\nreturn [{\n  json: {\n    report_type: 'daily_form_report',\n    report_generated_at: new Date().toISOString(),\n    report_date: reportDate,\n    days_to_look_back: lookback === null ? 'all' : lookback,\n    scope_dates: scope ? [...scope].sort() : ['all'],\n    diagnostics,\n    summary: {\n      new_issue_count: newIssues.length,\n      existing_open_count: existingOpenForPdf.length,\n      total_issue_count: pdfIssues.length,\n      affected_operatives: operative_groups.length,\n      affected_forms: uniqueForms.size,\n      access_issue_forms: accessForms.size,\n    },\n    new_issue_cases: newIssues,\n    operative_groups,\n    pdf_filename: `daily-form-report-${dateSlug}.pdf`,\n  },\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4992,
+        2432
+      ],
+      "id": "d47c9e76-83b9-443d-9c49-09a3c4b16a5c",
+      "name": "Build Daily Form Issue Cases"
+    },
+    {
+      "parameters": {
+        "jsCode": "const payload = $('Build Daily Form Issue Cases').first().json || {};\nconst cases = Array.isArray(payload.new_issue_cases) ? payload.new_issue_cases : [];\nconst diag = payload.diagnostics || {};\n\nif (!cases.length) {\n  const parts = [];\n  const formIssues = (diag.incorrect_forms_in_report || 0) + (diag.missing_photos_in_report || 0);\n  const nextAppts = diag.next_appointments_in_report || 0;\n  if (formIssues === 0) {\n    if (nextAppts > 0) {\n      parts.push(`${nextAppts} incomplete jobs in daily report are next-appointment exceptions only; Form Issue Cases tracks Incorrect form and Missing photos, not incomplete job status`);\n    } else {\n      parts.push('No validation issues found in scoped OJS rows');\n    }\n  }\n  if (diag.skipped_existing_open) {\n    parts.push(`${diag.skipped_existing_open} already Open on Form Issue Cases sheet`);\n  }\n  if (diag.skipped_date_scope) {\n    parts.push(`${diag.skipped_date_scope} outside date scope (${(diag.scope_dates || []).join(', ')})`);\n  }\n  return [{\n    json: {\n      _skip_append: true,\n      reason: parts.length ? parts.join('; ') : 'No new issue cases in scope',\n      new_issue_count: 0,\n      diagnostics: diag,\n    },\n  }];\n}\n\nreturn cases.map((issue, index) => ({\n  json: issue,\n  pairedItem: { item: 0, input: 0 },\n}));\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        5216,
+        2528
+      ],
+      "id": "f60171d1-a6c9-45d6-8ba3-664ff63cd275",
+      "name": "Split New Cases for Append",
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "1mkklLpvi8klaN4Zo4D_cBrb95PGQ4NbUvtTAvLI4CII",
+          "mode": "list",
+          "cachedResultName": "stage 6",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1mkklLpvi8klaN4Zo4D_cBrb95PGQ4NbUvtTAvLI4CII/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 1568362364,
+          "mode": "list",
+          "cachedResultName": "Form Issue Cases",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1mkklLpvi8klaN4Zo4D_cBrb95PGQ4NbUvtTAvLI4CII/edit#gid=1568362364"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {
+            "issue_key": "={{$json.issue_key}}",
+            "status": "={{$json.status}}",
+            "first_detected_date": "={{$json.first_detected_date}}",
+            "last_seen_date": "={{$json.last_seen_date}}",
+            "resolved_date": "={{$json.resolved_date}}",
+            "operative": "={{$json.operative}}",
+            "corf": "={{$json.corf}}",
+            "smart_form_x_id": "={{$json.smart_form_x_id}}",
+            "form_date": "={{$json.form_date}}",
+            "date_created": "={{$json.date_created || $json.form_date}}",
+            "smart_form_name": "={{$json.smart_form_name}}",
+            "issue_type": "={{$json.issue_type}}",
+            "issue_detail": "={{$json.issue_detail}}",
+            "issue_summary": "={{$json.issue_summary}}",
+            "issue_resolved": "={{$json.issue_resolved || ''}}",
+            "pdf_url": "={{$json.pdf_url}}",
+            "access_issue": "={{$json.access_issue}}",
+            "access_issue_reason": "={{$json.access_issue_reason}}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "issue_key",
+              "displayName": "issue_key",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "status",
+              "displayName": "status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "first_detected_date",
+              "displayName": "first_detected_date",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "last_seen_date",
+              "displayName": "last_seen_date",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "resolved_date",
+              "displayName": "resolved_date",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "operative",
+              "displayName": "operative",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "corf",
+              "displayName": "corf",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "smart_form_x_id",
+              "displayName": "smart_form_x_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "form_date",
+              "displayName": "form_date",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "date_created",
+              "displayName": "date_created",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "smart_form_name",
+              "displayName": "smart_form_name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "issue_type",
+              "displayName": "issue_type",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "issue_detail",
+              "displayName": "issue_detail",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "issue_summary",
+              "displayName": "issue_summary",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "issue_resolved",
+              "displayName": "issue_resolved",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "pdf_url",
+              "displayName": "pdf_url",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "access_issue",
+              "displayName": "access_issue",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "access_issue_reason",
+              "displayName": "access_issue_reason",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        5664,
+        2528
+      ],
+      "id": "f5a2b34f-1ef5-4b48-a9e8-feaf3e54cf86",
+      "name": "Append New Issue Cases",
+      "alwaysOutputData": true,
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "0bvpVa8frZ7qSwzx",
+          "name": "hamza-sheets"
+        }
+      }
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        4768,
+        2432
+      ],
+      "id": "aee4ff45-ec44-47e8-9abf-61be2f7fbf76",
+      "name": "Merge Report + Existing Cases"
+    },
+    {
+      "parameters": {
+        "jsCode": "const TZ = 'Europe/London';\nconst DATE_COL = 'Date Created';\n\nfunction clean(value) {\n  return value === null || value === undefined ? '' : String(value).trim();\n}\n\nfunction extractFirstDate(value) {\n  return clean(value).match(/\\d{2}\\/\\d{2}\\/\\d{4}/)?.[0] || '';\n}\n\nfunction londonTodayParts() {\n  const fmt = new Intl.DateTimeFormat('en-GB', {\n    timeZone: TZ,\n    year: 'numeric',\n    month: '2-digit',\n    day: '2-digit',\n  });\n  const bits = fmt.formatToParts(new Date());\n  const out = {};\n  for (const bit of bits) {\n    if (bit.type !== 'literal') out[bit.type] = bit.value;\n  }\n  return { y: +out.year, m: +out.month, d: +out.day };\n}\n\nfunction formatParts(parts) {\n  const pad = n => (n < 10 ? '0' + n : String(n));\n  return `${pad(parts.d)}/${pad(parts.m)}/${parts.y}`;\n}\n\nfunction addDays(parts, delta) {\n  const dt = new Date(Date.UTC(parts.y, parts.m - 1, parts.d));\n  dt.setUTCDate(dt.getUTCDate() + delta);\n  return { y: dt.getUTCFullYear(), m: dt.getUTCMonth() + 1, d: dt.getUTCDate() };\n}\n\nfunction todayUkDate() {\n  return formatParts(londonTodayParts());\n}\n\nfunction readParams() {\n  try {\n    return $('Set Daily PDF API Params').first().json || {};\n  } catch {\n    return {};\n  }\n}\n\nfunction daysToLookBack() {\n  const params = readParams();\n  if (params.backfill_all_dates === true) return null;\n  const raw = params.days_to_look_back;\n  const n = Number(raw);\n  if (!Number.isFinite(n) || n < 0) return 0;\n  return Math.floor(n);\n}\n\nfunction scopeDateSet() {\n  const lookback = daysToLookBack();\n  if (lookback === null) return null;\n  const dates = new Set();\n  const end = londonTodayParts();\n  for (let i = 0; i <= lookback; i++) {\n    dates.add(formatParts(addDays(end, -i)));\n  }\n  return dates;\n}\n\nconst FORM_DATE_COL = 'Q1.2 Date';\n\nfunction rowDateCreated(row) {\n  return (\n    extractFirstDate(row[DATE_COL] || row.date_created) ||\n    extractFirstDate(row[FORM_DATE_COL] || row.form_date)\n  );\n}\n\nfunction dateInScope(dateCreated) {\n  const scope = scopeDateSet();\n  if (!scope) return true;\n  return scope.has(dateCreated);\n}\n\nconst lookback = daysToLookBack();\nconst scope = scopeDateSet();\nconst scopeLabel = scope ? [...scope].sort().join(', ') : 'all dates';\nconst inputCount = $input.all().length;\n\nif (lookback === null) {\n  return $input.all().map((item, index) => ({\n    json: { ...(item.json || {}), _date_created_scope: 'backfill' },\n    pairedItem: { item: index },\n  }));\n}\n\nconst kept = [];\nlet skipped = 0;\n\nfor (const item of $input.all()) {\n  const row = item.json || {};\n  const dateCreated = rowDateCreated(row);\n  if (!dateInScope(dateCreated)) {\n    skipped += 1;\n    continue;\n  }\n  kept.push({\n    json: { ...row, _date_created_scope: scopeLabel },\n    pairedItem: item.pairedItem,\n  });\n}\n\nif (kept.length === 0) {\n  return [{\n    json: {\n      _no_rows_in_scope: true,\n      _date_created_scope: scopeLabel,\n      _filter_summary: {\n        input_rows: inputCount,\n        kept_rows: 0,\n        skipped_rows: skipped,\n        days_to_look_back: lookback,\n      },\n    },\n  }];\n}\n\nreturn kept.map((item, index) => ({\n  ...item,\n  json: {\n    ...item.json,\n    _filter_summary: index === 0 ? {\n      input_rows: inputCount,\n      kept_rows: kept.length,\n      skipped_rows: skipped,\n      days_to_look_back: lookback,\n      scope_dates: scopeLabel,\n    } : item.json._filter_summary,\n  },\n}));\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2848,
+        2240
+      ],
+      "id": "a393f15d-1bd4-42fc-b9df-f6669ebd5b5f",
+      "name": "Filter OJS By Date Created",
+      "notesInFlow": true,
+      "note": "Date Created or Q1.2 Date within days_to_look_back (UK)",
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "daddcc97-d122-4c9f-a53f-86eca80ce37c",
+              "leftValue": "={{ $json.issue_key }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        5440,
+        2528
+      ],
+      "id": "a8529c14-b4fc-4da9-9cba-d279a1417304",
+      "name": "Has New Cases To Append"
+    },
+    {
+      "parameters": {
+        "jsCode": "const NOTES_FIELD = 'Q3.1 Notes, if applicable';\nconst COMPLETED_FIELD = 'Q2.2 Were you able to complete your work in full?';\n\nfunction clean(value) {\n  return value === null || value === undefined ? '' : String(value).trim();\n}\nfunction norm(value) { return clean(value).toLowerCase(); }\nfunction isTruthyFlag(value) {\n  return ['true','yes','1','access issue','access issue detected'].includes(norm(value));\n}\nfunction notesArePlaceholder(notes) {\n  const n = norm(notes);\n  return n === '' || n === 'not answered' || n === 'none' || n === 'n/a';\n}\nfunction hasExplicitAccessColumn(row) {\n  const value = row['Access Issue'] ?? row['Access Issue Detected'] ?? row['Has Access Issue'] ?? row.access_issue;\n  return value !== null && value !== undefined && clean(value) !== '';\n}\nfunction notesSuggestAccessReview(notes) {\n  const n = norm(notes);\n  if (notesArePlaceholder(notes)) return false;\n  const keywords = ['access','door','key','keys','refus','not home','no one home','nobody','no answer',\"couldn't enter\",'could not enter','unable to enter','occupant','tenant','resident','locked','entry','appointment','let in','let us in','gain access','no access'];\n  return keywords.some(k => n.includes(k));\n}\nfunction needsAccessAi(row) {\n  if (row._no_rows_in_scope) return false;\n  if (hasExplicitAccessColumn(row)) return false;\n  const notes = row[NOTES_FIELD];\n  if (notesArePlaceholder(notes)) return false;\n  if (norm(row[COMPLETED_FIELD]) === 'no') return true;\n  return notesSuggestAccessReview(notes);\n}\n\nconst inputItems = $input.all().filter(item => !item.json?._no_rows_in_scope);\n\nreturn inputItems.map((item, index) => {\n  const row = { ...item.json };\n  const needsAi = needsAccessAi(row);\n  let access_issue = false;\n  let access_issue_reason = '';\n  if (hasExplicitAccessColumn(row)) {\n    access_issue = isTruthyFlag(row['Access Issue'] ?? row.access_issue);\n    access_issue_reason = access_issue ? clean(row['Access Issue Reason'] ?? row.access_issue_reason) : '';\n  }\n  return {\n    json: {\n      ...row,\n      _ojs_index: index,\n      _needs_access_ai: needsAi,\n      access_issue: needsAi ? false : access_issue,\n      access_issue_reason: needsAi ? '' : access_issue_reason,\n    },\n    pairedItem: { item: index },\n  };\n});\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3072,
+        2240
+      ],
+      "id": "ac0a072f-0d87-4287-835c-97af4b025d05",
+      "name": "Prepare Access Classification",
+      "notesInFlow": true,
+      "note": "Tags all date-scoped OJS rows; only some need OpenAI"
+    },
+    {
+      "parameters": {
+        "jsCode": "return $input.all().filter(item => item.json._needs_access_ai === true);"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3520,
+        2160
+      ],
+      "id": "3bbe000f-041a-42d4-b0ac-f5ed75cd669a",
+      "name": "Filter Notes For Access AI",
+      "notesInFlow": true,
+      "note": "Only forms needing access AI (subset of date-scoped OJS rows). All scoped rows still continue via Attach."
+    },
+    {
+      "parameters": {
+        "modelId": {
+          "__rl": true,
+          "value": "gpt-5.4-nano",
+          "mode": "list",
+          "cachedResultName": "GPT-5.4-NANO"
+        },
+        "responses": {
+          "values": [
+            {
+              "content": "=Classify whether the operative notes contain explicit evidence of an access issue that prevented or delayed work.\n\nCRITICAL DATA RULE:\nThe exact values \"Not Answered\", \"None\", \"N/A\", an empty value, or a blank value mean that no operative note was supplied.\nThey are NOT evidence that nobody answered the door.\nFor those values, always return access_issue = false.\n\nClassify as an access issue only when the notes explicitly state that work was prevented or delayed because:\n\n- The tenant or occupant was not home\n- Nobody answered the door at the property\n- Access was refused\n- The operative could not enter the property\n- Keys were unavailable\n- The appointment or access arrangement failed\n- Furniture, belongings, animals, unsafe occupancy, or another physical obstruction prevented adequate access to the work area\n- The occupant prevented the work from starting\n\nDo not classify as an access issue when the notes only describe:\n\n- Missing materials or equipment\n- Insufficient time\n- Technical problems\n- Work remaining\n- Additional work\n- Customer preferences or specification disagreements\n- A request for the customer to prepare for a future appointment, unless the notes explicitly say the current work was prevented by inadequate access\n- \"Not Answered\", because this is only a form placeholder\n\nReturn access_issue = true only when the notes contain clear, explicit evidence that access prevented or delayed work.\n\nWhen access_issue = false, access_issue_reason must be an empty string.\n\nOperative notes:\n{{ $json[\"Q3.1 Notes, if applicable\"] }}"
+            }
+          ]
+        },
+        "builtInTools": {},
+        "options": {
+          "textFormat": {
+            "textOptions": {
+              "type": "json_schema",
+              "schema": "{\n  \"type\": \"object\",\n  \"properties\": {\n    \"access_issue\": {\n      \"type\": \"boolean\",\n      \"description\": \"True only when access to the property prevented or delayed the work.\"\n    },\n    \"access_issue_reason\": {\n      \"type\": \"string\",\n      \"description\": \"Short explanation of the access issue, or an empty string when there is no access issue.\"\n    }\n  },\n  \"required\": [\n    \"access_issue\",\n    \"access_issue_reason\"\n  ],\n  \"additionalProperties\": false\n}"
+            }
+          }
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "typeVersion": 2.3,
+      "position": [
+        3744,
+        2160
+      ],
+      "id": "25e41b6a-ed9d-4491-8603-ed24be71d4f1",
+      "name": "Classify Access Issue (OpenAI)",
+      "credentials": {
+        "openAiApi": {
+          "id": "aBG3b1KH705oNjYs",
+          "name": "jeffway open ai"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const prepared = $('Prepare Access Classification').all();\nconst aiNeeded = prepared.filter(item => item.json._needs_access_ai === true);\n\nlet aiItems = [];\nif (aiNeeded.length) {\n  try {\n    aiItems = $('Classify Access Issue (OpenAI)').all();\n  } catch {\n    aiItems = [];\n  }\n}\n\nif (aiItems.length !== aiNeeded.length) {\n  throw new Error(`OpenAI returned ${aiItems.length} items for ${aiNeeded.length} forms that needed access classification.`);\n}\n\nfunction parseJson(value) {\n  if (typeof value !== 'string') return value;\n  try { return JSON.parse(value); } catch { return null; }\n}\n\nfunction findClassification(value, depth = 0) {\n  if (depth > 8 || value === null || value === undefined) return null;\n  const parsed = parseJson(value);\n  if (parsed !== value) return findClassification(parsed, depth + 1);\n  if (typeof value !== 'object') return null;\n  if (Object.prototype.hasOwnProperty.call(value, 'access_issue')) {\n    return {\n      access_issue: value.access_issue === true,\n      access_issue_reason: String(value.access_issue_reason ?? '').trim(),\n    };\n  }\n  for (const child of Object.values(value)) {\n    const result = findClassification(child, depth + 1);\n    if (result) return result;\n  }\n  return null;\n}\n\nconst aiByIndex = new Map();\nlet aiPointer = 0;\nfor (const item of prepared) {\n  if (!item.json._needs_access_ai) continue;\n  const classification = findClassification(aiItems[aiPointer]?.json);\n  aiPointer += 1;\n  if (!classification) {\n    throw new Error(`Could not find access classification for smart_form_x_id ${item.json.smart_form_x_id || item.json._ojs_index}.`);\n  }\n  aiByIndex.set(item.json._ojs_index, classification);\n}\n\nreturn prepared.map(item => {\n  const row = { ...item.json };\n  const { _ojs_index, _needs_access_ai, ...rest } = row;\n  if (_needs_access_ai) {\n    const classification = aiByIndex.get(_ojs_index);\n    return {\n      json: {\n        ...rest,\n        access_issue: classification.access_issue,\n        access_issue_reason: classification.access_issue ? classification.access_issue_reason : '',\n      },\n      pairedItem: item.pairedItem,\n    };\n  }\n  return { json: rest, pairedItem: item.pairedItem };\n});\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4096,
+        2240
+      ],
+      "id": "8baf4c2d-57bf-4321-9f6a-bc8026092a58",
+      "name": "Attach Access Classification"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "any-access-ai",
+              "leftValue": "={{ $input.all().filter(i => i.json._needs_access_ai === true).length }}",
+              "rightValue": 0,
+              "operator": {
+                "type": "number",
+                "operation": "gt"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        3296,
+        2240
+      ],
+      "id": "97bb960d-6ca3-443d-9802-3d2b8dc5687a",
+      "name": "Any Access AI Needed?",
+      "notesInFlow": true,
+      "note": "Skip OpenAI when no rows need access classification"
+    },
+    {
+      "parameters": {
+        "jsCode": "function clean(v) { return v === null || v === undefined ? '' : String(v).trim(); }\nfunction norm(v) { return clean(v).toLowerCase(); }\n\nlet rows = [];\ntry { rows = $('Read Form Issue Cases').all().map(i => i.json || {}); } catch (e) { rows = []; }\n\nconst ids = new Set();\nfor (const r of rows) {\n  if (norm(r.Status || r.status) !== 'open') continue;\n  const id = clean(r['SmartForm X ID'] || r.smart_form_x_id);\n  if (id) ids.add(id);\n}\n\nconst smart_form_ids = [...ids];\nreturn [{ json: { smart_form_ids, open_case_count: smart_form_ids.length } }];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4768,
+        2816
+      ],
+      "id": "189c4cb7-1602-49f0-93c0-6fa17a0498e5",
+      "name": "Collect Open Case IDs",
+      "notesInFlow": true,
+      "note": "smart_form_x_id of every OPEN Form Issue Case — re-fetched fresh from EasyBOP to check for resolution."
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "has-open-cases",
+              "leftValue": "={{ ($json.smart_form_ids || []).length }}",
+              "rightValue": 0,
+              "operator": {
+                "type": "number",
+                "operation": "gt"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        4992,
+        2816
+      ],
+      "id": "e0c5cd41-e97e-41ea-95c2-1822352dc174",
+      "name": "Has Open Cases?"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{\n  (\n    $('Set Daily PDF API Params').first().json.ngrok_base_url || ''\n  ).replace(/\\/+$/, '') +\n  '/extract-operative-job-sheets'\n}}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "ngrok-skip-browser-warning",
+              "value": "true"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({\n  smart_form_ids: $json.smart_form_ids,\n  only_complete: false\n}) }}",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          },
+          "timeout": 900000
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        5216,
+        2816
+      ],
+      "id": "efc51645-767c-4e3f-817b-fafdfdaba63a",
+      "name": "Fetch Open Cases From EasyBOP",
+      "notesInFlow": true,
+      "note": "Re-download each open case OJS by smart_form_x_id from EasyBOP."
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ ($('Set Daily PDF API Params').first().json.ngrok_base_url || '').replace(/\\/+$/, '') + '/reconcile-daily-form-issue-cases' }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "ngrok-skip-browser-warning",
+              "value": "true"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { issue_cases: $json.issue_cases, extract_results: $json.extract_results } }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        5568,
+        2816
+      ],
+      "id": "8f9aa7ab-0197-49a0-8dfa-762d234fd65a",
+      "name": "Reconcile Open Cases",
+      "notesInFlow": true,
+      "note": "Server-side reconcile: fixes false Daily Jobs hours resolution + strict smart_form_x_id match."
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "has-case-updates",
+              "leftValue": "={{ $json.issue_key }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        5952,
+        2816
+      ],
+      "id": "3ab660c9-43dd-4e3e-a631-b926c74b606b",
+      "name": "Has Case Updates?"
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "documentId": {
+          "__rl": true,
+          "value": "1mkklLpvi8klaN4Zo4D_cBrb95PGQ4NbUvtTAvLI4CII",
+          "mode": "list",
+          "cachedResultName": "stage 6",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1mkklLpvi8klaN4Zo4D_cBrb95PGQ4NbUvtTAvLI4CII/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 1568362364,
+          "mode": "list",
+          "cachedResultName": "Form Issue Cases",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1mkklLpvi8klaN4Zo4D_cBrb95PGQ4NbUvtTAvLI4CII/edit#gid=1568362364"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {
+            "issue_key": "={{ $json.issue_key }}",
+            "status": "={{ $json.status }}",
+            "issue_summary": "={{ $json.issue_summary }}",
+            "issue_resolved": "={{ $json.issue_resolved }}",
+            "resolved_date": "={{ $json.resolved_date }}",
+            "last_seen_date": "={{ $json.last_seen_date }}"
+          },
+          "matchingColumns": [
+            "issue_key"
+          ],
+          "schema": [
+            {
+              "id": "issue_key",
+              "displayName": "issue_key",
+              "required": false,
+              "defaultMatch": true,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "status",
+              "displayName": "status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "issue_summary",
+              "displayName": "issue_summary",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "issue_resolved",
+              "displayName": "issue_resolved",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "resolved_date",
+              "displayName": "resolved_date",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "last_seen_date",
+              "displayName": "last_seen_date",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        6160,
+        2800
+      ],
+      "id": "f751ef77-b713-45ca-a453-571fb36eab53",
+      "name": "Update Resolved Cases",
+      "alwaysOutputData": true,
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "0bvpVa8frZ7qSwzx",
+          "name": "hamza-sheets"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "function extractApiBody(resp) {\n  const statusCode = resp.statusCode ?? resp.status ?? 0;\n  let body = resp.body ?? resp.data ?? resp;\n  if (typeof body === 'string') {\n    try { body = JSON.parse(body); } catch (e) {\n      const m = body.match(/\\{[\\s\\S]*\\}/);\n      if (m) { try { body = JSON.parse(m[0]); } catch (e2) { body = {}; } } else { body = {}; }\n    }\n  }\n  if (body && typeof body === 'object' && body.body && body.results === undefined && body.total_extracted === undefined) {\n    body = body.body;\n  }\n  return { statusCode, body: body || {} };\n}\n\nconst fetchRaw = $('Fetch Open Cases From EasyBOP').first().json || {};\nconst { body } = extractApiBody(fetchRaw);\nconst results = Array.isArray(body.results) ? body.results : [];\n\nlet issueCases = [];\ntry { issueCases = $('Read Form Issue Cases').all().map(i => i.json || {}); } catch (e) { issueCases = []; }\n\nreturn [{\n  json: {\n    issue_cases: issueCases,\n    extract_results: results,\n    refetched_count: results.length,\n    open_case_count: issueCases.filter(r => String(r.status || r.Status || '').toLowerCase() === 'open').length,\n  },\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        5392,
+        2816
+      ],
+      "id": "7722b18a-91dc-4db1-b566-3a88d613a703",
+      "name": "Build Daily Reconcile Request",
+      "executeOnce": true,
+      "notesInFlow": true,
+      "note": "Pack Form Issue Cases + EasyBOP fetch results for reconcile API."
+    },
+    {
+      "parameters": {
+        "jsCode": "const r = $input.first().json || {};\nconst updates = Array.isArray(r.sheet_updates) ? r.sheet_updates : [];\nif (!updates.length) {\n  return [{\n    json: {\n      _skip_update: true,\n      reason: 'No open cases changed after reconciliation',\n      diagnostics: r.diagnostics || {},\n    },\n  }];\n}\nreturn updates.map(u => ({ json: u }));"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        5760,
+        2816
+      ],
+      "id": "aad0fcb2-f3c1-4aab-b88d-797628abf2b3",
+      "name": "Split Reconcile Updates",
+      "executeOnce": true,
+      "alwaysOutputData": true
+    }
+  ],
+  "connections": {
+    "Read Job Summary for Daily Report": {
+      "main": [
+        [
+          {
+            "node": "Merge Daily Sources",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Merge Daily Sources": {
+      "main": [
+        [
+          {
+            "node": "Build Daily Exception Report",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Daily Exception Report": {
+      "main": [
+        [
+          {
+            "node": "Merge Report + Existing Cases",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Daily Exception Report": {
+      "main": [
+        [
+          {
+            "node": "Set Daily PDF API Params",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch OJS From EasyBOP": {
+      "main": [
+        [
+          {
+            "node": "Map EasyBOP OJS Rows",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Map EasyBOP OJS Rows": {
+      "main": [
+        [
+          {
+            "node": "Filter OJS By Date Created",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Set Daily PDF API Params": {
+      "main": [
+        [
+          {
+            "node": "Fetch OJS From EasyBOP",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Read Job Summary for Daily Report",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Read Form Issue Cases",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Daily PDF Payload": {
+      "main": [
+        [
+          {
+            "node": "Generate Daily Exception PDF",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate Daily Exception PDF": {
+      "main": [
+        [
+          {
+            "node": "Prepare Daily Report Gmail",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Daily Report Gmail": {
+      "main": [
+        [
+          {
+            "node": "Send a message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Form Issue Cases": {
+      "main": [
+        [
+          {
+            "node": "Merge Report + Existing Cases",
+            "type": "main",
+            "index": 1
+          },
+          {
+            "node": "Collect Open Case IDs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Daily Form Issue Cases": {
+      "main": [
+        [
+          {
+            "node": "Split New Cases for Append",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Build Daily PDF Payload",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Split New Cases for Append": {
+      "main": [
+        [
+          {
+            "node": "Has New Cases To Append",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge Report + Existing Cases": {
+      "main": [
+        [
+          {
+            "node": "Build Daily Form Issue Cases",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filter OJS By Date Created": {
+      "main": [
+        [
+          {
+            "node": "Prepare Access Classification",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has New Cases To Append": {
+      "main": [
+        [
+          {
+            "node": "Append New Issue Cases",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Access Classification": {
+      "main": [
+        [
+          {
+            "node": "Any Access AI Needed?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filter Notes For Access AI": {
+      "main": [
+        [
+          {
+            "node": "Classify Access Issue (OpenAI)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Classify Access Issue (OpenAI)": {
+      "main": [
+        [
+          {
+            "node": "Attach Access Classification",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Attach Access Classification": {
+      "main": [
+        [
+          {
+            "node": "Merge Daily Sources",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Any Access AI Needed?": {
+      "main": [
+        [
+          {
+            "node": "Filter Notes For Access AI",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Attach Access Classification",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Collect Open Case IDs": {
+      "main": [
+        [
+          {
+            "node": "Has Open Cases?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has Open Cases?": {
+      "main": [
+        [
+          {
+            "node": "Fetch Open Cases From EasyBOP",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Open Cases From EasyBOP": {
+      "main": [
+        [
+          {
+            "node": "Build Daily Reconcile Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Reconcile Open Cases": {
+      "main": [
+        [
+          {
+            "node": "Split Reconcile Updates",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has Case Updates?": {
+      "main": [
+        [
+          {
+            "node": "Update Resolved Cases",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Daily Reconcile Request": {
+      "main": [
+        [
+          {
+            "node": "Reconcile Open Cases",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Split Reconcile Updates": {
+      "main": [
+        [
+          {
+            "node": "Has Case Updates?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "a5cd22a95d5313a977e9ac21c3a833db76b18ca78fb8cb2cf7013465d69f17f8"
+  }
+}

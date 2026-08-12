@@ -1,0 +1,1499 @@
+{
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## Stage 6 — OJS extraction (every 6h)\n\n1. **Read** Operative Job Sheet → build skip list (`smart_form_x_id`)\n2. **POST extract** — API selects **today's month** on EasyBOP register, then fetches BCC forms not on sheet (**Date Created within `max_form_age_weeks`**)\n3. **Append** new rows → **re-sort** sheet\n\n**Set API params2:** `max_form_age_weeks` (default **3**; use **0** for no limit)\n\nPhoto upload → `ojs_photos_upload.json`",
+        "height": 368,
+        "width": 520
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        4304,
+        -2400
+      ],
+      "id": "869828b4-3c43-493e-b45f-db29867268bc",
+      "name": "Note — OJS extraction"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "ngrok-base",
+              "name": "ngrok_base_url",
+              "value": "http://173.212.233.153:8000",
+              "type": "string"
+            },
+            {
+              "id": "max-form-age-weeks",
+              "name": "max_form_age_weeks",
+              "value": 2,
+              "type": "number"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        4608,
+        -1888
+      ],
+      "id": "0fba5091-b439-4570-92d6-4a27706bc1f5",
+      "name": "Set API params2",
+      "notesInFlow": true,
+      "note": "ngrok URL; max_form_age_weeks (0 = no limit)"
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "1mkklLpvi8klaN4Zo4D_cBrb95PGQ4NbUvtTAvLI4CII",
+          "mode": "list",
+          "cachedResultName": "stage 6",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1mkklLpvi8klaN4Zo4D_cBrb95PGQ4NbUvtTAvLI4CII/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list",
+          "cachedResultName": "Operative Job Sheet",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1mkklLpvi8klaN4Zo4D_cBrb95PGQ4NbUvtTAvLI4CII/edit#gid=0"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        4832,
+        -1888
+      ],
+      "id": "be054d8b-a4bd-48aa-8efc-f0f3e6d8f93c",
+      "name": "Read Operative Job Sheet",
+      "alwaysOutputData": true,
+      "executeOnce": true,
+      "notesInFlow": true,
+      "note": "executeOnce + read — outputs one n8n item per sheet row",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "0bvpVa8frZ7qSwzx",
+          "name": "hamza-sheets"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const READ_NODE_NAMES = [\n  'Read Operative Job Sheet1',\n  'Read Operative Job Sheet',\n];\n\nfunction sheetRowsFromNode(nodeName) {\n  try {\n    return $(nodeName).all().map((i) => i.json || {});\n  } catch (e) {\n    return [];\n  }\n}\n\nfunction rowDedupeKey(row) {\n  const id = String(row.smart_form_x_id ?? row['smart_form_x_id'] ?? '').trim();\n  if (id) return `id::${id}`;\n  const rn = String(row.row_number ?? row.rowNumber ?? '').trim();\n  if (rn) return `row::${rn}`;\n  return null;\n}\n\nfunction collectAllSheetRows() {\n  const merged = new Map();\n  let seq = 0;\n\n  function addRow(row) {\n    if (!row || typeof row !== 'object') return;\n    const key = rowDedupeKey(row) || `seq::${seq++}`;\n    merged.set(key, row);\n  }\n\n  for (const item of $input.all()) {\n    addRow(item.json || {});\n  }\n\n  for (const nodeName of READ_NODE_NAMES) {\n    for (const row of sheetRowsFromNode(nodeName)) {\n      addRow(row);\n    }\n  }\n\n  return [...merged.values()];\n}\n\nfunction isHeaderRow(row) {\n  const name = String(row['SmartForm Name'] ?? row.smart_form_name ?? '').trim();\n  return /^smartform name$/i.test(name);\n}\n\nconst rows = collectAllSheetRows();\n\nconst skip_smart_form_ids = [];\nconst skip_entries = [];\nconst seenIds = new Set();\nconst seenKeys = new Set();\nfunction normKey(name, dateCreated) {\n  return `${String(name || '').trim().toLowerCase().replace(/\\s+/g, ' ')}::${String(dateCreated || '').trim()}`;\n}\n\nfunction isBccResponseRepairsName(name) {\n  return /:\\s*BCC\\s+Respon(?:se|sive)\\s+Repairs\\b/i.test(String(name || '').trim());\n}\n\nlet dataRowCount = 0;\n\nfor (const row of rows) {\n  if (isHeaderRow(row)) continue;\n  dataRowCount++;\n\n  const id = String(row.smart_form_x_id ?? row['smart_form_x_id'] ?? '').trim();\n  if (id) {\n    if (!seenIds.has(id)) {\n      seenIds.add(id);\n      skip_smart_form_ids.push(id);\n    }\n  }\n  const name =\n    row['SmartForm Name'] ?? row.smart_form_name ?? row.form_name ?? row['SmartForm name'] ?? '';\n  const dateCreated =\n    row['Date Created'] ?? row.date_created ?? row['Date created'] ?? '';\n  if (name && dateCreated) {\n    const key = normKey(name, dateCreated);\n    if (!seenKeys.has(key)) {\n      seenKeys.add(key);\n      skip_entries.push({\n        smart_form_name: String(name).trim(),\n        date_created: String(dateCreated).trim(),\n      });\n    }\n  }\n\n}\n\nreturn [\n  {\n    json: {\n      skip_smart_form_ids,\n      skip_entries,\n      sheet_row_count: dataRowCount,\n      sheet_items_read: rows.length,\n      sheet_skip_id_count: skip_smart_form_ids.length,\n      sheet_skip_entry_count: skip_entries.length,\n    },\n  },\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        5056,
+        -1888
+      ],
+      "id": "f0412bd5-e623-4360-b9f4-0ba407b45ec6",
+      "name": "Build skip payload from sheet",
+      "executeOnce": true,
+      "notesInFlow": true,
+      "note": "Uses $('Read Operative Job Sheet1').all() — $input.all() alone only returns 1 item in Run Once mode"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ ($('Set API params2').first().json.ngrok_base_url || $('Set API params2').first().json.api_base_url || '').replace(/\\/+$/, '') + '/extract-operative-job-sheets' }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "ngrok-skip-browser-warning",
+              "value": "true"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({\n  skip_smart_form_ids: ($('Build skip payload from sheet').first().json.skip_smart_form_ids) || [],\n  skip_entries: ($('Build skip payload from sheet').first().json.skip_entries) || [],\n  max_form_age_weeks: $('Set API params2').first().json.max_form_age_weeks ?? 3,\n}) }}",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          },
+          "timeout": 900000
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        5280,
+        -1888
+      ],
+      "id": "c2c4d5e4-a4c1-424a-8526-cfd709d3eba6",
+      "name": "POST extract-operative-job-sheets",
+      "notesInFlow": true,
+      "note": "Skips PDFs for rows already on sheet; no extract limit",
+      "executeOnce": true
+    },
+    {
+      "parameters": {
+        "jsCode": "function extractApiBody(resp) {\n  const statusCode = resp.statusCode ?? resp.status ?? 0;\n  let body = resp.body ?? resp.data ?? resp;\n  if (typeof body === 'string') {\n    try {\n      body = JSON.parse(body);\n    } catch (e) {\n      const m = body.match(/\\{[\\s\\S]*\\}/);\n      if (m) {\n        try { body = JSON.parse(m[0]); } catch (e2) { body = {}; }\n      } else {\n        body = {};\n      }\n    }\n  }\n  if (\n    body &&\n    typeof body === 'object' &&\n    body.body &&\n    body.results === undefined &&\n    body.total_extracted === undefined\n  ) {\n    body = body.body;\n  }\n  return { statusCode, body: body || {} };\n}\n\nfunction normText(v) {\n  return String(v ?? '')\n    .trim()\n    .toLowerCase()\n    .replace(/\\s+/g, ' ');\n}\n\nfunction normDate(v) {\n  return String(v ?? '').trim();\n}\n\nfunction dupKey(name, dateCreated) {\n  return `${normText(name)}::${normDate(dateCreated)}`;\n}\n\nfunction isBccResponseRepairsName(name) {\n  return /:\\s*BCC\\s+Respon(?:se|sive)\\s+Repairs\\b/i.test(String(name || '').trim());\n}\n\nconst Q21_DESC_COL = 'Q2.1 Daily Jobs Table';\nconst Q21_PRICE_COL = 'Q2.1 Daily Jobs Table Price/Hours';\n\nfunction addLabeledFields(target, parsed) {\n  const labeled = parsed.labeled_fields || {};\n  const fields = parsed.fields || {};\n  for (const [col, val] of Object.entries(labeled)) {\n    if (val == null) continue;\n    if (Array.isArray(val) || (typeof val === 'object' && val !== null)) {\n      const text = JSON.stringify(val);\n      if (text && text !== '[]' && text !== '{}') target[col] = text;\n      continue;\n    }\n    const text = String(val).trim();\n    if (col === Q21_PRICE_COL || text) target[col] = text;\n  }\n  if (Q21_DESC_COL in labeled || fields['Q2.1_description'] != null || fields['Q2.1_table']) {\n    if (target[Q21_DESC_COL] == null) {\n      target[Q21_DESC_COL] = String(labeled[Q21_DESC_COL] ?? fields['Q2.1_description'] ?? '').trim();\n    }\n    if (target[Q21_PRICE_COL] == null) {\n      target[Q21_PRICE_COL] = String(\n        labeled[Q21_PRICE_COL] ?? fields['Q2.1_price_hours'] ?? fields['Q2.1_table']?.price_hours ?? ''\n      ).trim();\n    }\n  }\n}\n\nfunction applyPhotoYesNo(target, parsed) {\n  const photos = parsed.photos || {};\n  const completed = Array.isArray(photos.completed_work) ? photos.completed_work.length : 0;\n  const variations = Array.isArray(photos.variations) ? photos.variations.length : 0;\n  let hasQ23 = false;\n  let hasQ26 = false;\n  for (const k of Object.keys(target)) {\n    if (/^Q2\\.3\\b/i.test(k)) {\n      target[k] = completed > 0 ? 'Yes' : 'No';\n      hasQ23 = true;\n    }\n    if (/^Q2\\.6\\b/i.test(k)) {\n      target[k] = variations > 0 ? 'Yes' : 'No';\n      hasQ26 = true;\n    }\n  }\n  if (!hasQ23) {\n    target['Q2.3 Please provide photos of completed work'] = completed > 0 ? 'Yes' : 'No';\n  }\n  if (!hasQ26) {\n    target['Q2.6 Please provide photos of variations'] = variations > 0 ? 'Yes' : 'No';\n  }\n}\n\nfunction corfFromQ11Address(addr) {\n  const s = String(addr ?? '').trim();\n  const m = s.match(/-(\\d+\\/\\d+)\\s*$/);\n  return m ? m[1] : '';\n}\n\nconst existingRows = $('Read Operative Job Sheet').all().map((i) => i.json || {});\nconst skipPayload = (() => {\n  for (const name of ['Build skip payload from sheet1', 'Build skip payload from sheet']) {\n    try {\n      const j = $(name).first()?.json;\n      if (j && (j.skip_entries || j.skip_smart_form_ids)) return j;\n    } catch (e) {}\n  }\n  return {};\n})();\nconst existingKeys = new Set();\nconst existingIds = new Set();\nfor (const id of skipPayload.skip_smart_form_ids || []) {\n  const sid = String(id || '').trim();\n  if (sid) existingIds.add(sid);\n}\nfor (const entry of skipPayload.skip_entries || []) {\n  const name = entry.smart_form_name || entry.form_name || '';\n  const dateCreated = entry.date_created || '';\n  if (name && dateCreated) existingKeys.add(dupKey(name, dateCreated));\n}\n\nfor (const row of existingRows) {\n  const name =\n    row['SmartForm Name'] ?? row.smart_form_name ?? row.form_name ?? row['SmartForm name'] ?? '';\n  const dateCreated =\n    row['Date Created'] ?? row.date_created ?? row['Date created'] ?? '';\n  if (name && dateCreated) {\n    existingKeys.add(dupKey(name, dateCreated));\n  }\n  const id = String(row.smart_form_x_id ?? row['smart_form_x_id'] ?? '').trim();\n  if (id) existingIds.add(id);\n}\n\nconst respRaw = $('POST extract-operative-job-sheets').first().json || {};\nconst { statusCode, body } = extractApiBody(respRaw);\nconst results = Array.isArray(body.results) ? body.results : [];\nconst errors = Array.isArray(body.errors) ? body.errors : [];\n\nconst out = [];\nlet skippedDuplicate = 0;\nlet skippedNoName = 0;\nlet skippedNonBcc = 0;\nfor (const r of results) {\n  const grid = r.grid || {};\n  const cells = grid.cells || {};\n  const parsed = r.parsed || {};\n\n  const smartFormName =\n    grid.form_name || cells.list_form_name || parsed.job_header || '';\n  const dateCreated = grid.date_created || cells.list_date_created || '';\n  const sfid = String(r.smart_form_x_id || '').trim();\n\n  if (!smartFormName || !dateCreated) {\n    skippedNoName++;\n    continue;\n  }\n\n  if (!isBccResponseRepairsName(smartFormName)) {\n    skippedNonBcc++;\n    continue;\n  }\n\n  if (sfid && existingIds.has(sfid)) {\n    skippedDuplicate++;\n    continue;\n  }\n\n  // Only fall back to name+date when EasyBOP id is missing (legacy rows).\n  if (!sfid && existingKeys.has(dupKey(smartFormName, dateCreated))) {\n    skippedDuplicate++;\n    continue;\n  }\n\n  existingKeys.add(dupKey(smartFormName, dateCreated));\n  if (sfid) existingIds.add(sfid);\n\n  const row = {\n    smart_form_x_id: sfid,\n    'SmartForm Name': String(smartFormName).trim(),\n    'Date Created': normDate(dateCreated),\n    'SmartForm Template Name':\n      grid.template_name || cells.list_template_name || parsed.template_title || '',\n    Status: grid.status || cells.list_status || 'Complete',\n    'Completed Date': grid.date_completed || cells.list_date_completed || '',\n    'Completed Time': grid.time_completed || cells.list_time_completed || '',\n    'Created By': grid.created_by || cells.list_created_by || '',\n    Module: grid.module_name || cells.list_module_name || '',\n    CORF: '',\n    'Job Header': parsed.job_header || '',\n    pdf_url: r.pdf_url || '',\n    extracted_at: new Date().toISOString(),\n  };\n\n  addLabeledFields(row, parsed);\n  applyPhotoYesNo(row, parsed);\n  row.CORF = corfFromQ11Address(row['Q1.1 Address']) || parsed.corf || '';\n\n\n  out.push({ json: row });\n}\n\nif (!out.length) {\n  return [\n    {\n      json: {\n        _skip_append: true,\n        message:\n          results.length > 0\n            ? `All ${results.length} extracted row(s) skipped (duplicate or missing name/date).`\n            : statusCode >= 400\n              ? `API HTTP ${statusCode}: ${body.detail || body.message || 'extract failed'}`\n              : body.total_skipped_existing > 0\n                ? `No new rows — ${body.total_skipped_existing} already on sheet (${body.total_grid_matched || 0} on EasyBOP).`\n                : 'No new Operative job sheets to append',\n        api_status: statusCode,\n        partial: body.partial === true,\n        total_extracted: body.total_extracted ?? results.length,\n        total_errors: body.total_errors ?? errors.length,\n        total_skipped_existing: body.total_skipped_existing ?? 0,\n        total_grid_matched: body.total_grid_matched ?? 0,\n        skipped_duplicate: skippedDuplicate,\n        skipped_missing_name_or_date: skippedNoName,\n        skipped_non_bcc_response_repairs: skippedNonBcc,\n                appended_count: 0,\n      },\n    },\n  ];\n}\n\nreturn out.map((item, idx) => ({\n  json: {\n    ...item.json,\n    _skip_append: false,\n    ...(idx === 0\n      ? {\n          api_status: statusCode,\n          partial: body.partial === true,\n          total_extracted: body.total_extracted ?? results.length,\n          total_errors: body.total_errors ?? errors.length,\n          total_skipped_existing: body.total_skipped_existing ?? 0,\n          total_grid_matched: body.total_grid_matched ?? 0,\n          skipped_duplicate: skippedDuplicate,\n          skipped_missing_name_or_date: skippedNoName,\n          skipped_non_bcc_response_repairs: skippedNonBcc,\n                    appended_count: out.length,\n        }\n      : {}),\n  },\n}));"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        5504,
+        -1888
+      ],
+      "id": "79fde4bb-1099-4e5f-9446-4f548ce48a34",
+      "name": "Format rows and skip duplicates",
+      "notesInFlow": true,
+      "note": "Keep only SmartForm Names with ': BCC Response Repairs' after address; duplicate = same name + date"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "cond-has-rows",
+              "leftValue": "={{ $json._skip_append }}",
+              "rightValue": false,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        5728,
+        -1888
+      ],
+      "id": "25c106f1-3d4b-423e-a388-af0f6b3b08d8",
+      "name": "IF Has rows to append"
+    },
+    {
+      "parameters": {
+        "jsCode": "const META = new Set([\n  '_skip_append',\n  'api_status',\n  'total_extracted',\n  'total_errors',\n  'skipped_duplicate',\n  'skipped_missing_name_or_date',\n  'skipped_non_bcc_response_repairs',\n  'appended_count',\n  'message',\n  'sort_row_count',\n  'partial',\n  'total_skipped_existing',\n  'total_grid_matched',\n]);\n\nreturn $input.all().map((item) => {\n  const clean = {};\n  for (const [k, v] of Object.entries(item.json || {})) {\n    if (k.startsWith('_') || META.has(k)) continue;\n    clean[k] = v;\n  }\n  return { json: clean };\n});"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        5952,
+        -1968
+      ],
+      "id": "9ebf5916-24a8-4767-aadd-a38921de2884",
+      "name": "Clean rows for sheet",
+      "notesInFlow": true
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "1mkklLpvi8klaN4Zo4D_cBrb95PGQ4NbUvtTAvLI4CII",
+          "mode": "list",
+          "cachedResultName": "stage 6",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1mkklLpvi8klaN4Zo4D_cBrb95PGQ4NbUvtTAvLI4CII/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list",
+          "cachedResultName": "Operative Job Sheet",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1mkklLpvi8klaN4Zo4D_cBrb95PGQ4NbUvtTAvLI4CII/edit#gid=0"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {
+            "smart_form_x_id": "={{ $json.smart_form_x_id }}",
+            "SmartForm Name": "={{ $json['SmartForm Name'] }}",
+            "Date Created": "={{ $json['Date Created'] }}",
+            "SmartForm Template Name": "={{ $json['SmartForm Template Name'] }}",
+            "Status": "={{ $json.Status }}",
+            "Completed Date": "={{ $json['Completed Date'] }}",
+            "Completed Time": "={{ $json['Completed Time'] }}",
+            "Created By": "={{ $json['Created By'] }}",
+            "Module": "={{ $json.Module }}",
+            "CORF": "={{ $json.CORF }}",
+            "Job Header": "={{ $json['Job Header'] }}",
+            "pdf_url": "={{ $json.pdf_url }}",
+            "extracted_at": "={{ $json.extracted_at }}",
+            "Q1.1 Address": "={{ $json['Q1.1 Address'] }}",
+            "Q1.2 Date": "={{ $json['Q1.2 Date'] }}",
+            "Q1.3 Job details": "={{ $json['Q1.3 Job details'] }}",
+            "Q1.4 Have you read and understood the asbestos report for the property or checked the status with a Manager or Supervisor before": "={{ $json['Q1.4 Have you read and understood the asbestos report for the property or checked the status with a Manager or Supervisor before'] }}",
+            "Q2.1 Daily Jobs Table": "={{ $json['Q2.1 Daily Jobs Table'] }}",
+            "Q2.1 Daily Jobs Table Price/Hours": "={{ $json['Q2.1 Daily Jobs Table Price/Hours'] }}",
+            "Q2.2 Were you able to complete your work in full?": "={{ $json['Q2.2 Were you able to complete your work in full?'] }}",
+            "Q2.4 Did you complete any additonal work or variations?": "={{ $json['Q2.4 Did you complete any additonal work or variations?'] }}",
+            "Q3.1 Notes, if applicable": "={{ $json['Q3.1 Notes, if applicable'] }}",
+            "Q4.1 Employee Name": "={{ $json['Q4.1 Employee Name'] }}",
+            "Q2.3 Please provide photos of completed work": "={{ $json['Q2.3 Please provide photos of completed work'] }}",
+            "Q2.6 Please provide photos of variations": "={{ $json['Q2.6 Please provide photos of variations'] }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "smart_form_x_id",
+              "displayName": "smart_form_x_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "SmartForm Name",
+              "displayName": "SmartForm Name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Date Created",
+              "displayName": "Date Created",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "SmartForm Template Name",
+              "displayName": "SmartForm Template Name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Status",
+              "displayName": "Status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Completed Date",
+              "displayName": "Completed Date",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Completed Time",
+              "displayName": "Completed Time",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Created By",
+              "displayName": "Created By",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Module",
+              "displayName": "Module",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "CORF",
+              "displayName": "CORF",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Job Header",
+              "displayName": "Job Header",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "pdf_url",
+              "displayName": "pdf_url",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "extracted_at",
+              "displayName": "extracted_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Q1.1 Address",
+              "displayName": "Q1.1 Address",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Q1.2 Date",
+              "displayName": "Q1.2 Date",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Q1.3 Job details",
+              "displayName": "Q1.3 Job details",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Q1.4 Have you read and understood the asbestos report for the property or checked the status with a Manager or Supervisor before",
+              "displayName": "Q1.4 Have you read and understood the asbestos report for the property or checked the status with a Manager or Supervisor before",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Q2.1 Daily Jobs Table",
+              "displayName": "Q2.1 Daily Jobs Table",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Q2.1 Daily Jobs Table Price/Hours",
+              "displayName": "Q2.1 Daily Jobs Table Price/Hours",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Q2.2 Were you able to complete your work in full?",
+              "displayName": "Q2.2 Were you able to complete your work in full?",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Q2.4 Did you complete any additonal work or variations?",
+              "displayName": "Q2.4 Did you complete any additonal work or variations?",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Q3.1 Notes, if applicable",
+              "displayName": "Q3.1 Notes, if applicable",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Q4.1 Employee Name",
+              "displayName": "Q4.1 Employee Name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Q2.3 Please provide photos of completed work",
+              "displayName": "Q2.3 Please provide photos of completed work",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Q2.5 Please explain why you could not complete your job",
+              "displayName": "Q2.5 Please explain why you could not complete your job",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Q2.6 Please provide photos of variations",
+              "displayName": "Q2.6 Please provide photos of variations",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Q2.8 Please provide details of any outstanding works you are aware of for this property",
+              "displayName": "Q2.8 Please provide details of any outstanding works you are aware of for this property",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Q2.7 Please provide some detail on the variations? Task, QTY, Location. e.g. skimmed extra 3 sqm in lounge.",
+              "displayName": "Q2.7 Please provide some detail on the variations? Task, QTY, Location. e.g. skimmed extra 3 sqm in lounge.",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Q4.2 Employee Signature",
+              "displayName": "Q4.2 Employee Signature",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "BOQ_Checked",
+              "displayName": "BOQ_Checked",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Reason",
+              "displayName": "Reason",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Job Status",
+              "displayName": "Job Status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Job Status Notes",
+              "displayName": "Job Status Notes",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Job Status Confidence",
+              "displayName": "Job Status Confidence",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Job Time Spent Hours",
+              "displayName": "Job Time Spent Hours",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Visit Hours",
+              "displayName": "Visit Hours",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Operative Time Breakdown",
+              "displayName": "Operative Time Breakdown",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Job SMV Allowed Hours",
+              "displayName": "Job SMV Allowed Hours",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Job SMV Allowed Minutes",
+              "displayName": "Job SMV Allowed Minutes",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Time vs SMV",
+              "displayName": "Time vs SMV",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Job Status Checked At",
+              "displayName": "Job Status Checked At",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "In Jeopardy",
+              "displayName": "In Jeopardy",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Jeopardy Reason",
+              "displayName": "Jeopardy Reason",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Ready To Hand over",
+              "displayName": "Ready To Hand over",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        6176,
+        -1968
+      ],
+      "id": "c3abb336-bcd0-4037-b081-d0a030208115",
+      "name": "Append to Operative Job Sheet",
+      "notesInFlow": true,
+      "note": "autoMapInputData — columns created automatically from JSON keys",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "0bvpVa8frZ7qSwzx",
+          "name": "hamza-sheets"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "1mkklLpvi8klaN4Zo4D_cBrb95PGQ4NbUvtTAvLI4CII",
+          "mode": "list",
+          "cachedResultName": "stage 6",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1mkklLpvi8klaN4Zo4D_cBrb95PGQ4NbUvtTAvLI4CII/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list",
+          "cachedResultName": "Operative Job Sheet",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1mkklLpvi8klaN4Zo4D_cBrb95PGQ4NbUvtTAvLI4CII/edit#gid=0"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        6400,
+        -1968
+      ],
+      "id": "a7b5c52f-a616-4223-9354-6656c2dc0ed9",
+      "name": "Read sheet for sort",
+      "alwaysOutputData": true,
+      "executeOnce": true,
+      "notesInFlow": true,
+      "note": "executeOnce — read full sheet once after bulk append (not once per appended row)",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "0bvpVa8frZ7qSwzx",
+          "name": "hamza-sheets"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const META = new Set([\n  '_skip_append',\n  'api_status',\n  'total_extracted',\n  'total_errors',\n  'total_skipped_existing',\n  'total_grid_matched',\n  'partial',\n  'skipped_duplicate',\n  'skipped_missing_name_or_date',\n  'skipped_non_bcc_response_repairs',\n  'appended_count',\n  'message',\n  'sort_row_count',\n]);\n\nfunction smartFormName(row) {\n  return String(row['SmartForm Name'] ?? row.smart_form_name ?? '').trim();\n}\n\nfunction dateCreated(row) {\n  return String(row['Date Created'] ?? row.date_created ?? row['Date created'] ?? '').trim();\n}\n\nfunction isHeaderRow(row) {\n  return /^smartform name$/i.test(smartFormName(row));\n}\n\nfunction isBccResponseRepairsName(name) {\n  return /:\\s*BCC\\s+Respon(?:se|sive)\\s+Repairs\\b/i.test(String(name || '').trim());\n}\n\nfunction isDataRow(row) {\n  const name = smartFormName(row);\n  return Boolean(name) && !isHeaderRow(row) && isBccResponseRepairsName(name);\n}\n\nfunction rowsFromNode(nodeName) {\n  try {\n    return $(nodeName).all().map((i) => i.json || {});\n  } catch (e) {\n    return [];\n  }\n}\n\nfunction stripMeta(row) {\n  const clean = {};\n  for (const [k, v] of Object.entries(row || {})) {\n    if (k.startsWith('_') || META.has(k)) continue;\n    clean[k] = v;\n  }\n  return clean;\n}\n\nfunction rowKey(row, idx) {\n  const id = String(row.smart_form_x_id ?? row['smart_form_x_id'] ?? '').trim();\n  if (id) return `id::${id}`;\n  const rn = String(row.row_number ?? row.rowNumber ?? '').trim();\n  if (rn) return `row::${rn}`;\n  return `fallback::${smartFormName(row).toLowerCase()}::${dateCreated(row)}::${idx}`;\n}\n\nfunction parseUkDate(s) {\n  const raw = String(s ?? '').trim();\n  if (!raw) return 0;\n  const m = raw.match(/^(\\d{1,2})\\/(\\d{1,2})\\/(\\d{2,4})(?:\\s+(\\d{1,2}):(\\d{2})(?::(\\d{2}))?)?/);\n  if (!m) return 0;\n  let yr = parseInt(m[3], 10);\n  if (yr < 100) yr += 2000;\n  const hh = parseInt(m[4] || '0', 10);\n  const mm = parseInt(m[5] || '0', 10);\n  const ss = parseInt(m[6] || '0', 10);\n  return new Date(yr, parseInt(m[2], 10) - 1, parseInt(m[1], 10), hh, mm, ss).getTime();\n}\n\n// Merge sheet read + newly formatted rows.\n// Clean rows for sheet (carries photo URLs) MUST be last so it wins.\nconst PHOTO_COLS = [\n  'Q2.3 Please provide photos of completed work',\n  'Q2.6 Please provide photos of variations ( if Variation was yes)',\n  'Q2.6 Please provide photos of variations',\n];\nfunction isRealUrl(v) {\n  return typeof v === 'string' && /^https?:\\/\\//i.test(v.trim());\n}\n\nconst merged = new Map();\nlet seq = 0;\nconst sources = [\n  ...rowsFromNode('Read sheet for sort'),\n  ...rowsFromNode('Read sheet for sort1'),\n  ...rowsFromNode('Read Operative Job Sheet1'),\n  ...rowsFromNode('Read Operative Job Sheet'),\n  ...rowsFromNode('Format rows and skip duplicates')\n    .filter((r) => r._skip_append !== true)\n    .map(stripMeta),\n  ...rowsFromNode('Format rows and skip duplicates1')\n    .filter((r) => r._skip_append !== true)\n    .map(stripMeta),\n  ...rowsFromNode('Clean rows for sheet'),\n  ...rowsFromNode('Clean rows for sheet1'),\n];\n\nfor (const row of sources) {\n  if (!isDataRow(row)) continue;\n  const key = rowKey(row, seq++);\n  const prev = merged.get(key);\n  if (!prev) {\n    merged.set(key, { ...row });\n    continue;\n  }\n  const next = { ...prev, ...row };\n  // Never let an empty/absent photo URL clobber a real one already collected\n  for (const col of PHOTO_COLS) {\n    if (isRealUrl(prev[col]) && !isRealUrl(next[col])) {\n      next[col] = prev[col];\n    }\n  }\n  merged.set(key, next);\n}\n\nconst rows = [...merged.values()];\n\nrows.sort((a, b) => {\n  const nameA = smartFormName(a).toLowerCase();\n  const nameB = smartFormName(b).toLowerCase();\n  if (nameA !== nameB) {\n    return nameA.localeCompare(nameB, undefined, { numeric: true, sensitivity: 'base' });\n  }\n  return parseUkDate(dateCreated(b)) - parseUkDate(dateCreated(a));\n});\n\nreturn rows.map((row, idx) => ({\n  json: {\n    ...row,\n    ...(idx === 0 ? { sort_row_count: rows.length } : {}),\n  },\n}));"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        6624,
+        -1888
+      ],
+      "id": "dd56c8e4-3064-4876-a18d-b0bae5907101",
+      "name": "Sort by SmartForm Name + Date",
+      "executeOnce": true,
+      "notesInFlow": true,
+      "note": "BCC Response Repairs only; same SmartForm Name grouped; newest Date Created first within each group"
+    },
+    {
+      "parameters": {
+        "operation": "clear",
+        "documentId": {
+          "__rl": true,
+          "value": "1mkklLpvi8klaN4Zo4D_cBrb95PGQ4NbUvtTAvLI4CII",
+          "mode": "list",
+          "cachedResultName": "stage 6",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1mkklLpvi8klaN4Zo4D_cBrb95PGQ4NbUvtTAvLI4CII/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list",
+          "cachedResultName": "Operative Job Sheet",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1mkklLpvi8klaN4Zo4D_cBrb95PGQ4NbUvtTAvLI4CII/edit#gid=0"
+        },
+        "keepFirstRow": true
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        6848,
+        -1888
+      ],
+      "id": "e7d1faec-69c6-4ad0-829d-9d9e21c529c0",
+      "name": "Clear sheet data rows",
+      "executeOnce": true,
+      "notesInFlow": true,
+      "note": "Keeps header row; data rows rewritten sorted on next step",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "0bvpVa8frZ7qSwzx",
+          "name": "hamza-sheets"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const META = new Set(['sort_row_count']);\n\nreturn $('Sort by SmartForm Name + Date').all().map((item) => {\n  const clean = {};\n  for (const [k, v] of Object.entries(item.json || {})) {\n    if (META.has(k)) continue;\n    clean[k] = v;\n  }\n  return { json: clean };\n});"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        7072,
+        -1888
+      ],
+      "id": "fb02c50b-975c-4d31-b487-fa93f025d0a9",
+      "name": "Pass sorted rows",
+      "executeOnce": true
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "1mkklLpvi8klaN4Zo4D_cBrb95PGQ4NbUvtTAvLI4CII",
+          "mode": "list",
+          "cachedResultName": "stage 6",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1mkklLpvi8klaN4Zo4D_cBrb95PGQ4NbUvtTAvLI4CII/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list",
+          "cachedResultName": "Operative Job Sheet",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1mkklLpvi8klaN4Zo4D_cBrb95PGQ4NbUvtTAvLI4CII/edit#gid=0"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "smart_form_x_id",
+              "displayName": "smart_form_x_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "SmartForm Name",
+              "displayName": "SmartForm Name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Date Created",
+              "displayName": "Date Created",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "SmartForm Template Name",
+              "displayName": "SmartForm Template Name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Status",
+              "displayName": "Status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Completed Date",
+              "displayName": "Completed Date",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Completed Time",
+              "displayName": "Completed Time",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Created By",
+              "displayName": "Created By",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Module",
+              "displayName": "Module",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "CORF",
+              "displayName": "CORF",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Job Header",
+              "displayName": "Job Header",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "pdf_url",
+              "displayName": "pdf_url",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "extracted_at",
+              "displayName": "extracted_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Q1.1 Address",
+              "displayName": "Q1.1 Address",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Q1.2 Date",
+              "displayName": "Q1.2 Date",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Q1.3 Job details",
+              "displayName": "Q1.3 Job details",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Q1.4 Have you read and understood the asbestos report for the property or checked the status with a Manager or Supervisor before",
+              "displayName": "Q1.4 Have you read and understood the asbestos report for the property or checked the status with a Manager or Supervisor before",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Q2.1 Daily Jobs Table",
+              "displayName": "Q2.1 Daily Jobs Table",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Q2.1 Daily Jobs Table Price/Hours",
+              "displayName": "Q2.1 Daily Jobs Table Price/Hours",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Q2.2 Were you able to complete your work in full?",
+              "displayName": "Q2.2 Were you able to complete your work in full?",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Q2.4 Did you complete any additonal work or variations?",
+              "displayName": "Q2.4 Did you complete any additonal work or variations?",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Q3.1 Notes, if applicable",
+              "displayName": "Q3.1 Notes, if applicable",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Q4.1 Employee Name",
+              "displayName": "Q4.1 Employee Name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Q2.3 Please provide photos of completed work",
+              "displayName": "Q2.3 Please provide photos of completed work",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Q2.5 Please explain why you could not complete your job",
+              "displayName": "Q2.5 Please explain why you could not complete your job",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Q2.6 Please provide photos of variations",
+              "displayName": "Q2.6 Please provide photos of variations",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Q2.8 Please provide details of any outstanding works you are aware of for this property",
+              "displayName": "Q2.8 Please provide details of any outstanding works you are aware of for this property",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Q2.7 Please provide some detail on the variations? Task, QTY, Location. e.g. skimmed extra 3 sqm in lounge.",
+              "displayName": "Q2.7 Please provide some detail on the variations? Task, QTY, Location. e.g. skimmed extra 3 sqm in lounge.",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Q4.2 Employee Signature",
+              "displayName": "Q4.2 Employee Signature",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "BOQ_Checked",
+              "displayName": "BOQ_Checked",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Reason",
+              "displayName": "Reason",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Job Status",
+              "displayName": "Job Status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Job Status Notes",
+              "displayName": "Job Status Notes",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Job Status Confidence",
+              "displayName": "Job Status Confidence",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Job Time Spent Hours",
+              "displayName": "Job Time Spent Hours",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Visit Hours",
+              "displayName": "Visit Hours",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Operative Time Breakdown",
+              "displayName": "Operative Time Breakdown",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Job SMV Allowed Hours",
+              "displayName": "Job SMV Allowed Hours",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Job SMV Allowed Minutes",
+              "displayName": "Job SMV Allowed Minutes",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Time vs SMV",
+              "displayName": "Time vs SMV",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Job Status Checked At",
+              "displayName": "Job Status Checked At",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "In Jeopardy",
+              "displayName": "In Jeopardy",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Jeopardy Reason",
+              "displayName": "Jeopardy Reason",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Ready To Hand over",
+              "displayName": "Ready To Hand over",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        7296,
+        -1888
+      ],
+      "id": "190b044d-4d4c-444b-b034-cd2d4381acba",
+      "name": "Rewrite sorted rows",
+      "notesInFlow": true,
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "0bvpVa8frZ7qSwzx",
+          "name": "hamza-sheets"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "function safeFirst(nodeName) {\n  try {\n    return $(nodeName).first()?.json || {};\n  } catch (e) {\n    return {};\n  }\n}\n\nfunction safeAllCount(nodeName) {\n  try {\n    return $(nodeName).all().length;\n  } catch (e) {\n    return 0;\n  }\n}\n\nconst formatFirst = safeFirst('Format rows and skip duplicates');\nconst appendedFromFormat = Number(formatFirst.appended_count);\nconst appended =\n  Number.isFinite(appendedFromFormat) && appendedFromFormat > 0\n    ? appendedFromFormat\n    : safeAllCount('Clean rows for sheet');\n\nconst skipped = formatFirst.skipped_duplicate ?? 0;\nconst skippedNonBcc = formatFirst.skipped_non_bcc_response_repairs ?? 0;\nconst skippedExisting = formatFirst.total_skipped_existing ?? 0;\nconst skippedTotal = skipped + skippedExisting;\nconst totalExtracted = formatFirst.total_extracted ?? null;\nconst totalErrors = formatFirst.total_errors ?? null;\nconst gridMatched = formatFirst.total_grid_matched ?? null;\nconst apiStatus = formatFirst.api_status ?? null;\nconst skipAppend = formatFirst._skip_append === true;\nconst sortedRowCount = Number(safeFirst('Sort by SmartForm Name + Date').sort_row_count) || safeAllCount('Sort by SmartForm Name + Date');\n\nlet message = formatFirst.message || '';\nif (!message) {\n  if (skipAppend) {\n    message =\n      totalExtracted > 0\n        ? `No new rows appended (${totalExtracted} extracted, ${skippedTotal} skipped).`\n        : 'No rows appended.';\n  } else if (appended > 0) {\n    message = `Appended ${appended} Operative job sheet row(s).`;\n  } else {\n    message = 'Run finished.';\n  }\n}\nif (sortedRowCount > 0) {\n  message += ` Sheet re-sorted (${sortedRowCount} row(s) grouped by SmartForm Name).`;\n}\nif (skippedNonBcc > 0) {\n  message += ` Skipped ${skippedNonBcc} non-BCC Response Repairs row(s).`;\n}\n\nreturn [\n  {\n    json: {\n      ok: appended > 0 || (totalExtracted > 0 && !skipAppend) || sortedRowCount > 0,\n      message,\n      appended_count: appended,\n      sorted_row_count: sortedRowCount,\n      skipped_duplicate: skipped,\n      skipped_non_bcc_response_repairs: skippedNonBcc,\n      skipped_existing: skippedExisting,\n      skipped_total: skippedTotal,\n      total_grid_matched: gridMatched,\n      total_extracted: totalExtracted,\n      total_errors: totalErrors,\n      api_status: apiStatus,\n      partial: formatFirst.partial === true,\n    },\n  },\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        7520,
+        -1888
+      ],
+      "id": "2ca32f63-2c4c-4886-836f-74cd0d066018",
+      "name": "Summarize run"
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "hours",
+              "hoursInterval": 6
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        4384,
+        -1888
+      ],
+      "id": "29cab4e8-5727-4b17-93fd-71bd139d4fbd",
+      "name": "Schedule every 6 hours"
+    }
+  ],
+  "connections": {
+    "Set API params2": {
+      "main": [
+        [
+          {
+            "node": "Read Operative Job Sheet",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Operative Job Sheet": {
+      "main": [
+        [
+          {
+            "node": "Build skip payload from sheet",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build skip payload from sheet": {
+      "main": [
+        [
+          {
+            "node": "POST extract-operative-job-sheets",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "POST extract-operative-job-sheets": {
+      "main": [
+        [
+          {
+            "node": "Format rows and skip duplicates",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format rows and skip duplicates": {
+      "main": [
+        [
+          {
+            "node": "IF Has rows to append",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF Has rows to append": {
+      "main": [
+        [
+          {
+            "node": "Clean rows for sheet",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Sort by SmartForm Name + Date",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Clean rows for sheet": {
+      "main": [
+        [
+          {
+            "node": "Append to Operative Job Sheet",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Append to Operative Job Sheet": {
+      "main": [
+        [
+          {
+            "node": "Read sheet for sort",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read sheet for sort": {
+      "main": [
+        [
+          {
+            "node": "Sort by SmartForm Name + Date",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sort by SmartForm Name + Date": {
+      "main": [
+        [
+          {
+            "node": "Clear sheet data rows",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Clear sheet data rows": {
+      "main": [
+        [
+          {
+            "node": "Pass sorted rows",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Pass sorted rows": {
+      "main": [
+        [
+          {
+            "node": "Rewrite sorted rows",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Rewrite sorted rows": {
+      "main": [
+        [
+          {
+            "node": "Summarize run",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Summarize run": {
+      "main": [
+        []
+      ]
+    },
+    "Schedule every 6 hours": {
+      "main": [
+        [
+          {
+            "node": "Set API params2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "a5cd22a95d5313a977e9ac21c3a833db76b18ca78fb8cb2cf7013465d69f17f8"
+  }
+}

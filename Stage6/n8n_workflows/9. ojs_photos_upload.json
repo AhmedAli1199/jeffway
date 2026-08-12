@@ -1,0 +1,1069 @@
+{
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## Stage 6 — OJS Photos Upload (separate)\n\n1. Read sheet → queue rows where **Ready To Hand over = Yes** and **Hand Over Photos Extracted** is empty/false (BCC Response Repairs, max 8/run)\n2. Re-extract PDFs for photos only (`force_extract_smart_form_ids`)\n3. One SharePoint folder per site (SmartForm Name)\n4. Update Q2.3 / Q2.6 + set **Hand Over Photos Extracted = Yes**\n\nSkip rows already marked Hand Over Photos Extracted.",
+        "height": 312,
+        "width": 520
+      },
+      "id": "e2678f17-d20f-4232-9a27-2704428d269b",
+      "name": "Note — OJS photos",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -6288,
+        32
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "ngrok-base",
+              "name": "ngrok_base_url",
+              "value": "http://173.212.233.153:8000",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -6064,
+        512
+      ],
+      "id": "5c6a7f82-1a41-41cf-83a3-10ca008165c6",
+      "name": "Set API params photos",
+      "notesInFlow": true,
+      "note": "ngrok URL; skip list from sheet"
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "1mkklLpvi8klaN4Zo4D_cBrb95PGQ4NbUvtTAvLI4CII",
+          "mode": "list",
+          "cachedResultName": "stage 6",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1mkklLpvi8klaN4Zo4D_cBrb95PGQ4NbUvtTAvLI4CII/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list",
+          "cachedResultName": "Operative Job Sheet",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1mkklLpvi8klaN4Zo4D_cBrb95PGQ4NbUvtTAvLI4CII/edit#gid=0"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        -5840,
+        512
+      ],
+      "id": "966c2b39-7707-4c0a-8222-3ac8acf65c4c",
+      "name": "Read Operative Job Sheet photos",
+      "alwaysOutputData": true,
+      "executeOnce": true,
+      "notesInFlow": true,
+      "note": "executeOnce + read — outputs one n8n item per sheet row",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "0bvpVa8frZ7qSwzx",
+          "name": "hamza-sheets"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const READ_NODE_NAMES = [\n  'Read Operative Job Sheet photos',\n  'Read Operative Job Sheet1',\n  'Read Operative Job Sheet',\n];\n\nconst READY_COL = 'Ready To Hand over';\nconst HANDOVER_PHOTOS_COL = 'Hand Over Photos Extracted';\n\nfunction sheetRowsFromNode(nodeName) {\n  try {\n    return $(nodeName).all().map((i) => i.json || {});\n  } catch (e) {\n    return [];\n  }\n}\n\nfunction rowDedupeKey(row) {\n  const id = String(row.smart_form_x_id ?? row['smart_form_x_id'] ?? '').trim();\n  if (id) return `id::${id}`;\n  const rn = String(row.row_number ?? row.rowNumber ?? '').trim();\n  if (rn) return `row::${rn}`;\n  return null;\n}\n\nfunction collectAllSheetRows() {\n  const merged = new Map();\n  let seq = 0;\n  function addRow(row) {\n    if (!row || typeof row !== 'object') return;\n    const key = rowDedupeKey(row) || `seq::${seq++}`;\n    merged.set(key, row);\n  }\n  for (const item of $input.all()) addRow(item.json || {});\n  for (const nodeName of READ_NODE_NAMES) {\n    for (const row of sheetRowsFromNode(nodeName)) addRow(row);\n  }\n  return [...merged.values()];\n}\n\nfunction isHeaderRow(row) {\n  return /^smartform name$/i.test(String(row['SmartForm Name'] ?? row.smart_form_name ?? '').trim());\n}\n\nfunction normKey(name, dateCreated) {\n  return `${String(name || '').trim().toLowerCase().replace(/\\s+/g, ' ')}::${String(dateCreated || '').trim()}`;\n}\n\nfunction isBccResponseRepairsName(name) {\n  return /:\\s*BCC\\s+Respon(?:se|sive)\\s+Repairs\\b/i.test(String(name || '').trim());\n}\n\nfunction cellVal(row, exactNames, containsText) {\n  for (const name of exactNames) {\n    if (row[name] !== undefined && row[name] !== null) {\n      const v = String(row[name]).trim();\n      if (v) return v;\n    }\n  }\n  if (containsText) {\n    const needle = String(containsText).toLowerCase();\n    for (const k of Object.keys(row || {})) {\n      if (k.toLowerCase().includes(needle)) {\n        const v = String(row[k] ?? '').trim();\n        if (v) return v;\n      }\n    }\n  }\n  return '';\n}\n\nfunction isYes(v) {\n  const s = String(v ?? '').trim().toLowerCase();\n  return s === 'yes' || s === 'y' || s === 'true' || s === '1';\n}\n\nfunction isReadyToHandover(row) {\n  return isYes(cellVal(row, [READY_COL, 'Ready To Hand Over'], 'ready to hand'));\n}\n\nfunction isHandOverPhotosExtracted(row) {\n  const v = cellVal(row, [HANDOVER_PHOTOS_COL, 'Hand over photos extracted'], 'hand over photos extracted');\n  if (!v) return false;\n  const s = v.toLowerCase();\n  if (s === 'no' || s === 'false' || s === '0' || s === 'n') return false;\n  return true;\n}\n\nconst rows = collectAllSheetRows();\nconst skip_smart_form_ids = [];\nconst skip_entries = [];\nconst force_extract_smart_form_ids = [];\nconst id_row_number = {};\nconst seenIds = new Set();\nconst seenKeys = new Set();\nconst PHOTO_BACKFILL_LIMIT = 8;\nlet dataRowCount = 0;\nlet skipped_not_ready_handover = 0;\nlet skipped_handover_photos_done = 0;\n\nfor (const row of rows) {\n  if (isHeaderRow(row)) continue;\n  dataRowCount++;\n\n  const id = String(row.smart_form_x_id ?? row['smart_form_x_id'] ?? '').trim();\n  if (id) {\n    if (!seenIds.has(id)) {\n      seenIds.add(id);\n      skip_smart_form_ids.push(id);\n    }\n    const rn = row.row_number ?? row.rowNumber;\n    if (rn !== null && rn !== undefined && rn !== '') id_row_number[id] = rn;\n  }\n\n  const name = row['SmartForm Name'] ?? row.smart_form_name ?? row.form_name ?? '';\n  const dateCreated = row['Date Created'] ?? row.date_created ?? '';\n  if (name && dateCreated) {\n    const key = normKey(name, dateCreated);\n    if (!seenKeys.has(key)) {\n      seenKeys.add(key);\n      skip_entries.push({\n        smart_form_name: String(name).trim(),\n        date_created: String(dateCreated).trim(),\n      });\n    }\n  }\n\n  if (!id || !isBccResponseRepairsName(name)) continue;\n\n  if (!isReadyToHandover(row)) {\n    skipped_not_ready_handover++;\n    continue;\n  }\n\n  if (isHandOverPhotosExtracted(row)) {\n    skipped_handover_photos_done++;\n    continue;\n  }\n\n  if (force_extract_smart_form_ids.length < PHOTO_BACKFILL_LIMIT) {\n    force_extract_smart_form_ids.push(id);\n  }\n}\n\nreturn [{\n  json: {\n    skip_smart_form_ids,\n    skip_entries,\n    force_extract_smart_form_ids,\n    id_row_number,\n    photo_backfill_count: force_extract_smart_form_ids.length,\n    skipped_not_ready_handover,\n    skipped_handover_photos_done,\n    sheet_row_count: dataRowCount,\n  },\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -5616,
+        512
+      ],
+      "id": "67801c6b-b703-4021-a81b-a6544183e28e",
+      "name": "Build photo backfill queue",
+      "executeOnce": true,
+      "notesInFlow": true,
+      "note": "Ready To Hand over=Yes + Hand Over Photos Extracted empty (max 8)"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ ($('Set API params photos').first().json.ngrok_base_url || '').replace(/\\/+$/, '') + '/extract-operative-job-sheets' }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "ngrok-skip-browser-warning",
+              "value": "true"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ smart_form_ids: ($('Build photo backfill queue').first().json.force_extract_smart_form_ids) || [], skip_smart_form_ids: ($('Build photo backfill queue').first().json.skip_smart_form_ids) || [], skip_entries: ($('Build photo backfill queue').first().json.skip_entries) || [], force_extract_smart_form_ids: ($('Build photo backfill queue').first().json.force_extract_smart_form_ids) || [] }) }}",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          },
+          "timeout": 900000
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -5168,
+        448
+      ],
+      "id": "03995edc-9a06-4fa7-a92a-bb7dc03930a3",
+      "name": "POST extract for photos",
+      "notesInFlow": true,
+      "note": "Only re-extracts queued handover IDs (smart_form_ids); skips grid scrape for new OJS",
+      "executeOnce": true
+    },
+    {
+      "parameters": {
+        "jsCode": "function extractApiBody(resp) {\n  const statusCode = resp.statusCode ?? resp.status ?? 0;\n  let body = resp.body ?? resp.data ?? resp;\n  if (typeof body === 'string') {\n    try {\n      body = JSON.parse(body);\n    } catch (e) {\n      const m = body.match(/\\{[\\s\\S]*\\}/);\n      if (m) {\n        try { body = JSON.parse(m[0]); } catch (e2) { body = {}; }\n      } else {\n        body = {};\n      }\n    }\n  }\n  if (\n    body &&\n    typeof body === 'object' &&\n    body.body &&\n    body.results === undefined &&\n    body.total_extracted === undefined\n  ) {\n    body = body.body;\n  }\n  return { statusCode, body: body || {} };\n}\n\nconst skipPayload = $('Build photo backfill queue').first().json || {};\nconst forceSet = new Set((skipPayload.force_extract_smart_form_ids || []).map((x) => String(x).trim()).filter(Boolean));\nconst idRowNumber = skipPayload.id_row_number || {};\n\nconst respRaw = $('POST extract for photos').first().json || {};\nconst { statusCode, body } = extractApiBody(respRaw);\nconst results = Array.isArray(body.results) ? body.results : [];\n\nconst out = [];\nfor (const r of results) {\n  const sfid = String(r.smart_form_x_id || '').trim();\n  if (!forceSet.has(sfid)) continue;\n\n  const parsed = r.parsed || {};\n  const grid = r.grid || {};\n  const cells = grid.cells || {};\n  const smartFormName =\n    grid.form_name || cells.list_form_name || parsed.job_header || '';\n\n  const photos = parsed.photos || {};\n  const completed = Array.isArray(photos.completed_work) ? photos.completed_work : [];\n  const variations = Array.isArray(photos.variations) ? photos.variations : [];\n  if (!completed.length && !variations.length) continue;\n\n  out.push({\n    json: {\n      _skip_append: true,\n      _photo_backfill: true,\n      row_number: idRowNumber[sfid],\n      smart_form_x_id: sfid,\n      'SmartForm Name': String(smartFormName).trim(),\n      _photos: photos,\n      pdf_url: r.pdf_url || '',\n    },\n  });\n}\n\nif (!out.length) {\n  return [\n    {\n      json: {\n        _skip_append: true,\n        _workflow_only: true,\n        message:\n          forceSet.size === 0\n            ? 'No handover-ready rows queued (Ready To Hand over=Yes and Hand Over Photos Extracted empty).'\n            : `No photos found in PDF for ${forceSet.size} handover target(s).`,\n        photo_backfill_count: forceSet.size,\n        photo_rows_with_images: 0,\n        skipped_not_ready_handover: skipPayload.skipped_not_ready_handover ?? 0,\n        skipped_handover_photos_done: skipPayload.skipped_handover_photos_done ?? 0,\n        api_status: statusCode,\n        total_extracted: body.total_extracted ?? 0,\n        total_errors: body.total_errors ?? 0,\n      },\n    },\n  ];\n}\n\nreturn out;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -4944,
+        448
+      ],
+      "id": "4cc2230b-b314-4601-a184-465fe22fd8c6",
+      "name": "Format photo extract results",
+      "notesInFlow": true,
+      "note": "Internal _photos/_photo_backfill never written to sheet"
+    },
+    {
+      "parameters": {
+        "url": "=https://graph.microsoft.com/v1.0/sites/{{ $json.id }}/lists/BCC/drive",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "oAuth2Api",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -4272,
+        368
+      ],
+      "id": "e1a151d0-28b4-483c-92ee-dc35149e4c7d",
+      "name": "Get BCC library drive OJS",
+      "credentials": {
+        "oAuth2Api": {
+          "id": "nNC3eYQ9UeulKHjg",
+          "name": "Jeffway-M365-GraphAPI"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "url": "=https://graph.microsoft.com/v1.0/drives/{{ $('Get BCC library drive OJS').first().json.id }}/root:/RR Job imports and JIS:",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "oAuth2Api",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -4048,
+        368
+      ],
+      "id": "c1c9495f-cbb2-43aa-aec6-996949a4f811",
+      "name": "Get RR JIS folder OJS",
+      "credentials": {
+        "oAuth2Api": {
+          "id": "nNC3eYQ9UeulKHjg",
+          "name": "Jeffway-M365-GraphAPI"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "url": "=https://graph.microsoft.com/v1.0/drives/{{ $('Get BCC library drive OJS').first().json.id }}/root:/RR Job imports and JIS/Operative Job Sheets Photos:",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "oAuth2Api",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          }
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -3824,
+        368
+      ],
+      "id": "3b546d4d-4f11-4070-bcdc-4ea28c06d050",
+      "name": "Get OJS photos root folder",
+      "credentials": {
+        "oAuth2Api": {
+          "id": "nNC3eYQ9UeulKHjg",
+          "name": "Jeffway-M365-GraphAPI"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const resp = $('Get OJS photos root folder').first().json || {};\nconst statusCode = resp.statusCode ?? resp.status ?? 0;\nlet body = resp.body ?? resp.data ?? resp;\nif (typeof body === 'string') { try { body = JSON.parse(body); } catch {} }\nif (body && body.body && !body.id) body = body.body;\nconst root = body || {};\nreturn [{ json: { exists: Boolean(root.id), root_id: root.id || '', status_code: statusCode, drive_id: $('Get BCC library drive OJS').first().json.id } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -3600,
+        368
+      ],
+      "id": "eb87d969-11fd-4ff5-b615-ba65585a4fd1",
+      "name": "Parse OJS root folder"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "ojs-root-exists",
+              "leftValue": "={{ $json.exists }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -3376,
+        368
+      ],
+      "id": "280a08fa-7e96-45ba-a6dd-4264d90c0b0b",
+      "name": "IF OJS root folder exists"
+    },
+    {
+      "parameters": {
+        "url": "=https://graph.microsoft.com/v1.0/drives/{{ $json.drive_id }}/items/{{ $json.root_id }}/children?$top=999&$select=id,name,folder,webUrl",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "oAuth2Api",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -3152,
+        304
+      ],
+      "id": "6a3b74c3-3a9c-40c5-aa31-0f87351305be",
+      "name": "List OJS job folders",
+      "credentials": {
+        "oAuth2Api": {
+          "id": "nNC3eYQ9UeulKHjg",
+          "name": "Jeffway-M365-GraphAPI"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "function sharePointFolderName(name) {\n  return String(name || '')\n    .trim()\n    .replace(/[:*?\"<>|/\\\\]/g, ' - ')\n    .replace(/\\s+/g, ' ')\n    .replace(/(?:\\s-\\s)+/g, ' - ')\n    .trim()\n    .slice(0, 200);\n}\n\nfunction photoFilename(photo) {\n  return String((photo && photo.filename) || '').trim().toLowerCase();\n}\n\nfunction pipelineRows() {\n  return $('Format photo extract results').all()\n    .map((i) => i.json || {})\n    .filter((row) => {\n      if (row._skip_append === true && !row._photo_backfill) return false;\n      const photos = row._photos || {};\n      const c = Array.isArray(photos.completed_work) ? photos.completed_work.length : 0;\n      const v = Array.isArray(photos.variations) ? photos.variations.length : 0;\n      return c + v > 0;\n    });\n}\n\nconst rows = pipelineRows();\nconst root = $('Parse OJS root folder').first().json || {};\nlet listResp = {};\ntry { listResp = $('List OJS job folders').first().json || {}; } catch (e) { listResp = {}; }\nconst children = Array.isArray(listResp.value) ? listResp.value : [];\nconst byName = new Map(\n  children\n    .filter((c) => c && c.folder)\n    .map((c) => [String(c.name || '').trim(), { id: String(c.id || '').trim(), webUrl: String(c.webUrl || '').trim() }]),\n);\n\nconst bySite = new Map();\nfor (const row of rows) {\n  const photos = row._photos || {};\n  const folderName = String(photos.smart_form_name || row['SmartForm Name'] || '').trim();\n  const spFolderName = sharePointFolderName(folderName);\n  if (!folderName || !spFolderName) continue;\n\n  if (!bySite.has(spFolderName)) {\n    const hit = byName.get(spFolderName) || {};\n    bySite.set(spFolderName, {\n      smart_form_x_id: String(row.smart_form_x_id || '').trim(),\n      folder_name: folderName,\n      sharepoint_folder_name: spFolderName,\n      completed_work: [],\n      variations: [],\n      seen_files: new Set(),\n      visit_rows: [],\n      drive_id: root.drive_id || '',\n      root_folder_id: root.root_id || '',\n      folder_item_id: hit.id || '',\n      folder_web_url: hit.webUrl || '',\n    });\n  }\n\n  const site = bySite.get(spFolderName);\n  site.visit_rows.push({\n    smart_form_x_id: String(row.smart_form_x_id || '').trim(),\n    row_number: row.row_number,\n    _photo_backfill: row._photo_backfill === true,\n  });\n\n  const pushPhotos = (list, bucket) => {\n    for (const photo of list || []) {\n      const fn = photoFilename(photo);\n      if (!fn || site.seen_files.has(fn)) continue;\n      site.seen_files.add(fn);\n      site[bucket].push(photo);\n    }\n  };\n  pushPhotos(photos.completed_work, 'completed_work');\n  pushPhotos(photos.variations, 'variations');\n}\n\nconst out = [];\nfor (const site of bySite.values()) {\n  delete site.seen_files;\n  if (!site.completed_work.length && !site.variations.length) continue;\n  out.push({ json: site });\n}\n\nif (!out.length) return [{ json: { skip_photo_upload: true } }];\nreturn out;\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -2928,
+        304
+      ],
+      "id": "ddba4999-629e-49ed-8627-4821bb126e9f",
+      "name": "Plan site photo folders",
+      "notesInFlow": true,
+      "note": "One SharePoint folder per site (SmartForm Name); merges photos from all visits"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "has-folder-id",
+              "leftValue": "={{ $json.folder_item_id }}",
+              "rightValue": true,
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -2704,
+        304
+      ],
+      "id": "5ac35dc2-09ea-4c7f-8562-8684b1bc1731",
+      "name": "IF OJS job folder exists"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://graph.microsoft.com/v1.0/drives/{{ $json.drive_id }}/items/{{ $json.root_folder_id }}/children",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "oAuth2Api",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ name: $json.sharepoint_folder_name || $json.folder_name.replace(/[:*?\"<>|/\\\\]/g, \" - \").replace(/\\s+/g, \" \").trim(), folder: {}, \"@microsoft.graph.conflictBehavior\": \"fail\" }) }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -2480,
+        368
+      ],
+      "id": "1de03e49-1ceb-4386-812f-0ed01987b295",
+      "name": "Create OJS job folder",
+      "credentials": {
+        "oAuth2Api": {
+          "id": "nNC3eYQ9UeulKHjg",
+          "name": "Jeffway-M365-GraphAPI"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "function sharePointFolderName(name) {\n  return String(name || '')\n    .trim()\n    .replace(/[:*?\"<>|/\\\\]/g, ' - ')\n    .replace(/\\s+/g, ' ')\n    .replace(/(?:\\s-\\s)+/g, ' - ')\n    .trim()\n    .slice(0, 200);\n}\n\nfunction safeNodeAll(nodeName) {\n  try {\n    return $(nodeName).all().map((item) => item.json || {});\n  } catch (error) {\n    return [];\n  }\n}\n\nconst prepared = $('Plan site photo folders').all().map((item) => item.json || {});\nconst folderMeta = new Map();\n\nfor (const item of prepared) {\n  const key = item.sharepoint_folder_name || sharePointFolderName(item.folder_name);\n  if (!key) continue;\n  folderMeta.set(key, {\n    id: item.folder_item_id || folderMeta.get(key)?.id || '',\n    webUrl: item.folder_web_url || folderMeta.get(key)?.webUrl || '',\n  });\n}\n\nfor (const item of $input.all().map((entry) => entry.json || {})) {\n  const key = item.sharepoint_folder_name || sharePointFolderName(item.folder_name || item.name);\n  const id = String(item.folder_item_id || item.id || '').trim();\n  const webUrl = String(item.folder_web_url || item.webUrl || '').trim();\n  if (!key) continue;\n  const prev = folderMeta.get(key) || { id: '', webUrl: '' };\n  folderMeta.set(key, {\n    id: id || prev.id,\n    webUrl: webUrl || prev.webUrl,\n  });\n}\n\nfor (const item of safeNodeAll('Create OJS job folder')) {\n  const key = sharePointFolderName(item.name);\n  const id = String(item.id || '').trim();\n  const webUrl = String(item.webUrl || '').trim();\n  if (!key) continue;\n  folderMeta.set(key, { id: id || folderMeta.get(key)?.id || '', webUrl: webUrl || folderMeta.get(key)?.webUrl || '' });\n}\n\nconst uploads = [];\nfor (const row of prepared) {\n  const key = row.sharepoint_folder_name || sharePointFolderName(row.folder_name);\n  const meta = folderMeta.get(key) || {};\n  const folderId = meta.id || row.folder_item_id || '';\n  const folderWebUrl = meta.webUrl || row.folder_web_url || '';\n  if (!folderId) continue;\n\n  const pushPhoto = (photo, kind) => {\n    const fileName = String(photo.filename || 'photo.jpg').trim();\n    uploads.push({\n      smart_form_x_id: row.smart_form_x_id,\n      folder_name: row.folder_name,\n      sharepoint_folder_name: key,\n      folder_item_id: folderId,\n      folder_web_url: folderWebUrl,\n      file_name: fileName,\n      upload_url: `https://graph.microsoft.com/v1.0/drives/${row.drive_id}/items/${folderId}:/${encodeURIComponent(fileName)}:/content`,\n      photo_kind: kind,\n      mime_type: photo.mime_type || 'image/jpeg',\n      content_base64: photo.content_base64,\n      drive_id: row.drive_id,\n    });\n  };\n\n  for (const photo of row.completed_work || []) pushPhoto(photo, 'completed_work');\n  for (const photo of row.variations || []) pushPhoto(photo, 'variations');\n}\n\nif (!uploads.length) {\n  return [{ json: { skip_photo_upload: true } }];\n}\n\nreturn uploads.map((item) => ({ json: item }));\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -2256,
+        304
+      ],
+      "id": "3dd5c1e7-9ae2-43cf-8234-06592666659d",
+      "name": "Flatten OJS photo uploads",
+      "notesInFlow": true,
+      "note": "Works whether job folder already exists or was just created"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "cond-has-photos",
+              "leftValue": "={{ $json.skip_photo_upload }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "notEquals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -2032,
+        304
+      ],
+      "id": "3190a7c3-40fd-42d6-a325-84cdad3e7f32",
+      "name": "IF Has OJS photos"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const base64Data = String($json.content_base64 || '').trim();\nconst fileName = String($json.file_name || 'photo.jpg').trim();\nconst mimeType = $json.mime_type || 'image/jpeg';\nconst uploadUrl = String($json.upload_url || '').trim();\nif (!base64Data) throw new Error(`No photo data for ${fileName}`);\nif (!uploadUrl) throw new Error(`Missing upload_url for ${fileName}`);\nconst buffer = Buffer.from(base64Data, 'base64');\nconst binary = await this.helpers.prepareBinaryData(buffer, fileName, mimeType);\nreturn { json: { ...$json, photo_bytes: buffer.length, upload_url: uploadUrl }, binary: { attachment_0: binary } };"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1808,
+        368
+      ],
+      "id": "2244f8a0-a757-4024-8ae6-e2f143f21dcd",
+      "name": "Convert OJS photo to binary"
+    },
+    {
+      "parameters": {
+        "method": "PUT",
+        "url": "={{ $json.upload_url }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "oAuth2Api",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "={{ $json.mime_type || 'image/jpeg' }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "binaryData",
+        "inputDataFieldName": "attachment_0",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -1584,
+        368
+      ],
+      "id": "fdf117ae-43d7-4316-ab0d-2588869fce57",
+      "name": "Upload OJS photo to SharePoint",
+      "credentials": {
+        "oAuth2Api": {
+          "id": "nNC3eYQ9UeulKHjg",
+          "name": "Jeffway-M365-GraphAPI"
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const Q23_COL = 'Q2.3 Please provide photos of completed work';\nconst Q26_COL = 'Q2.6 Please provide photos of variations ( if Variation was yes)';\nconst ALT_Q26_COL = 'Q2.6 Please provide photos of variations';\n\nfunction pickQ26Col(row) {\n  if (Object.prototype.hasOwnProperty.call(row, Q26_COL)) return Q26_COL;\n  if (Object.prototype.hasOwnProperty.call(row, ALT_Q26_COL)) return ALT_Q26_COL;\n  return Q26_COL;\n}\n\nfunction sharePointFolderName(name) {\n  return String(name || '')\n    .trim()\n    .replace(/[:*?\"<>|/\\\\]/g, ' - ')\n    .replace(/\\s+/g, ' ')\n    .replace(/(?:\\s-\\s)+/g, ' - ')\n    .trim()\n    .slice(0, 200);\n}\n\nfunction safeNodeAll(nodeName) {\n  try {\n    return $(nodeName).all().map((item) => item.json || {});\n  } catch (e) {\n    return [];\n  }\n}\n\nfunction safeNodeFirst(nodeName) {\n  try {\n    return $(nodeName).first()?.json || {};\n  } catch (e) {\n    return {};\n  }\n}\n\nfunction pipelineRows() {\n  return $('Format photo extract results').all()\n    .map((item) => item.json || {})\n    .filter((row) => row._photo_backfill === true && row.row_number);\n}\n\nconst folderUrlBySite = new Map();\n\nconst listResp = safeNodeFirst('List OJS job folders');\nfor (const c of Array.isArray(listResp.value) ? listResp.value : []) {\n  if (c && c.folder) {\n    const name = String(c.name || '').trim();\n    const url = String(c.webUrl || '').trim();\n    if (name && url) folderUrlBySite.set(name, url);\n  }\n}\n\nfor (const src of safeNodeAll('Plan site photo folders')) {\n  const key = String(src.sharepoint_folder_name || sharePointFolderName(src.folder_name || '')).trim();\n  const url = String(src.folder_web_url || '').trim();\n  if (key && url) folderUrlBySite.set(key, url);\n}\n\nfor (const src of safeNodeAll('Create OJS job folder')) {\n  const key = sharePointFolderName(src.name);\n  const url = String(src.webUrl || '').trim();\n  if (key && url) folderUrlBySite.set(key, url);\n}\n\nfor (const src of safeNodeAll('Convert OJS photo to binary')) {\n  const key = String(src.sharepoint_folder_name || sharePointFolderName(src.folder_name || '')).trim();\n  const url = String(src.folder_web_url || '').trim();\n  if (key && url) folderUrlBySite.set(key, url);\n}\n\nfor (const item of $input.all()) {\n  const src = item.json || {};\n  const key = String(src.sharepoint_folder_name || sharePointFolderName(src.folder_name || src.name || '')).trim();\n  const url = String(src.folder_web_url || src.webUrl || '').trim();\n  if (key && url) folderUrlBySite.set(key, url);\n}\n\nconst out = [];\nfor (const row of pipelineRows()) {\n  const photos = row._photos || {};\n  const smartFormName = String(photos.smart_form_name || row['SmartForm Name'] || '').trim();\n  const nameKey = sharePointFolderName(smartFormName);\n  const folderUrl = folderUrlBySite.get(nameKey) || '';\n  if (!folderUrl) continue;\n\n  const hasCompleted = Array.isArray(photos.completed_work) && photos.completed_work.length > 0;\n  const hasVariations = Array.isArray(photos.variations) && photos.variations.length > 0;\n  const q26Col = pickQ26Col(row);\n  const update = {\n    row_number: row.row_number,\n  };\n  if (hasCompleted) update[Q23_COL] = folderUrl;\n  if (hasVariations) update[q26Col] = folderUrl;\n  if (hasCompleted || hasVariations) update['Hand Over Photos Extracted'] = 'Yes';\n  out.push({ json: update });\n}\n\nif (!out.length) {\n  return [];\n}\n\nreturn out;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1360,
+        304
+      ],
+      "id": "0248451e-c2df-418c-85a4-0e08a09b2544",
+      "name": "Merge OJS photo URLs into rows",
+      "note": "Safe refs to optional nodes (Create folder may not run)",
+      "notesInFlow": true
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "documentId": {
+          "__rl": true,
+          "value": "1mkklLpvi8klaN4Zo4D_cBrb95PGQ4NbUvtTAvLI4CII",
+          "mode": "list",
+          "cachedResultName": "stage 6",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1mkklLpvi8klaN4Zo4D_cBrb95PGQ4NbUvtTAvLI4CII/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list",
+          "cachedResultName": "Operative Job Sheet",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1mkklLpvi8klaN4Zo4D_cBrb95PGQ4NbUvtTAvLI4CII/edit#gid=0"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": [
+            "row_number"
+          ],
+          "schema": [
+            {
+              "id": "row_number",
+              "displayName": "row_number",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true,
+              "readOnly": true
+            },
+            {
+              "id": "Q2.3 Please provide photos of completed work",
+              "displayName": "Q2.3 Please provide photos of completed work",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Q2.6 Please provide photos of variations ( if Variation was yes)",
+              "displayName": "Q2.6 Please provide photos of variations ( if Variation was yes)",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Hand Over Photos Extracted",
+              "displayName": "Hand Over Photos Extracted",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "id": "063f9182-282c-4f32-9fe7-69de53bca3f1",
+      "name": "Update photo URLs on sheet",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        -912,
+        304
+      ],
+      "notesInFlow": true,
+      "note": "Only Q2.3, Q2.6, Hand Over Photos Extracted",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "0bvpVa8frZ7qSwzx",
+          "name": "hamza-sheets"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "function safeFirst(nodeName) {\n  try {\n    return $(nodeName).first()?.json || {};\n  } catch (e) {\n    return {};\n  }\n}\n\nfunction formatMeta() {\n  try {\n    const items = $('Format photo extract results').all().map((i) => i.json || {});\n    return items.find((j) => j._workflow_only === true) || items[0] || {};\n  } catch (e) {\n    return {};\n  }\n}\n\nconst queue = safeFirst('Build photo backfill queue');\nconst formatFirst = formatMeta();\nconst updated = (() => {\n  try {\n    return $('Update photo URLs on sheet').all().length;\n  } catch (e) {\n    return 0;\n  }\n})();\n\nconst queued = queue.photo_backfill_count ?? formatFirst.photo_backfill_count ?? 0;\nconst withPhotos = (() => {\n  try {\n    return $('Format photo extract results').all().filter((i) => (i.json || {})._photo_backfill === true).length;\n  } catch (e) {\n    return 0;\n  }\n})();\nconst skippedDone = queue.skipped_handover_photos_done ?? formatFirst.skipped_handover_photos_done ?? 0;\nconst skippedNotReady = queue.skipped_not_ready_handover ?? formatFirst.skipped_not_ready_handover ?? 0;\n\nlet message = formatFirst.message || '';\nif (!message) {\n  if (queued === 0) {\n    message = 'No handover-ready rows queued.';\n  } else if (withPhotos > 0) {\n    message = `Processed ${withPhotos} handover row(s) with photos.`;\n  } else {\n    message = `Queued ${queued} row(s) but no photos extracted.`;\n  }\n}\nif (skippedDone > 0) message += ` Skipped ${skippedDone} already extracted.`;\nif (skippedNotReady > 0) message += ` Skipped ${skippedNotReady} not ready to hand over.`;\nif (updated > 0) message += ` Updated ${updated} sheet row(s).`;\n\nreturn [{\n  json: {\n    ok: withPhotos > 0 || updated > 0,\n    message,\n    photo_backfill_count: queued,\n    photo_rows_with_images: withPhotos,\n    skipped_handover_photos_done: skippedDone,\n    skipped_not_ready_handover: skippedNotReady,\n    sheet_rows_updated: updated,\n    api_status: formatFirst.api_status ?? null,\n    total_extracted: formatFirst.total_extracted ?? null,\n    total_errors: formatFirst.total_errors ?? null,\n  },\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -688,
+        592
+      ],
+      "id": "cd847654-1807-489f-8b4c-8e9051f99d45",
+      "name": "Summarize photo run"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "photo-queue-nonempty",
+              "leftValue": "={{ ($('Build photo backfill queue').first().json.force_extract_smart_form_ids || []).length }}",
+              "rightValue": 0,
+              "operator": {
+                "type": "number",
+                "operation": "gt"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -5392,
+        512
+      ],
+      "id": "303c0a93-cc21-4b73-a6a0-6b92bde931a5",
+      "name": "IF photo backfill queued"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "has-photo-backfill-rows",
+              "leftValue": "={{ $('Format photo extract results').all().filter(i => (i.json || {})._photo_backfill === true && ((i.json._photos || {}).completed_work || []).length + ((i.json._photos || {}).variations || []).length > 0).length }}",
+              "rightValue": 0,
+              "operator": {
+                "type": "number",
+                "operation": "gt"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -4720,
+        448
+      ],
+      "id": "b67ca39c-0674-4a7c-8da6-adabc4c830f2",
+      "name": "IF has photos to upload"
+    },
+    {
+      "parameters": {
+        "url": "https://graph.microsoft.com/v1.0/sites/jeffway.sharepoint.com:/bccvoids",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "oAuth2Api",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -4496,
+        368
+      ],
+      "id": "87be2250-36cf-44a9-bff6-a0c5290cca7b",
+      "name": "Get bccvoids site1",
+      "credentials": {
+        "oAuth2Api": {
+          "id": "nNC3eYQ9UeulKHjg",
+          "name": "Jeffway-M365-GraphAPI"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const Q23_COL = 'Q2.3 Please provide photos of completed work';\nconst Q26_COL = 'Q2.6 Please provide photos of variations ( if Variation was yes)';\nconst ALT_Q26_COL = 'Q2.6 Please provide photos of variations';\n\nconst ALLOWED = new Set([\n  'row_number',\n  Q23_COL,\n  Q26_COL,\n  ALT_Q26_COL,\n  'Hand Over Photos Extracted',\n]);\n\nfunction pickQ26Col(row) {\n  if (Object.prototype.hasOwnProperty.call(row, Q26_COL)) return Q26_COL;\n  if (Object.prototype.hasOwnProperty.call(row, ALT_Q26_COL)) return ALT_Q26_COL;\n  return Q26_COL;\n}\n\nconst out = [];\nfor (const item of $input.all()) {\n  const row = item.json || {};\n  if (!row.row_number) continue;\n  const clean = { row_number: row.row_number };\n  if (row[Q23_COL]) clean[Q23_COL] = row[Q23_COL];\n  const q26 = pickQ26Col(row);\n  if (row[q26]) clean[q26] = row[q26];\n  if (row['Hand Over Photos Extracted']) clean['Hand Over Photos Extracted'] = row['Hand Over Photos Extracted'];\n  const hasUpdate = Object.keys(clean).length > 1;\n  if (hasUpdate) out.push({ json: clean });\n}\n\nreturn out;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1136,
+        304
+      ],
+      "id": "5574441b-df7a-4438-b020-44a47543b15a",
+      "name": "Clean photo sheet updates",
+      "notesInFlow": true,
+      "note": "Strips workflow metadata before sheet update"
+    },
+    {
+      "parameters": {
+        "triggerTimes": {
+          "item": [
+            {
+              "mode": "everyX"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.cron",
+      "typeVersion": 1,
+      "position": [
+        -6304,
+        512
+      ],
+      "id": "627c43f3-70ee-4879-b231-ef7696acdd0b",
+      "name": "Schedule every 2h"
+    },
+    {
+      "parameters": {
+        "inputSource": "passthrough"
+      },
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -6288,
+        736
+      ],
+      "id": "51b12967-ef42-46ad-9eff-a04790e843fc",
+      "name": "When Executed by Another Workflow"
+    },
+    {
+      "parameters": {
+        "content": "",
+        "height": 992,
+        "width": 5844,
+        "color": 2
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        -6368,
+        0
+      ],
+      "typeVersion": 1,
+      "id": "2417f96f-1eba-4b82-8d3c-f39a7f8a98f9",
+      "name": "Sticky Note"
+    }
+  ],
+  "connections": {
+    "Set API params photos": {
+      "main": [
+        [
+          {
+            "node": "Read Operative Job Sheet photos",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Operative Job Sheet photos": {
+      "main": [
+        [
+          {
+            "node": "Build photo backfill queue",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build photo backfill queue": {
+      "main": [
+        [
+          {
+            "node": "IF photo backfill queued",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "POST extract for photos": {
+      "main": [
+        [
+          {
+            "node": "Format photo extract results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format photo extract results": {
+      "main": [
+        [
+          {
+            "node": "IF has photos to upload",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get BCC library drive OJS": {
+      "main": [
+        [
+          {
+            "node": "Get RR JIS folder OJS",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get RR JIS folder OJS": {
+      "main": [
+        [
+          {
+            "node": "Get OJS photos root folder",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get OJS photos root folder": {
+      "main": [
+        [
+          {
+            "node": "Parse OJS root folder",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse OJS root folder": {
+      "main": [
+        [
+          {
+            "node": "IF OJS root folder exists",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF OJS root folder exists": {
+      "main": [
+        [
+          {
+            "node": "List OJS job folders",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Summarize photo run",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "List OJS job folders": {
+      "main": [
+        [
+          {
+            "node": "Plan site photo folders",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Plan site photo folders": {
+      "main": [
+        [
+          {
+            "node": "IF OJS job folder exists",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF OJS job folder exists": {
+      "main": [
+        [
+          {
+            "node": "Flatten OJS photo uploads",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Create OJS job folder",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create OJS job folder": {
+      "main": [
+        [
+          {
+            "node": "Flatten OJS photo uploads",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Flatten OJS photo uploads": {
+      "main": [
+        [
+          {
+            "node": "IF Has OJS photos",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF Has OJS photos": {
+      "main": [
+        [
+          {
+            "node": "Convert OJS photo to binary",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Merge OJS photo URLs into rows",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Convert OJS photo to binary": {
+      "main": [
+        [
+          {
+            "node": "Upload OJS photo to SharePoint",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Upload OJS photo to SharePoint": {
+      "main": [
+        [
+          {
+            "node": "Merge OJS photo URLs into rows",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Merge OJS photo URLs into rows",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge OJS photo URLs into rows": {
+      "main": [
+        [
+          {
+            "node": "Clean photo sheet updates",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update photo URLs on sheet": {
+      "main": [
+        [
+          {
+            "node": "Summarize photo run",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Summarize photo run": {
+      "main": [
+        []
+      ]
+    },
+    "IF photo backfill queued": {
+      "main": [
+        [
+          {
+            "node": "POST extract for photos",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Summarize photo run",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF has photos to upload": {
+      "main": [
+        [
+          {
+            "node": "Get bccvoids site1",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Summarize photo run",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get bccvoids site1": {
+      "main": [
+        [
+          {
+            "node": "Get BCC library drive OJS",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Clean photo sheet updates": {
+      "main": [
+        [
+          {
+            "node": "Update photo URLs on sheet",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Schedule every 2h": {
+      "main": [
+        []
+      ]
+    },
+    "When Executed by Another Workflow": {
+      "main": [
+        [
+          {
+            "node": "Set API params photos",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "a5cd22a95d5313a977e9ac21c3a833db76b18ca78fb8cb2cf7013465d69f17f8"
+  }
+}

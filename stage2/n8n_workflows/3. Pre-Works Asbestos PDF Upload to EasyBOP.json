@@ -1,0 +1,754 @@
+{
+    "nodes": [
+      {
+        "parameters": {
+          "rule": {
+            "interval": [
+              {
+                "field": "minutes",
+                "minutesInterval": 30
+              }
+            ]
+          }
+        },
+        "type": "n8n-nodes-base.scheduleTrigger",
+        "typeVersion": 1.1,
+        "position": [
+          -16512,
+          16016
+        ],
+        "id": "87f29b5d-d63b-4300-9cc2-98511fada27a",
+        "name": "Schedule Trigger"
+      },
+      {
+        "parameters": {
+          "assignments": {
+            "assignments": [
+              {
+                "id": "api-base",
+                "name": "api_base_url",
+                "value": "http://173.212.233.153:8000",
+                "type": "string"
+              }
+            ]
+          },
+          "options": {}
+        },
+        "type": "n8n-nodes-base.set",
+        "typeVersion": 3.4,
+        "position": [
+          -16256,
+          16016
+        ],
+        "id": "3634e525-1db4-4f60-abb9-6455f96da625",
+        "name": "Set API URL",
+        "notesInFlow": true,
+        "note": "VPS jeffway-api",
+        "executeOnce": true
+      },
+      {
+        "parameters": {
+          "method": "POST",
+          "url": "={{ $('Set API URL').first().json.api_base_url.replace(/\\/+$/, '') + '/pre-works/fetch-table-html' }}",
+          "sendHeaders": true,
+          "headerParameters": {
+            "parameters": [
+              {
+                "name": "Content-Type",
+                "value": "application/json"
+              }
+            ]
+          },
+          "sendBody": true,
+          "specifyBody": "json",
+          "jsonBody": "={{ { contract_id: '321129', timeout_ms: 120000, max_pages: 200 } }}",
+          "options": {
+            "timeout": 180000
+          }
+        },
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.2,
+        "position": [
+          -16000,
+          16016
+        ],
+        "id": "a8c5a368-8cf6-41e8-bd48-5e73939d7f64",
+        "name": "Fetch Pre-Works Table HTML",
+        "executeOnce": true
+      },
+      {
+        "parameters": {
+          "jsCode": "const fetchMeta = $('Pre-Works Fetch Summary1').first().json || {};\nconst html = ($('Fetch Pre-Works Table HTML').first().json || {}).html || '';\nconst ASBESTOS_SUFFIX = '_wi_pw_24818_upload';\nconst UPRN_SUFFIX = '_property_ref';\nconst ADDR_SUFFIX = '_address';\nconst CORF_SUFFIX = '_client_order_reference';\n\nfunction cellClass(attrs) {\n  const m = String(attrs || '').match(/class=\"([^\"]*)\"/i);\n  if (!m) return '';\n  return m[1].split(/\\s+/).find(c => c.startsWith('jqgrid_bg_')) || '';\n}\nfunction cellTitle(attrs) {\n  const m = String(attrs || '').match(/title=\"([^\"]*)\"/i);\n  return m ? m[1].trim() : '';\n}\n\nconst trRegex = /<tr[^>]+id=\"(\\d+)\"[^>]*>([\\s\\S]*?)<\\/tr>/gi;\nconst rows = [];\nlet trMatch;\nwhile ((trMatch = trRegex.exec(html)) !== null) {\n  const rowId = trMatch[1];\n  const rowHtml = trMatch[2];\n  const cells = {};\n  const tdRegex = /<td([^>]+)>([\\s\\S]*?)<\\/td>/gi;\n  let tdMatch;\n  while ((tdMatch = tdRegex.exec(rowHtml)) !== null) {\n    const keyMatch = tdMatch[1].match(/aria-describedby=\"([^\"]+)\"/i);\n    if (!keyMatch) continue;\n    cells[keyMatch[1]] = { attrs: tdMatch[1] };\n  }\n  function getCell(suffix) {\n    for (const [key, val] of Object.entries(cells)) {\n      if (key.endsWith(suffix)) return val;\n    }\n    return null;\n  }\n  const asbCell = getCell(ASBESTOS_SUFFIX);\n  if (!asbCell) continue;\n  const asbClass = cellClass(asbCell.attrs);\n  if (!asbClass.includes('red')) continue;\n  rows.push({\n    pre_work_id: rowId,\n    uprn: cellTitle(getCell(UPRN_SUFFIX)?.attrs),\n    address: cellTitle(getCell(ADDR_SUFFIX)?.attrs),\n    client_order_reference: cellTitle(getCell(CORF_SUFFIX)?.attrs),\n    asbestos_class: asbClass,\n  });\n}\n\nconsole.log(`${fetchMeta.verify_message || ''} | Red asbestos rows=${rows.length}`);\nif (!rows.length) {\n  return [{ json: { _no_red_rows: true, red_count: 0, message: 'No red Global Asbestos Survey rows on pre-works report.' } }];\n}\nreturn rows.map(r => ({ json: r }));"
+        },
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          -15488,
+          16016
+        ],
+        "id": "04dbdd3b-894c-423d-b718-c8f5b435e3d8",
+        "name": "Parse Red Asbestos Rows",
+        "notesInFlow": true,
+        "note": "Global Asbestos Survey upload = RED"
+      },
+      {
+        "parameters": {
+          "method": "POST",
+          "url": "={{ $('Set API URL').first().json.api_base_url.replace(/\\/+$/, '') + '/works-index' }}",
+          "sendHeaders": true,
+          "headerParameters": {
+            "parameters": [
+              {
+                "name": "Content-Type",
+                "value": "application/json"
+              }
+            ]
+          },
+          "sendBody": true,
+          "specifyBody": "json",
+          "jsonBody": "={{ { timeout_ms: 120000 } }}",
+          "options": {
+            "response": {
+              "response": {
+                "fullResponse": true,
+                "neverError": true
+              }
+            },
+            "timeout": 180000
+          }
+        },
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.2,
+        "position": [
+          -15232,
+          16016
+        ],
+        "id": "718dbd74-4170-4353-a6a3-561c8b0a02cb",
+        "name": "Fetch Works Index",
+        "executeOnce": true,
+        "notesInFlow": true,
+        "note": "Paginated CORF → works_id"
+      },
+      {
+        "parameters": {
+          "jsCode": "function bodyFrom(resp) {\n  let body = resp.body ?? resp.data ?? resp;\n  if (typeof body === 'string') {\n    try { body = JSON.parse(body); } catch (e) { body = {}; }\n  }\n  if (body && body.body && body.items === undefined && body.total === undefined) {\n    body = body.body;\n  }\n  return body || {};\n}\nfunction normCorf(v) {\n  const raw = String(v ?? '').trim();\n  if (!raw) return '';\n  const t = raw.toLowerCase().replace(/\\s+/g, '');\n  const slash = t.match(/^(\\d+)\\/(\\d+)$/);\n  if (slash) return parseInt(slash[1], 10) + '/' + parseInt(slash[2], 10);\n  const digits = t.replace(/\\D/g, '');\n  if (digits.length >= 4) return String(parseInt(digits, 10));\n  return t;\n}\nfunction cleanAddrKey(str) {\n  return String(str || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').replace(/\\s+/g, ' ').trim();\n}\nconst resp = $input.first().json || {};\nconst data = bodyFrom(resp);\nconst items = Array.isArray(data.items) ? data.items : [];\nconst corfToWorksId = {};\nconst addrToWorksId = {};\nfor (const item of items) {\n  const wid = String(item.works_id || '').trim();\n  if (!wid) continue;\n  const corf = normCorf(item.client_order_reference || '');\n  if (corf) corfToWorksId[corf] = wid;\n  const addr = cleanAddrKey(item.address || '');\n  if (addr) addrToWorksId[addr] = wid;\n}\nconst sd = $getWorkflowStaticData('global');\nsd.corfToWorksId = corfToWorksId;\nsd.addrToWorksId = addrToWorksId;\nreturn [{\n  json: {\n    works_index_total: data.total ?? items.length,\n    works_index_ok: data.success === true,\n    corf_map_size: Object.keys(corfToWorksId).length,\n    message: data.message || `Indexed ${items.length} works`,\n  },\n}];"
+        },
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          -14976,
+          16016
+        ],
+        "id": "368b5c79-750d-4084-9137-b7b63781b2a1",
+        "name": "Build CORF works_id Map",
+        "executeOnce": true
+      },
+      {
+        "parameters": {
+          "url": "https://graph.microsoft.com/v1.0/sites/jeffway.sharepoint.com:/bccvoids",
+          "authentication": "genericCredentialType",
+          "genericAuthType": "oAuth2Api",
+          "options": {}
+        },
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.2,
+        "position": [
+          -14720,
+          16016
+        ],
+        "id": "0f0ec716-1a8f-4261-bb52-eab869cf0629",
+        "name": "Get bccvoids site",
+        "executeOnce": true,
+        "credentials": {
+          "oAuth2Api": {
+            "id": "nNC3eYQ9UeulKHjg",
+            "name": "Jeffway-M365-GraphAPI"
+          }
+        }
+      },
+      {
+        "parameters": {
+          "url": "=https://graph.microsoft.com/v1.0/sites/{{ $json.id }}/lists/BCC/drive",
+          "authentication": "genericCredentialType",
+          "genericAuthType": "oAuth2Api",
+          "options": {}
+        },
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.2,
+        "position": [
+          -14464,
+          16016
+        ],
+        "id": "eb3a0be6-0491-403f-95d3-ed66c4a7e369",
+        "name": "Get BCC library drive",
+        "executeOnce": true,
+        "credentials": {
+          "oAuth2Api": {
+            "id": "nNC3eYQ9UeulKHjg",
+            "name": "Jeffway-M365-GraphAPI"
+          }
+        }
+      },
+      {
+        "parameters": {
+          "url": "=https://graph.microsoft.com/v1.0/drives/{{ $json.id }}/root:/RR Job imports and JIS/Asbestos reports:/children?$top=2000&$select=id,name,size,lastModifiedDateTime,webUrl,file",
+          "authentication": "genericCredentialType",
+          "genericAuthType": "oAuth2Api",
+          "options": {}
+        },
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.2,
+        "position": [
+          -14208,
+          16016
+        ],
+        "id": "92f72b40-5202-40bc-ae5f-5a8990dbbcda",
+        "name": "List asbestos folder",
+        "executeOnce": true,
+        "credentials": {
+          "oAuth2Api": {
+            "id": "nNC3eYQ9UeulKHjg",
+            "name": "Jeffway-M365-GraphAPI"
+          }
+        }
+      },
+      {
+        "parameters": {
+          "jsCode": "const driveId = $('Get BCC library drive').first().json.id;\nconst spFiles = ($('List asbestos folder').first().json.value || []).filter(f => f.file && f.name.toLowerCase().endsWith('.pdf'));\nconst rows = $('Parse Red Asbestos Rows').all().map(i => i.json || {}).filter(r => !r._no_red_rows);\nconst sd = $getWorkflowStaticData('global');\nconst corfToWorksId = sd.corfToWorksId || {};\nconst addrToWorksId = sd.addrToWorksId || {};\n\nfunction normCorf(v) {\n  const raw = String(v ?? '').trim();\n  if (!raw) return '';\n  const t = raw.toLowerCase().replace(/\\s+/g, '');\n  const slash = t.match(/^(\\d+)\\/(\\d+)$/);\n  if (slash) return parseInt(slash[1], 10) + '/' + parseInt(slash[2], 10);\n  const digits = t.replace(/\\D/g, '');\n  if (digits.length >= 4) return String(parseInt(digits, 10));\n  return t;\n}\nfunction cleanAddress(str) {\n  let c = String(str || '').toLowerCase().replace(/\\([^)]*\\)/g, ' ');\n  c = c.replace(/[^a-z0-9]/g, ' ').replace(/\\s+/g, ' ').trim();\n  return c;\n}\nfunction cleanAddrKey(str) { return cleanAddress(str); }\nfunction cleanFilename(str) {\n  let c = String(str || '').toLowerCase();\n  c = c.replace(/\\.pdf$/, '').replace(/_asbestos(\\s*\\(\\d+\\))?$/, '');\n  c = c.replace(/[^a-z0-9]/g, ' ').replace(/\\s+/g, ' ').trim();\n  return c;\n}\nfunction similarity(s1, s2) {\n  if (!s1 || !s2) return 0;\n  if (s1.includes(s2) || s2.includes(s1)) return 1.0;\n  const ns1 = s1.replace(/\\s/g, '');\n  const ns2 = s2.replace(/\\s/g, '');\n  if (ns1.includes(ns2) || ns2.includes(ns1)) return 1.0;\n  const w1 = s1.split(' ');\n  const w2 = s2.split(' ');\n  if (w1.length >= 2) {\n    const p2 = w1.slice(0, 2).join(' ');\n    const p3 = w1.length >= 3 ? w1.slice(0, 3).join(' ') : p2;\n    if (s2.includes(p3)) return 1.0;\n    if (s2.includes(p2)) return 0.95;\n  }\n  const shortW = w1.length < w2.length ? w1 : w2;\n  const longW = new Set(w1.length < w2.length ? w2 : w1);\n  let mc = 0;\n  for (const w of shortW) { if (longW.has(w)) mc++; }\n  return shortW.length > 0 ? mc / shortW.length : 0;\n}\n\nconst pending = [];\nconst skipped = [];\n\nfor (const row of rows) {\n  const corfRaw = String(row.client_order_reference || '').trim();\n  const corf = normCorf(corfRaw) || corfRaw;\n  const addr = String(row.address || '').trim();\n  const cAddr = cleanAddress(addr);\n  let fileName = '';\n  let bestScore = 0;\n  let bestFile = null;\n  for (const f of spFiles) {\n    const cFile = cleanFilename(f.name);\n    const score = similarity(cAddr, cFile);\n    if (score > bestScore) { bestScore = score; bestFile = f; }\n  }\n  if (bestScore >= 0.80 && bestFile) {\n    fileName = bestFile.name;\n  } else {\n    skipped.push({ pre_work_id: row.pre_work_id, corf, address: addr, reason: 'no_sharepoint_match', bestScore });\n    continue;\n  }\n  const works_id = (corf && corfToWorksId[corf]) || (cAddr && addrToWorksId[cleanAddrKey(addr)]) || '';\n  if (!works_id) {\n    skipped.push({ pre_work_id: row.pre_work_id, corf, address: addr, reason: 'no_works_id', fileName });\n    continue;\n  }\n  pending.push({\n    json: {\n      _skip: false,\n      pre_work_id: row.pre_work_id,\n      corf: corfRaw || corf,\n      works_id,\n      address: addr,\n      uprn: row.uprn || '',\n      asbestos_report_file: fileName,\n      download_url: `https://graph.microsoft.com/v1.0/drives/${driveId}/root:/RR Job imports and JIS/Asbestos reports/${encodeURIComponent(fileName)}:/content`,\n    },\n  });\n}\n\nif (pending.length === 0) {\n  return [{ json: { _skip: true, message: 'No pending uploads.', skipped_count: skipped.length, skipped } }];\n}\nreturn pending;"
+        },
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          -13952,
+          16016
+        ],
+        "id": "d155cbe5-2287-4df1-bd59-842efff786e9",
+        "name": "Match SharePoint PDFs",
+        "notesInFlow": true
+      },
+      {
+        "parameters": {
+          "conditions": {
+            "options": {
+              "caseSensitive": true,
+              "leftValue": "",
+              "typeValidation": "strict",
+              "version": 2
+            },
+            "conditions": [
+              {
+                "id": "skip",
+                "leftValue": "={{ $json._skip }}",
+                "rightValue": true,
+                "operator": {
+                  "type": "boolean",
+                  "operation": "equals"
+                }
+              }
+            ],
+            "combinator": "and"
+          },
+          "options": {}
+        },
+        "type": "n8n-nodes-base.if",
+        "typeVersion": 2.2,
+        "position": [
+          -13696,
+          16096
+        ],
+        "id": "f2e29226-0588-45d3-b404-721baf57c962",
+        "name": "IF Nothing to Upload"
+      },
+      {
+        "parameters": {
+          "url": "={{ $json.download_url }}",
+          "authentication": "genericCredentialType",
+          "genericAuthType": "oAuth2Api",
+          "options": {
+            "response": {
+              "response": {
+                "responseFormat": "file"
+              }
+            }
+          }
+        },
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.2,
+        "position": [
+          -13440,
+          16096
+        ],
+        "id": "c11732ea-c603-4d4a-ba79-dab8b8cf2136",
+        "name": "Download PDF from SharePoint",
+        "credentials": {
+          "oAuth2Api": {
+            "id": "nNC3eYQ9UeulKHjg",
+            "name": "Jeffway-M365-GraphAPI"
+          }
+        }
+      },
+      {
+        "parameters": {
+          "mode": "runOnceForEachItem",
+          "jsCode": "function pairedIndex(item, fallback) {\n  const p = item?.pairedItem;\n  if (Array.isArray(p)) {\n    const hit = p.find(x => x && typeof x.item === 'number');\n    if (hit) return hit.item;\n  } else if (p && typeof p.item === 'number') {\n    return p.item;\n  }\n  return fallback;\n}\nconst filterItems = $('Match SharePoint PDFs').all().filter(i => !i.json?._skip);\nconst idx = pairedIndex($input.item, $itemIndex);\nconst row = { ...(filterItems[idx]?.json || $('Match SharePoint PDFs').item.json || {}) };\nconst corf = String(row.corf || '').trim();\nconst fileName = String(row.asbestos_report_file || '').trim();\nlet buffer;\ntry {\n  buffer = await this.helpers.getBinaryDataBuffer(0, 'data');\n} catch (e) {\n  return { json: { ...row, _encode_error: `No binary for CORF ${corf}: ${e.message}`, _skip: true } };\n}\nconst size = buffer.length;\nif (size < 256) {\n  return { json: { ...row, _encode_error: `PDF too small (${size} bytes)`, _skip: true } };\n}\nif (buffer.slice(0, 4).toString() !== '%PDF') {\n  return { json: { ...row, _encode_error: `Not a PDF for CORF ${corf}`, _skip: true } };\n}\nreturn { json: { ...row, _pdf_base64: buffer.toString('base64'), _pdf_size: size, _skip: false } };"
+        },
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          -13184,
+          16096
+        ],
+        "id": "f66b82c8-7e21-4112-a284-221a4104dc2e",
+        "name": "Encode PDF Base64"
+      },
+      {
+        "parameters": {
+          "jsCode": "const apiBase = String($('Set API URL').first().json.api_base_url || '').replace(/\\/+$/, '');\nconst rows = $('Encode PDF Base64').all();\nconst items = [];\nconst batchMeta = [];\nconst skipped = [];\nfor (const item of rows) {\n  const j = item.json || {};\n  const base = { pre_work_id: j.pre_work_id, corf: j.corf, works_id: j.works_id };\n  if (j._skip) {\n    skipped.push({ ...base, _status: `ERROR: ${j._encode_error || 'Skipped'}`, _api_success: false });\n    continue;\n  }\n  const corf = String(j.corf || '').trim();\n  const wid = String(j.works_id || '').trim();\n  const fileName = String(j.asbestos_report_file || '').trim();\n  const b64 = String(j._pdf_base64 || '').trim();\n  if (!corf || !wid || !fileName || !b64) {\n    skipped.push({ ...base, _status: 'ERROR: Missing corf/works_id/file/base64', _api_success: false });\n    continue;\n  }\n  items.push({ corf, works_id: wid, pdf_filename: fileName, pdf_base64: b64 });\n  batchMeta.push({ ...base, pdf_filename: fileName });\n}\nreturn [{\n  json: {\n    _api_url: `${apiBase}/upload-asbestos-pdf-batch`,\n    _skipped: skipped,\n    _batch_meta: batchMeta,\n    _batch_body: { items, contract_id: '321129', use_works_id_navigation: true, timeout_ms: 45000 },\n    _item_count: items.length,\n    _skipped_count: skipped.length,\n  },\n}];"
+        },
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          -12928,
+          16096
+        ],
+        "id": "69d645e2-a063-40c1-9bed-ce868336c4d7",
+        "name": "Aggregate Batch Payload"
+      },
+      {
+        "parameters": {
+          "conditions": {
+            "options": {
+              "caseSensitive": true,
+              "leftValue": "",
+              "typeValidation": "strict",
+              "version": 2
+            },
+            "conditions": [
+              {
+                "id": "has",
+                "leftValue": "={{ $json._item_count }}",
+                "rightValue": 0,
+                "operator": {
+                  "type": "number",
+                  "operation": "gt"
+                }
+              }
+            ],
+            "combinator": "and"
+          },
+          "options": {}
+        },
+        "type": "n8n-nodes-base.if",
+        "typeVersion": 2.2,
+        "position": [
+          -12672,
+          16096
+        ],
+        "id": "c9ed1ea4-366e-4862-bd31-38418cc18c98",
+        "name": "IF Has Items To Upload"
+      },
+      {
+        "parameters": {
+          "method": "POST",
+          "url": "={{ $json._api_url }}",
+          "sendHeaders": true,
+          "headerParameters": {
+            "parameters": [
+              {
+                "name": "Content-Type",
+                "value": "application/json"
+              }
+            ]
+          },
+          "sendBody": true,
+          "specifyBody": "json",
+          "jsonBody": "={{ JSON.stringify($json._batch_body) }}",
+          "options": {
+            "response": {
+              "response": {
+                "fullResponse": true,
+                "neverError": true
+              }
+            },
+            "timeout": 600000
+          }
+        },
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.2,
+        "position": [
+          -12416,
+          16016
+        ],
+        "id": "d799a246-006e-4838-bde3-fd1cbd659525",
+        "name": "POST upload-asbestos-pdf-batch"
+      },
+      {
+        "parameters": {
+          "jsCode": "const agg = $('Aggregate Batch Payload').first().json;\nconst skipped = agg._skipped || [];\nconst batchMeta = agg._batch_meta || [];\nconst pendingByKey = {};\nfor (const item of $('Match SharePoint PDFs').all()) {\n  const j = item.json || {};\n  if (j._skip) continue;\n  const key = `${j.works_id}::${j.corf}`;\n  pendingByKey[key] = j;\n}\nfunction resolvePending(meta) {\n  const key = `${meta.works_id}::${meta.corf}`;\n  return pendingByKey[key] || {};\n}\nfunction mapApiResult(r, meta) {\n  const pending = resolvePending(meta);\n  const msg = String(r.message || '').toLowerCase();\n  const already = !!(r.already_uploaded || msg.includes('already present'));\n  const ok = !!(r.success || r.uploaded || already);\n  const status = ok ? 'true' : `ERROR: ${r.error || r.message || 'Unknown error'}`;\n  return {\n    pre_work_id: pending.pre_work_id ?? meta.pre_work_id,\n    corf: r.corf || meta.corf || pending.corf,\n    works_id: r.works_id || meta.works_id || pending.works_id,\n    address: pending.address || '',\n    uprn: pending.uprn || '',\n    asbestos_report_file: meta.pdf_filename || pending.asbestos_report_file || '',\n    _status: status,\n    _api_success: ok,\n    _already_uploaded: already,\n    _newly_uploaded: !!r.uploaded,\n  };\n}\nfunction extractResults(resp) {\n  const statusCode = resp.statusCode ?? resp.status ?? 0;\n  let body = resp.body ?? resp.data ?? resp;\n  if (typeof body === 'string') {\n    try { body = JSON.parse(body); } catch (e) { body = {}; }\n  }\n  if (body && typeof body === 'object' && body.body && !body.results) body = body.body;\n  const results = Array.isArray(body?.results) ? body.results : [];\n  return { statusCode, body: body || {}, results };\n}\nfunction markErrors(metaList, errMsg) {\n  return metaList.map(meta => {\n    const pending = resolvePending(meta);\n    return {\n      pre_work_id: pending.pre_work_id ?? meta.pre_work_id,\n      corf: meta.corf,\n      works_id: meta.works_id,\n      address: pending.address || '',\n      _status: `ERROR: ${errMsg}`,\n      _api_success: false,\n    };\n  });\n}\nlet apiResults = [];\nif (agg._item_count > 0) {\n  const postItems = $('POST upload-asbestos-pdf-batch').all();\n  const resp = postItems.length ? (postItems[0].json || {}) : ($input.first()?.json || {});\n  const { results, statusCode, body } = extractResults(resp);\n  if (results.length > 0) {\n    for (let idx = 0; idx < results.length; idx++) {\n      apiResults.push(mapApiResult(results[idx], batchMeta[idx] || {}));\n    }\n    if (results.length < batchMeta.length) {\n      const tail = batchMeta.slice(results.length);\n      apiResults.push(...markErrors(tail, `Batch interrupted (HTTP ${statusCode || 'unknown'})`));\n    }\n  } else if (batchMeta.length > 0) {\n    const err = body.detail || body.message || body.error || `HTTP ${statusCode || 'connection failed'}`;\n    apiResults.push(...markErrors(batchMeta, err));\n  }\n}\nconst all = [...skipped, ...apiResults];\nreturn all.map(j => ({ json: j }));"
+        },
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          -12160,
+          16096
+        ],
+        "id": "d2810df7-d6b3-4f81-abd4-2096bca538ca",
+        "name": "Expand Batch Results"
+      },
+      {
+        "parameters": {
+          "jsCode": "const rows = $('Expand Batch Results').all().map(i => i.json || {});\nlet newlyUploaded = 0, alreadyUploaded = 0, errors = 0;\nconst errorDetails = [];\nfor (const r of rows) {\n  const status = String(r._status ?? '').trim();\n  if (status === 'true') {\n    if (r._already_uploaded) alreadyUploaded++;\n    else newlyUploaded++;\n  } else if (status.startsWith('ERROR:')) {\n    errors++;\n    errorDetails.push({ corf: r.corf, works_id: r.works_id, error: status });\n  }\n}\nreturn [{\n  json: {\n    total_results: rows.length,\n    newly_uploaded: newlyUploaded,\n    already_on_easybop: alreadyUploaded,\n    errors,\n    error_details: errorDetails,\n  },\n}];"
+        },
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          -11776,
+          16096
+        ],
+        "id": "1b787377-25c0-46ae-8dea-59766405b154",
+        "name": "Run Summary"
+      },
+      {
+        "parameters": {
+          "jsCode": "const raw = $input.first().json || {};\nconst html = String(raw.html || '');\nconst ids = [];\nconst re = /<tr[^>]+id=\"(\\d+)\"/gi;\nlet m;\nwhile ((m = re.exec(html)) !== null) ids.push(m[1]);\nconst unique = [...new Set(ids)];\nconst pages = raw.pages_scraped;\nconst rowsApi = raw.rows_total;\nreturn [{\n  json: {\n    success: raw.success !== false,\n    pages_scraped: pages ?? null,\n    rows_total_api: rowsApi ?? null,\n    rows_counted_in_html: unique.length,\n    verify_message: `pages_scraped=${pages ?? '?'} | rows_total=${rowsApi ?? '?'} | counted=${unique.length}`,\n  },\n}];"
+        },
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          -15744,
+          16016
+        ],
+        "id": "b1626ed4-678b-4f69-b3a4-f52f6bb79eed",
+        "name": "Pre-Works Fetch Summary1"
+      },
+      {
+        "parameters": {
+          "content": "## Pre-Works Asbestos Upload\n\n1. Scrape pre_works jqGrid (all pages) — **red** Global Asbestos Survey\n2. **POST /works-index** (paginated) → CORF/address → works_id\n3. Match SharePoint `Asbestos reports` folder by address\n4. **POST /upload-asbestos-pdf-batch** with `use_works_id_navigation: true`\n\n**Daily email:** 18:00 UK — Jeffway HTML table of uploads matched from SharePoint",
+          "height": 448
+        },
+        "type": "n8n-nodes-base.stickyNote",
+        "typeVersion": 1,
+        "position": [
+          -16896,
+          15760
+        ],
+        "id": "c698f484-de7a-4190-90e6-7728e57b1428",
+        "name": "Sticky Note2"
+      },
+      {
+        "parameters": {
+          "jsCode": "const sd = $getWorkflowStaticData('global');\nconst today = new Date().toLocaleDateString('en-CA', { timeZone: 'Europe/London' });\nif (sd.asbestosDailyDate !== today) {\n  sd.asbestosDailyDate = today;\n  sd.asbestosDailyLog = [];\n}\nconst log = sd.asbestosDailyLog || [];\nconst seen = new Set(log.map((e) => `${e.works_id}::${e.corf}::${e.pdf}`));\n\nfor (const item of $('Expand Batch Results').all()) {\n  const r = item.json || {};\n  if (!r._newly_uploaded) continue;\n  const pdf = String(r.asbestos_report_file || '').trim();\n  const key = `${r.works_id}::${r.corf}::${pdf}`;\n  if (seen.has(key)) continue;\n  seen.add(key);\n  log.push({\n    at: new Date().toISOString(),\n    corf: r.corf || '',\n    works_id: r.works_id || '',\n    address: r.address || '',\n    uprn: r.uprn || '',\n    pdf,\n    sharepoint_match: pdf,\n    status: 'Uploaded to EasyBOP',\n  });\n}\nsd.asbestosDailyLog = log;\nreturn $input.all();"
+        },
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          -11968,
+          16096
+        ],
+        "id": "6106d62a-1ecc-40dc-98fe-1f04008be403",
+        "name": "Log Daily Asbestos Uploads",
+        "notesInFlow": true,
+        "note": "Accumulates today's newly uploaded rows in workflow static data"
+      },
+      {
+        "parameters": {
+          "rule": {
+            "interval": [
+              {
+                "field": "cronExpression",
+                "expression": "0 18 * * *"
+              }
+            ]
+          }
+        },
+        "type": "n8n-nodes-base.scheduleTrigger",
+        "typeVersion": 1.2,
+        "position": [
+          -16512,
+          16400
+        ],
+        "id": "0fdaa397-0240-43d8-aaef-64a469339ef7",
+        "name": "Daily Summary 18:00 UK"
+      },
+      {
+        "parameters": {
+          "jsCode": "function esc(t) {\n  return String(t ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');\n}\n\nconst sd = $getWorkflowStaticData('global');\nconst today = new Date().toLocaleDateString('en-CA', { timeZone: 'Europe/London' });\nconst logs = (sd.asbestosDailyDate === today && Array.isArray(sd.asbestosDailyLog)) ? sd.asbestosDailyLog : [];\nconst reportDate = new Date().toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric', timeZone: 'Europe/London' });\nconst logo = 'https://jeffway.co.uk/wp-content/uploads/2025/05/jeffway-group-1.svg';\n\nlet jobRows = '';\nif (logs.length) {\n  jobRows = logs.map((l, i) => '<tr>'\n    + '<td style=\"padding:8px;border-bottom:1px solid #eee;\">' + esc(i + 1) + '</td>'\n    + '<td style=\"padding:8px;border-bottom:1px solid #eee;\">' + esc(l.corf || '-') + '</td>'\n    + '<td style=\"padding:8px;border-bottom:1px solid #eee;\">' + esc(l.works_id || '-') + '</td>'\n    + '<td style=\"padding:8px;border-bottom:1px solid #eee;\">' + esc(l.address || '-') + '</td>'\n    + '<td style=\"padding:8px;border-bottom:1px solid #eee;\">' + esc(l.pdf || '-') + '</td>'\n    + '<td style=\"padding:8px;border-bottom:1px solid #eee;color:#15803d;font-weight:bold;\">' + esc(l.status || 'Uploaded') + '</td>'\n    + '</tr>').join('');\n} else {\n  jobRows = '<tr><td colspan=\"6\" style=\"padding:16px;text-align:center;color:#666;\">No asbestos reports uploaded to EasyBOP today.</td></tr>';\n}\n\nconst html = [\n  '<!DOCTYPE html><html><head><meta charset=\"UTF-8\"></head>',\n  '<body style=\"margin:0;padding:0;font-family:Arial,sans-serif;background:#f4f4f4;\">',\n  '<table width=\"100%\" style=\"background:#f4f4f4;padding:20px;\"><tr><td align=\"center\">',\n  '<table width=\"760\" style=\"background:#fff;border-radius:8px;overflow:hidden;\">',\n  '<tr><td style=\"background:#000;padding:20px;text-align:center;\"><img src=\"' + logo + '\" style=\"max-width:160px;\" alt=\"Jeffway\"></td></tr>',\n  '<tr><td style=\"padding:20px 24px 8px;\"><h2 style=\"margin:0;color:#111;\">Pre-Works Asbestos Upload — Daily Summary</h2>',\n  '<p style=\"color:#777;font-size:13px;margin:8px 0 0;\">' + esc(reportDate) + ' (Europe/London)</p></td></tr>',\n  '<tr><td style=\"padding:8px 24px 24px;\">',\n  '<p style=\"font-size:13px;color:#444;margin:0 0 12px;\">Reports matched from SharePoint <strong>Asbestos reports</strong> folder and uploaded to EasyBOP (Global Asbestos Survey).</p>',\n  '<table width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" style=\"border-collapse:collapse;font-size:12px;\">',\n  '<tr style=\"background:#f3f3f3;\">',\n  '<th align=\"left\" style=\"padding:8px;\">#</th>',\n  '<th align=\"left\" style=\"padding:8px;\">CORF</th>',\n  '<th align=\"left\" style=\"padding:8px;\">Works ID</th>',\n  '<th align=\"left\" style=\"padding:8px;\">Address</th>',\n  '<th align=\"left\" style=\"padding:8px;\">SharePoint PDF</th>',\n  '<th align=\"left\" style=\"padding:8px;\">Status</th>',\n  '</tr>',\n  jobRows,\n  '</table></td></tr>',\n  '<tr><td style=\"background:#f9f9f9;padding:16px;text-align:center;font-size:12px;color:#777;\">Jeffway Group · Automated pre-works asbestos upload</td></tr>',\n  '</table></td></tr></table></body></html>',\n].join('');\n\nreturn [{\n  json: {\n    _alert_subject: 'Jeffway — Pre-Works Asbestos uploads — ' + reportDate + ' (' + logs.length + ')',\n    _alert_html: html,\n    upload_count: logs.length,\n  },\n}];"
+        },
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          -16272,
+          16400
+        ],
+        "id": "350d4e09-b6e9-4c50-b4e6-f856fd1f343b",
+        "name": "Prepare Daily Gmail",
+        "executeOnce": true
+      },
+      {
+        "parameters": {
+          "sendTo": "hamza@eynvision.com",
+          "subject": "={{ $json._alert_subject }}",
+          "message": "={{ $json._alert_html }}",
+          "options": {
+            "appendAttribution": false
+          }
+        },
+        "type": "n8n-nodes-base.gmail",
+        "typeVersion": 2.2,
+        "position": [
+          -16032,
+          16400
+        ],
+        "id": "08b37ce7-37f8-4cbf-9b3a-0d94aaec119f",
+        "name": "Send Daily Gmail",
+        "executeOnce": true,
+        "webhookId": "286f38bb-f697-447f-ac3c-9bb74130c4ea",
+        "credentials": {
+          "gmailOAuth2": {
+            "id": "5zI2J63c77B4YZ0i",
+            "name": "hamza-gmail"
+          }
+        }
+      }
+    ],
+    "connections": {
+      "Schedule Trigger": {
+        "main": [
+          []
+        ]
+      },
+      "Set API URL": {
+        "main": [
+          [
+            {
+              "node": "Fetch Pre-Works Table HTML",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Fetch Pre-Works Table HTML": {
+        "main": [
+          [
+            {
+              "node": "Pre-Works Fetch Summary1",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Parse Red Asbestos Rows": {
+        "main": [
+          [
+            {
+              "node": "Fetch Works Index",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Fetch Works Index": {
+        "main": [
+          [
+            {
+              "node": "Build CORF works_id Map",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Build CORF works_id Map": {
+        "main": [
+          [
+            {
+              "node": "Get bccvoids site",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Get bccvoids site": {
+        "main": [
+          [
+            {
+              "node": "Get BCC library drive",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Get BCC library drive": {
+        "main": [
+          [
+            {
+              "node": "List asbestos folder",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "List asbestos folder": {
+        "main": [
+          [
+            {
+              "node": "Match SharePoint PDFs",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Match SharePoint PDFs": {
+        "main": [
+          [
+            {
+              "node": "IF Nothing to Upload",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "IF Nothing to Upload": {
+        "main": [
+          [],
+          [
+            {
+              "node": "Download PDF from SharePoint",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Download PDF from SharePoint": {
+        "main": [
+          [
+            {
+              "node": "Encode PDF Base64",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Encode PDF Base64": {
+        "main": [
+          [
+            {
+              "node": "Aggregate Batch Payload",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Aggregate Batch Payload": {
+        "main": [
+          [
+            {
+              "node": "IF Has Items To Upload",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "IF Has Items To Upload": {
+        "main": [
+          [
+            {
+              "node": "POST upload-asbestos-pdf-batch",
+              "type": "main",
+              "index": 0
+            }
+          ],
+          [
+            {
+              "node": "Expand Batch Results",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "POST upload-asbestos-pdf-batch": {
+        "main": [
+          [
+            {
+              "node": "Expand Batch Results",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Expand Batch Results": {
+        "main": [
+          [
+            {
+              "node": "Log Daily Asbestos Uploads",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Pre-Works Fetch Summary1": {
+        "main": [
+          [
+            {
+              "node": "Parse Red Asbestos Rows",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Log Daily Asbestos Uploads": {
+        "main": [
+          [
+            {
+              "node": "Run Summary",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Daily Summary 18:00 UK": {
+        "main": [
+          [
+            {
+              "node": "Prepare Daily Gmail",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Prepare Daily Gmail": {
+        "main": [
+          [
+            {
+              "node": "Send Daily Gmail",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      }
+    },
+    "pinData": {},
+    "meta": {
+      "templateCredsSetupCompleted": true,
+      "instanceId": "a5cd22a95d5313a977e9ac21c3a833db76b18ca78fb8cb2cf7013465d69f17f8"
+    }
+  }

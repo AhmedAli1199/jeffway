@@ -1,0 +1,1780 @@
+{
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## Pre-Works JIS Auto-Fill\n\n1. **Fetch Pre-Works page** (Playwright) \u2192 parse jqGrid (all pages)\n2. Qualifying rows: asbestos=\ud83d\udfe2, JIS notes=\ud83d\udd34, WO=\ud83d\udfe2\n3. **Read jis tab** \u2192 skip duplicate Q1.3\n4. **Loop each job** (splitInBatches v3):\n   - Download **asbestos PDF** \u2192 parse via built-in Extract from File\n   - Download Works Order `.msg` \u2192 AI extract (with asbestos data)\n   - Append **jis** + **appointment** tabs\n5. **When loop DONE** \u2192 trigger **jis-filler** (only if rows were written)\n\n**Loop wiring:** output 0 = done, output 1 = current batch",
+        "height": 300,
+        "width": 580
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -16912,
+        17008
+      ],
+      "id": "aacf8c59-bd61-4092-8a6c-f11f76934bfe",
+      "name": "Note \u2014 Pre-Works JIS Auto-Fill"
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "hours",
+              "hoursInterval": 12
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -16928,
+        17664
+      ],
+      "id": "afaf50fb-5d13-41e5-9b43-d8752213c898",
+      "name": "Schedule (every 12h)"
+    },
+    {
+      "parameters": {
+        "jsCode": "return [{ json: { contract_id: '321129', easybop_base: 'https://easybop.co.uk' } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -16688,
+        17664
+      ],
+      "id": "ffb14135-7f9b-429d-a5b1-ff9175a932fc",
+      "name": "Config"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://173.212.233.153:8000/pre-works/fetch-table-html",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"contract_id\": \"{{ $json.contract_id }}\",\n  \"timeout_ms\": 120000,\n  \"max_pages\": 200\n}",
+        "options": {
+          "timeout": 180000
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -16464,
+        17664
+      ],
+      "id": "39f8bd03-ab01-411e-8091-cc4dc7c86bb4",
+      "name": "Fetch Pre-Works Table HTML (Playwright)",
+      "executeOnce": true
+    },
+    {
+      "parameters": {
+        "jsCode": "// Parse jqGrid HTML \u2014 qualifying jobs: asbestos=green, JIS notes=red, WO=green\n// Skip JIS notes=amber (\"Not Required\") or green (already done)\n// NOTE: jqgrid_bg_* class is on the <td> tag, not cell inner HTML.\n\nconst fetchMeta = $('Pre-Works Fetch Summary').first().json || $('Fetch Pre-Works Table HTML (Playwright)').first().json || {};\nconst html = ($('Fetch Pre-Works Table HTML (Playwright)').first().json || {}).html || '';\nconst pages_scraped = fetchMeta.pages_scraped ?? null;\nconst rows_total = fetchMeta.rows_total ?? null;\nconst EASYBOP_BASE = 'https://easybop.co.uk';\nconst ASBESTOS_SUFFIX = '_wi_pw_24818_upload';\nconst JIS_SUFFIX = '_wi_pw_27059_notes';\nconst WO_SUFFIX = '_wi_pw_24819_upload';\nconst UPRN_SUFFIX = '_property_ref';\nconst ADDR_SUFFIX = '_address';\nconst CORF_SUFFIX = '_client_order_reference';\n\nfunction cellClass(attrs) {\n  const m = String(attrs || '').match(/class=\"([^\"]*)\"/i);\n  if (!m) return '';\n  return m[1].split(/\\s+/).find(c => c.startsWith('jqgrid_bg_')) || '';\n}\n\nfunction cellHref(cell) {\n  const blob = (cell?.attrs || '') + (cell?.inner || '');\n  const m = blob.match(/href=\"([^\"]+)\"/i);\n  if (!m) return null;\n  const href = m[1].replace(/&amp;/g, '&');\n  if (href.startsWith('http')) return href;\n  return EASYBOP_BASE + '/' + href.replace(/^\\//, '');\n}\n\nfunction cellTitle(attrs) {\n  const m = String(attrs || '').match(/title=\"([^\"]*)\"/i);\n  return m ? m[1].trim() : '';\n}\n\nconst trRegex = /<tr[^>]+id=\"(\\d+)\"[^>]*>([\\s\\S]*?)<\\/tr>/gi;\nconst jobs = [];\nlet trMatch;\n\nwhile ((trMatch = trRegex.exec(html)) !== null) {\n  const rowId = trMatch[1];\n  const rowHtml = trMatch[2];\n  const cells = {};\n  const tdRegex = /<td([^>]+)>([\\s\\S]*?)<\\/td>/gi;\n  let tdMatch;\n  while ((tdMatch = tdRegex.exec(rowHtml)) !== null) {\n    const attrs = tdMatch[1];\n    const keyMatch = attrs.match(/aria-describedby=\"([^\"]+)\"/i);\n    if (!keyMatch) continue;\n    cells[keyMatch[1]] = { attrs, inner: tdMatch[2] };\n  }\n\n  function getCell(suffix) {\n    for (const [key, val] of Object.entries(cells)) {\n      if (key.endsWith(suffix)) return val;\n    }\n    return null;\n  }\n\n  const uprnCell = getCell(UPRN_SUFFIX);\n  const addrCell = getCell(ADDR_SUFFIX);\n  const corfCell = getCell(CORF_SUFFIX);\n  const asbCell = getCell(ASBESTOS_SUFFIX);\n  const jisCell = getCell(JIS_SUFFIX);\n  const woCell = getCell(WO_SUFFIX);\n  if (!asbCell || !jisCell || !woCell) continue;\n\n  const asbClass = cellClass(asbCell.attrs);\n  const jisClass = cellClass(jisCell.attrs);\n  const woClass = cellClass(woCell.attrs);\n\n  if (jisClass.includes('amber')) continue;\n  if (jisClass.includes('green')) continue;\n  if (!jisClass.includes('red')) continue;\n  if (!asbClass.includes('green')) continue;\n  const woUrl = cellHref(woCell);\n  if (!woClass.includes('green') || !woUrl) continue;\n\n  jobs.push({\n    pre_work_id: rowId,\n    uprn: cellTitle(uprnCell?.attrs),\n    address: cellTitle(addrCell?.attrs),\n    asbestos_url: cellHref(asbCell),\n    works_order_url: woUrl,\n    client_order_reference: cellTitle(corfCell?.attrs) || '',\n    jis_notes_class: jisClass,\n    jis_notes_title: cellTitle(jisCell.attrs),\n  });\n}\n\nconsole.log(`${fetchMeta.verify_message || \"\"} | Parsed ${jobs.length} qualifying jobs from pre-works table (pages_scraped=${pages_scraped}, rows_total=${rows_total})`);\nreturn jobs.map(j => ({ json: j }));"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -16128,
+        17664
+      ],
+      "id": "2042b4e6-817d-47c6-9abe-0ddabeaa3929",
+      "name": "Parse Pre-Works HTML"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": false,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $input.all().length }}",
+              "rightValue": 0,
+              "operator": {
+                "type": "number",
+                "operation": "gt"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -15952,
+        17664
+      ],
+      "id": "68d0e230-fa76-4b24-9595-441b66594cab",
+      "name": "IF Qualifying Jobs Found"
+    },
+    {
+      "parameters": {
+        "jsCode": "return [{ json: { message: 'No qualifying jobs found on pre-works report (asbestos=green + JIS=red + WO=green). Nothing to do.' } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -15728,
+        17760
+      ],
+      "id": "adeb5125-d47f-4258-8aa4-9b167e8b3c1d",
+      "name": "No Qualifying Jobs \u2014 Stop"
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "1PRUtOeUec0uMhrj4k1sFEAdo5qvXE9cDOeyAQ67hIDI",
+          "mode": "list",
+          "cachedResultName": "SOR-Codes-Template"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 1611853392,
+          "mode": "list",
+          "cachedResultName": "jis"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        -15728,
+        17488
+      ],
+      "id": "a1dfabad-cce8-49cc-a167-fb1840c88c60",
+      "name": "Read Existing jis Tab",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "0bvpVa8frZ7qSwzx",
+          "name": "hamza-sheets"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const jisRows = $input.all().map(i => i.json);\nconst existingQ13Set = new Set(\n  jisRows\n    .map(r => (r['Q1.3'] || '').toString().trim().toLowerCase())\n    .filter(Boolean)\n);\nconsole.log(`Loaded ${existingQ13Set.size} existing Q1.3 values from jis tab`);\nreturn [{ json: { existingQ13Set: [...existingQ13Set] } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -15504,
+        17488
+      ],
+      "id": "35d59343-3986-40c1-afa4-031cc34649d5",
+      "name": "Build Existing Q1.3 Set"
+    },
+    {
+      "parameters": {
+        "jsCode": "function normQ13(v) {\n  const raw = String(v ?? '').trim();\n  if (!raw) return '';\n  const t = raw.toLowerCase().replace(/\\s+/g, '');\n  const slash = t.match(/^(\\d+)\\/(\\d+)$/);\n  if (slash) return parseInt(slash[1], 10) + '/' + parseInt(slash[2], 10);\n  const digits = t.replace(/\\D/g, '');\n  if (digits.length >= 5) return String(parseInt(digits, 10));\n  return t;\n}\nconst jobs = $('Parse Pre-Works HTML').all().map(i => i.json);\nconst existingSet = new Set(\n  ($('Build Existing Q1.3 Set').first().json.existingQ13Set || [])\n    .map(normQ13)\n    .filter(Boolean)\n);\nconst sd = $getWorkflowStaticData('global');\nsd.rowsWritten = 0;\nreturn jobs.map(j => ({ json: { ...j, _existingQ13Set: [...existingSet] } }));"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -15280,
+        17488
+      ],
+      "id": "95bbf45f-d9c7-4e22-a803-495bcb3a0c41",
+      "name": "Merge Jobs + Existing Set"
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        -15056,
+        17904
+      ],
+      "id": "02defdf9-9fc8-4cd9-85aa-c30229505875",
+      "name": "Loop Each Job"
+    },
+    {
+      "parameters": {
+        "url": "={{ $('Loop Each Job').item.json.asbestos_url }}",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "file",
+              "outputPropertyName": "pdf"
+            }
+          },
+          "timeout": 30000
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -14384,
+        17712
+      ],
+      "id": "61715e89-4fb5-4e82-89e9-acdf40bd73ba",
+      "name": "Download Asbestos PDF"
+    },
+    {
+      "parameters": {
+        "jsCode": "const job = $('Loop Each Job').item.json;\nconst address = job.address || '';\nconst uprn = job.uprn || '';\n\nlet fullText = '';\ntry {\n  const ext = $('Extract Asbestos PDF Text').first().json || {};\n  fullText = String(ext.text || ext.data || ext.content || '').trim();\n} catch (e) {\n  fullText = '';\n}\nif (!fullText) {\n  const row = $input.first().json || {};\n  fullText = String(row.text || row.data || row.content || '').trim();\n}\n\nfunction extractRegisterItems(text) {\n  const registerHint = /\\b(NAD|P\\b|S0[1-3]|PTCA|No Access|Negative|Presumed|Asbestos Identified)\\b/i;\n  const locationHint = /(kitchen|bathroom|bedroom|hall|loft|garage|cupboard|landing|external|stairs|cellar)/i;\n  const asbestosKeyword = /asbestos|ACM|NAD|PTCA/i;\n  const lines = [];\n  for (const raw of text.split(/\\r?\\n/)) {\n    const line = raw.trim();\n    if (!line || line.length < 8) continue;\n    if (registerHint.test(line) && (locationHint.test(line) || line.length > 25)) lines.push(line);\n  }\n  if (!lines.length) {\n    for (const raw of text.split(/\\r?\\n/)) {\n      const line = raw.trim();\n      if (asbestosKeyword.test(line) && line.length > 10) lines.push(line);\n    }\n  }\n  const seen = new Set();\n  const out = [];\n  for (const line of lines) {\n    const key = line.toLowerCase();\n    if (seen.has(key)) continue;\n    seen.add(key);\n    out.push(line);\n  }\n  return out.slice(0, 40).join('\\n');\n}\n\nfunction buildSummary(text, items) {\n  const head = text.slice(0, 2500).replace(/\\s+/g, ' ').trim();\n  const parts = [];\n  if (address) parts.push(`Property: ${address}`);\n  if (uprn) parts.push(`UPRN: ${uprn}`);\n  if (items) {\n    const n = items.split(/\\r?\\n/).filter((l) => l.trim()).length;\n    parts.push(`${n} ACM register line(s) parsed`);\n  }\n  if (/no asbestos|nad only|no acm/i.test(head)) parts.push('No ACM identified in accessed areas');\n  else if (/asbestos|acm|ptca|presumed/i.test(head)) parts.push('Asbestos/ACM references found');\n  if (head) parts.push(head.slice(0, 400));\n  return parts.join('. ');\n}\n\nfunction inferStatus(text, items) {\n  const blob = `${text}\\n${items}`.toLowerCase();\n  if (/\\b(ptca|presumed|s0[1-3]|asbestos identified|strongly presumed)\\b/.test(blob)) return 'PTCA/ACM';\n  if (/\\b(nad|negative|not identified|negatively sampled)\\b/.test(blob)) return 'NAD';\n  if (/\\bno access|exercise caution\\b/.test(blob)) return 'No Access';\n  return 'Report on file';\n}\n\nif (!fullText) {\n  const parts = [];\n  if (address) parts.push(`Property: ${address}`);\n  parts.push('PDF on file; text extraction returned empty (scanned PDF or extract error)');\n  return [{\n    json: {\n      success: true,\n      asbestos_status: 'Report on file',\n      asbestos_summary: parts.join('. '),\n      asbestos_items: '',\n      error: 'no_text_extracted',\n      parse_source: 'n8n_extract_from_file',\n    },\n  }];\n}\n\nconst items = extractRegisterItems(fullText);\nreturn [{\n  json: {\n    success: true,\n    asbestos_status: inferStatus(fullText, items),\n    asbestos_summary: buildSummary(fullText, items),\n    asbestos_items: items,\n    text_length: fullText.length,\n    parse_source: 'n8n_extract_from_file',\n  },\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -13936,
+        17712
+      ],
+      "id": "9dd9c655-0b30-41aa-ae2b-5ba5fc792d0e",
+      "name": "Parse Asbestos PDF",
+      "notesInFlow": true,
+      "notes": "ACM register heuristics (same logic as asbestos_pdf_parser.py)."
+    },
+    {
+      "parameters": {
+        "url": "={{ $('Loop Each Job').item.json.works_order_url }}",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "file",
+              "outputPropertyName": "works_order"
+            }
+          },
+          "timeout": 30000
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -13712,
+        17712
+      ],
+      "id": "c4b47736-0821-4550-8920-27d51a1e37c5",
+      "name": "Download Works Order .msg"
+    },
+    {
+      "parameters": {
+        "jsCode": "const item = $input.first();\nconst job = $('Loop Each Job').item.json;\n\nasync function msgBuffer() {\n  const bin = item.binary || {};\n  const keys = ['works_order', ...Object.keys(bin).filter(k => k !== 'works_order')];\n  for (const key of keys) {\n    if (!bin[key]) continue;\n    try {\n      const buf = await this.helpers.getBinaryDataBuffer(0, key);\n      if (buf && buf.length > 0) return { buf, key };\n    } catch (e) {\n      const inline = bin[key]?.data;\n      if (typeof inline === 'string' && inline.length > 0) {\n        const buf = Buffer.from(inline, 'base64');\n        if (buf.length > 0) return { buf, key };\n      }\n    }\n  }\n  const b64 = item.json?.data;\n  if (typeof b64 === 'string' && b64.length > 0) {\n    return { buf: Buffer.from(b64, 'base64'), key: 'json.data' };\n  }\n  return null;\n}\n\nconst hit = await msgBuffer();\nif (!hit || !hit.buf || hit.buf.length < 256) {\n  throw new Error('Download Works Order returned no usable file bytes');\n}\nconst buf = hit.buf;\n\nconst head = buf.slice(0, 512).toString('utf-8').toLowerCase();\nif (head.includes('<html') || head.includes('please log in')) {\n  throw new Error('EasyBOP returned HTML \u2014 session cookies may have expired');\n}\n\nconst woUrl = job.works_order_url || '';\nlet filename = 'works_order.msg';\nconst m1 = woUrl.match(/filename_orig=([^&]+)/i);\nif (m1) filename = decodeURIComponent(m1[1]);\nelse {\n  const m2 = woUrl.match(/([^/?]+\\.msg)/i);\n  if (m2) filename = m2[1];\n}\nif (!filename.toLowerCase().endsWith('.msg')) filename += '.msg';\n\nconst msg_base64 = buf.toString('base64');\nif (msg_base64.length < 512) {\n  throw new Error(`Encoded works order too small (${msg_base64.length} base64 chars)`);\n}\n\nreturn [{\n  json: {\n    msg_base64,\n    filename,\n    msg_bytes: buf.length,\n    _binary_key: hit.key,\n  },\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -13488,
+        17712
+      ],
+      "id": "e4142481-0145-428c-b6f7-fcfbf87c4e85",
+      "name": "Encode Works Order Base64"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://173.212.233.153:8000/pre-works/extract-msg-text",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ msg_base64: $json.msg_base64, filename: $json.filename }) }}",
+        "options": {
+          "timeout": 60000
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -13264,
+        17712
+      ],
+      "id": "2dba046b-7604-4a11-89a6-531cafe20532",
+      "name": "Parse Works Order .msg"
+    },
+    {
+      "parameters": {
+        "jsCode": "const job = $input.first().json;\nconst ab = $('Parse Asbestos PDF').first().json || {};\nreturn [{ json: {\n  ...job,\n  asbestos_status: ab.asbestos_status ?? 'Report on file',\n  asbestos_summary: ab.asbestos_summary ?? '',\n  asbestos_items: ab.asbestos_items ?? '',\n} }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -12592,
+        17728
+      ],
+      "id": "4793bfb3-dc3a-4065-991b-9d6ec096f454",
+      "name": "Prepare for AI"
+    },
+    {
+      "parameters": {
+        "modelId": {
+          "__rl": true,
+          "value": "gpt-4.1-mini",
+          "mode": "list",
+          "cachedResultName": "GPT-4.1-MINI"
+        },
+        "responses": {
+          "values": [
+            {
+              "role": "system",
+              "content": "You are a UK construction / repairs assistant for Jeffway JIS (Job Instruction Sheet) forms.\n\nExtract Q1.1\u2013Q5.2 ONLY (do NOT plan appointments \u2014 separate step handles Q7\u2013Q11).\n\nRules: Return ONLY valid JSON. No markdown.\n\n## ASBESTOS REPORT\nCross-reference SOR work locations against ACM register for Q4.1/Q4.2.\n\nQ1_1_start_within: days from Priority only.\nQ1_2_address: WO_REF-ADDRESS - UPRN\nQ1_3_job_no, Q1_4_manager (null), Q1_5_bcc_surveyor, Q1_6_work_description, uprn\nQ2_1_asbestos_survey_required: always yes\nQ2_2_asbestos_survey_on_easybop: Yes \u2014 survey on file if ASBESTOS_REPORT provided\nQ3_1_scaffold_required, Q3_2_scaffold_details\nQ4_1_asbestos_removal_or_shadow_vac_before_start: Yes or No only\nQ4_2_details_asbestos_removal\nQ5_1_add_codes, Q5_2_omit_codes \u2014 use Not Answered if none\nreasoning, reason_2_1, reason_4_1, reason_5"
+            },
+            {
+              "content": "=Process this BCC works order \u2014 extract JIS Q1.1\u2013Q5.2 ONLY.\n\nSubject: {{ $json.subject }}\nFrom: {{ $json.from_addr }}\nReceived: {{ $json.received }}\nUPRN: {{ $json.uprn }}\nAddress: {{ $json.address }}\n\nSOR codes found in order:\n{{ JSON.stringify($json.found_sors_in_email || [], null, 2) }}\n\nWorks order text:\n{{ $json.body_plain_text || $json.body_text }}\n\n=====\nASBESTOS_REPORT:\nReport linked: {{ $json.asbestos_status ? 'Yes' : 'No' }}\nSummary: {{ $json.asbestos_summary || '(none)' }}\nACM Register items:\n{{ $json.asbestos_items || '(no items parsed)' }}"
+            }
+          ]
+        },
+        "builtInTools": {},
+        "options": {
+          "textFormat": {
+            "textOptions": {
+              "type": "json_schema",
+              "schema": "{\"type\":\"object\",\"additionalProperties\":false,\"required\":[\"Q1_1_start_within\",\"Q1_2_address\",\"Q1_3_job_no\",\"Q1_4_manager\",\"Q1_5_bcc_surveyor\",\"Q1_6_work_description\",\"Q2_1_asbestos_survey_required\",\"Q2_2_asbestos_survey_on_easybop\",\"Q3_1_scaffold_required\",\"Q3_2_scaffold_details\",\"Q4_1_asbestos_removal_or_shadow_vac_before_start\",\"Q4_2_details_asbestos_removal\",\"Q5_1_add_codes\",\"Q5_2_omit_codes\",\"reasoning\",\"reason_2_1\",\"reason_4_1\",\"reason_5\",\"uprn\"],\"properties\":{\"Q1_1_start_within\":{\"type\":[\"string\",\"null\"]},\"Q1_2_address\":{\"type\":[\"string\",\"null\"]},\"Q1_3_job_no\":{\"type\":[\"string\",\"null\"]},\"Q1_4_manager\":{\"type\":[\"string\",\"null\"]},\"Q1_5_bcc_surveyor\":{\"type\":[\"string\",\"null\"]},\"Q1_6_work_description\":{\"type\":[\"string\",\"null\"]},\"Q2_1_asbestos_survey_required\":{\"type\":[\"string\",\"null\"]},\"Q2_2_asbestos_survey_on_easybop\":{\"type\":[\"string\",\"null\"]},\"Q3_1_scaffold_required\":{\"type\":[\"string\",\"null\"]},\"Q3_2_scaffold_details\":{\"type\":[\"string\",\"null\"],\"enum\":[\"Terrace\",\"Semi-detached\",\"Detached\",\"Flat\",\"Bungalow\",\"Front\",\"Rear\",\"Left side (looking at front door)\",\"Right side (looking at front door)\",null]},\"Q4_1_asbestos_removal_or_shadow_vac_before_start\":{\"type\":[\"string\",\"null\"]},\"Q4_2_details_asbestos_removal\":{\"type\":[\"string\",\"null\"]},\"Q5_1_add_codes\":{\"type\":[\"array\",\"null\"],\"items\":{\"type\":\"string\"}},\"Q5_2_omit_codes\":{\"type\":[\"array\",\"null\"],\"items\":{\"type\":\"string\"}},\"reasoning\":{\"type\":[\"string\",\"null\"]},\"reason_2_1\":{\"type\":[\"string\",\"null\"]},\"reason_4_1\":{\"type\":[\"string\",\"null\"]},\"reason_5\":{\"type\":[\"string\",\"null\"]},\"uprn\":{\"type\":[\"string\",\"null\"]}}}"
+            }
+          }
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "typeVersion": 2.1,
+      "position": [
+        -12144,
+        17728
+      ],
+      "id": "161093bb-39b2-4863-bc23-b763c11ff3b5",
+      "name": "AI Extract JIS (Q1-Q5)",
+      "credentials": {
+        "openAiApi": {
+          "id": "aBG3b1KH705oNjYs",
+          "name": "jeffway open ai"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const aiRaw = $('AI Extract JIS (Q1-Q5)').first().json;\nconst job = $('Loop Each Job').item.json;\nconst ab = $('Parse Asbestos PDF').first().json || {};\nconst apptFormatted = $('Format Appointment Row').first().json || {};\nconst prep = $('Prepare Appointment AI Input').first().json || {};\n\nlet ai = {};\ntry {\n  const content = aiRaw.output?.[0]?.content?.[0]?.text || aiRaw.message?.content || '{}';\n  ai = typeof content === 'string' ? JSON.parse(content) : content;\n} catch (e) {\n  ai = aiRaw;\n}\n\nfunction s(v) { return (v == null || v === 'null') ? '' : String(v).trim(); }\n\nconst addList = Array.isArray(ai.Q5_1_add_codes) ? ai.Q5_1_add_codes.filter(Boolean) : ['Not Answered'];\nconst omitList = Array.isArray(ai.Q5_2_omit_codes) ? ai.Q5_2_omit_codes.filter(Boolean) : ['Not Answered'];\nconst q51 = addList.join(', ') || 'Not Answered';\nconst q52 = omitList.join(', ') || 'Not Answered';\nconst reason5 = s(ai.reason_5);\nconst qsTask = `Added SORs: ${addList.join(', ') || 'none'}. Omitted SORs: ${omitList.join(', ') || 'none'}. Why: ${reason5 || 'AI scope-based review.'}`;\nconst q32 = Array.isArray(ai.Q3_2_scaffold_details) ? ai.Q3_2_scaffold_details[0] || '' : s(ai.Q3_2_scaffold_details);\n\nlet q13 = s(job.client_order_reference) || s(ai.Q1_3_job_no);\nconst prepBundle = $('Check Q1.3 from WO Subject').first().json || $('Prepare for AI').first().json || prep;\nif (!q13) q13 = s(prepBundle.q13_resolved) || s(prep.job_no) || '';\nif (!q13) {\n  const m = String(prep.subject || prepBundle.subject || '').match(/(\\d+\\/\\d+)/);\n  if (m) q13 = m[1];\n}\nif (!q13) {\n  return [{ json: { _skipped: true, reason: 'no_q13', pre_work_id: job.pre_work_id } }];\n}\n\nconst uprn = s(ai.uprn) || job.uprn || '';\nconst apptRow = {\n  UPRN: apptFormatted.UPRN || uprn,\n  '7.1': s(apptFormatted['7.1']),\n  '7.2': s(apptFormatted['7.2']),\n  Trade_1: s(apptFormatted.Trade_1),\n  Hours_1: s(apptFormatted.Hours_1),\n  Notes_1: s(apptFormatted.Notes_1),\n  '8.1': s(apptFormatted['8.1']),\n  '8.2': s(apptFormatted['8.2']),\n  Trade_2: s(apptFormatted.Trade_2),\n  Hours_2: s(apptFormatted.Hours_2),\n  Notes_2: s(apptFormatted.Notes_2),\n  '9.1': s(apptFormatted['9.1']),\n  '9.2': s(apptFormatted['9.2']),\n  Trade_3: s(apptFormatted.Trade_3),\n  Hours_3: s(apptFormatted.Hours_3),\n  Notes_3: s(apptFormatted.Notes_3),\n  '10.1': s(apptFormatted['10.1']),\n  '10.2': s(apptFormatted['10.2']),\n  Trade_4: s(apptFormatted.Trade_4),\n  Hours_4: s(apptFormatted.Hours_4),\n  Notes_4: s(apptFormatted.Notes_4),\n  '11.1': s(apptFormatted['11.1']),\n  '11.2': s(apptFormatted['11.2']),\n  Trade_5: s(apptFormatted.Trade_5),\n  Hours_5: s(apptFormatted.Hours_5),\n  Notes_5: s(apptFormatted.Notes_5),\n};\n\nconst apptCount = apptFormatted._appointment_count || 0;\nconst has_appointment = apptCount > 0 || !!apptRow.Trade_1;\n\nconst jisRow = {\n  'Q1.1': s(ai.Q1_1_start_within),\n  'Q1.2': s(ai.Q1_2_address),\n  'Q1.3': q13,\n  'Q1.4': 'AI',\n  'Q1.5': s(ai.Q1_5_bcc_surveyor),\n  'Q1.6': s(ai.Q1_6_work_description),\n  'Q2.1': s(ai.Q2_1_asbestos_survey_required) || 'yes',\n  'Q2.2': s(ai.Q2_2_asbestos_survey_on_easybop),\n  'Q3.1': s(ai.Q3_1_scaffold_required),\n  'Q3.2': q32,\n  'Q4.1': s(ai.Q4_1_asbestos_removal_or_shadow_vac_before_start),\n  'Q4.2': s(ai.Q4_2_details_asbestos_removal),\n  'Q5.1': q51,\n  'Q5.2': q52,\n  'QS-Task': qsTask,\n  'Asbestos Status': s(ab.asbestos_status) || 'Report on file',\n  'jis_uploaded': false,\n};\n\nreturn [{ json: {\n  _skipped: false,\n  pre_work_id: job.pre_work_id,\n  address: job.address,\n  uprn,\n  q13,\n  jisRow,\n  apptRow,\n  has_appointment,\n  _appointment_count: apptCount,\n} }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -11216,
+        17728
+      ],
+      "id": "14ee7a98-3da4-4d5e-a94e-f35faa93faeb",
+      "name": "Build Sheet Rows"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": false,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json._skipped }}",
+              "rightValue": false,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -10992,
+        17728
+      ],
+      "id": "a0d68645-e59f-4b2b-8213-897773d27998",
+      "name": "IF Not Duplicate / Not Skipped"
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "1PRUtOeUec0uMhrj4k1sFEAdo5qvXE9cDOeyAQ67hIDI",
+          "mode": "list",
+          "cachedResultName": "SOR-Codes-Template"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 1611853392,
+          "mode": "list",
+          "cachedResultName": "jis"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Q1.1": "={{ $json.jisRow['Q1.1'] }}",
+            "Q1.2": "={{ $json.jisRow['Q1.2'] }}",
+            "Q1.3": "={{ $json.jisRow['Q1.3'] }}",
+            "Q1.4": "={{ $json.jisRow['Q1.4'] }}",
+            "Q1.5": "={{ $json.jisRow['Q1.5'] }}",
+            "Q1.6": "={{ $json.jisRow['Q1.6'] }}",
+            "Q2.1": "={{ $json.jisRow['Q2.1'] }}",
+            "Q2.2": "={{ $json.jisRow['Q2.2'] }}",
+            "Q3.1": "={{ $json.jisRow['Q3.1'] }}",
+            "Q3.2": "={{ $json.jisRow['Q3.2'] }}",
+            "Q4.1": "={{ $json.jisRow['Q4.1'] }}",
+            "Q4.2": "={{ $json.jisRow['Q4.2'] }}",
+            "Q5.1": "={{ $json.jisRow['Q5.1'] }}",
+            "Q5.2": "={{ $json.jisRow['Q5.2'] }}",
+            "QS-Task": "={{ $json.jisRow['QS-Task'] }}",
+            "Asbestos Status": "={{ $json.jisRow['Asbestos Status'] }}",
+            "jis_uploaded": false
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "Q1.1",
+              "displayName": "Q1.1",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Q1.2",
+              "displayName": "Q1.2",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Q1.3",
+              "displayName": "Q1.3",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Q1.4",
+              "displayName": "Q1.4",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Q1.5",
+              "displayName": "Q1.5",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Q1.6",
+              "displayName": "Q1.6",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Q2.1",
+              "displayName": "Q2.1",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Q2.2",
+              "displayName": "Q2.2",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Q3.1",
+              "displayName": "Q3.1",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Q3.2",
+              "displayName": "Q3.2",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Q4.1",
+              "displayName": "Q4.1",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Q4.2",
+              "displayName": "Q4.2",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Q5.1",
+              "displayName": "Q5.1",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Q5.2",
+              "displayName": "Q5.2",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "QS-Task",
+              "displayName": "QS-Task",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Asbestos Status",
+              "displayName": "Asbestos Status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "jis_uploaded",
+              "displayName": "jis_uploaded",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        -10768,
+        17728
+      ],
+      "id": "edb89ee6-bc81-4fb0-8005-ea3cf13ad471",
+      "name": "Append to jis Tab",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "0bvpVa8frZ7qSwzx",
+          "name": "hamza-sheets"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const sd = $getWorkflowStaticData('global');\nsd.rowsWritten = (sd.rowsWritten || 0) + 1;\nreturn $input.all();"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -10544,
+        17728
+      ],
+      "id": "01bfd16f-2e49-4461-bb3e-bb5d49537cd9",
+      "name": "Track Rows Written"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $('Build Sheet Rows').item.json.has_appointment }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              },
+              "id": "d24b6412-bac0-4d81-90ae-0c72cd7b0931"
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -10320,
+        17728
+      ],
+      "id": "05f30810-50c4-4fb0-bfc8-8e81161599c1",
+      "name": "IF Has Appointment Data"
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "1PRUtOeUec0uMhrj4k1sFEAdo5qvXE9cDOeyAQ67hIDI",
+          "mode": "list",
+          "cachedResultName": "SOR-Codes-Template"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 1360938164,
+          "mode": "list",
+          "cachedResultName": "appointment"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "UPRN": "={{ $('Build Sheet Rows').item.json.apptRow['UPRN'] }}",
+            "7.1": "={{ $('Build Sheet Rows').item.json.apptRow['7.1'] }}",
+            "7.2": "={{ $('Build Sheet Rows').item.json.apptRow['7.2'] }}",
+            "Trade_1": "={{ $('Build Sheet Rows').item.json.apptRow['Trade_1'] }}",
+            "Hours_1": "={{ $('Build Sheet Rows').item.json.apptRow['Hours_1'] }}",
+            "Notes_1": "={{ $('Build Sheet Rows').item.json.apptRow['Notes_1'] }}",
+            "8.1": "={{ $('Build Sheet Rows').item.json.apptRow['8.1'] }}",
+            "8.2": "={{ $('Build Sheet Rows').item.json.apptRow['8.2'] }}",
+            "Trade_2": "={{ $('Build Sheet Rows').item.json.apptRow['Trade_2'] }}",
+            "Hours_2": "={{ $('Build Sheet Rows').item.json.apptRow['Hours_2'] }}",
+            "Notes_2": "={{ $('Build Sheet Rows').item.json.apptRow['Notes_2'] }}",
+            "9.1": "={{ $('Build Sheet Rows').item.json.apptRow['9.1'] }}",
+            "9.2": "={{ $('Build Sheet Rows').item.json.apptRow['9.2'] }}",
+            "Trade_3": "={{ $('Build Sheet Rows').item.json.apptRow['Trade_3'] }}",
+            "Hours_3": "={{ $('Build Sheet Rows').item.json.apptRow['Hours_3'] }}",
+            "Notes_3": "={{ $('Build Sheet Rows').item.json.apptRow['Notes_3'] }}",
+            "10.1": "={{ $('Build Sheet Rows').item.json.apptRow['10.1'] }}",
+            "10.2": "={{ $('Build Sheet Rows').item.json.apptRow['10.2'] }}",
+            "Trade_4": "={{ $('Build Sheet Rows').item.json.apptRow['Trade_4'] }}",
+            "Hours_4": "={{ $('Build Sheet Rows').item.json.apptRow['Hours_4'] }}",
+            "Notes_4": "={{ $('Build Sheet Rows').item.json.apptRow['Notes_4'] }}",
+            "11.1": "={{ $('Build Sheet Rows').item.json.apptRow['11.1'] }}",
+            "11.2": "={{ $('Build Sheet Rows').item.json.apptRow['11.2'] }}",
+            "Trade_5": "={{ $('Build Sheet Rows').item.json.apptRow['Trade_5'] }}",
+            "Hours_5": "={{ $('Build Sheet Rows').item.json.apptRow['Hours_5'] }}",
+            "Notes_5": "={{ $('Build Sheet Rows').item.json.apptRow['Notes_5'] }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "UPRN",
+              "displayName": "UPRN",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "7.1",
+              "displayName": "7.1",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "7.2",
+              "displayName": "7.2",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Trade_1",
+              "displayName": "Trade_1",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Hours_1",
+              "displayName": "Hours_1",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Notes_1",
+              "displayName": "Notes_1",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "8.1",
+              "displayName": "8.1",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "8.2",
+              "displayName": "8.2",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Trade_2",
+              "displayName": "Trade_2",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Hours_2",
+              "displayName": "Hours_2",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Notes_2",
+              "displayName": "Notes_2",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "9.1",
+              "displayName": "9.1",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "9.2",
+              "displayName": "9.2",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Trade_3",
+              "displayName": "Trade_3",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Hours_3",
+              "displayName": "Hours_3",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Notes_3",
+              "displayName": "Notes_3",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "10.1",
+              "displayName": "10.1",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "10.2",
+              "displayName": "10.2",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Trade_4",
+              "displayName": "Trade_4",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Hours_4",
+              "displayName": "Hours_4",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Notes_4",
+              "displayName": "Notes_4",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "11.1",
+              "displayName": "11.1",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "11.2",
+              "displayName": "11.2",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Trade_5",
+              "displayName": "Trade_5",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Hours_5",
+              "displayName": "Hours_5",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Notes_5",
+              "displayName": "Notes_5",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        -10000,
+        17760
+      ],
+      "id": "105ea686-e0a0-4620-a7a2-d7fae3229c0e",
+      "name": "Append to appointment Tab",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "0bvpVa8frZ7qSwzx",
+          "name": "hamza-sheets"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const sd = $getWorkflowStaticData('global');\nreturn [{ json: { rows_written: sd.rowsWritten || 0 } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -14832,
+        17344
+      ],
+      "id": "37844e97-6cfb-44ca-995c-d181ab3176cf",
+      "name": "Check Rows Written"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.rows_written }}",
+              "rightValue": 0,
+              "operator": {
+                "type": "number",
+                "operation": "gt"
+              },
+              "id": "70410d35-13db-417a-a51a-bc7baf75d453"
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -14608,
+        17344
+      ],
+      "id": "f175ebc7-6e68-4c54-9790-215470da6587",
+      "name": "IF Rows Written"
+    },
+    {
+      "parameters": {
+        "jsCode": "const n = $json.rows_written || 0;\nreturn [{ json: { ok: true, message: `No new jis rows written (${n} rows) \u2014 jis-filler not triggered.` } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -14384,
+        17440
+      ],
+      "id": "aefa1392-a3b9-4425-b660-f99db39187a4",
+      "name": "No Rows Written \u2014 Stop"
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "1PRUtOeUec0uMhrj4k1sFEAdo5qvXE9cDOeyAQ67hIDI",
+          "mode": "list",
+          "cachedResultName": "SOR-Codes-Template"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 201049180,
+          "mode": "list",
+          "cachedResultName": "sheet2"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        -15056,
+        17152
+      ],
+      "id": "cdb70588-17d8-4df0-9668-9ac1895c319c",
+      "name": "Get SMV rows (Sheet2)",
+      "executeOnce": true,
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "0bvpVa8frZ7qSwzx",
+          "name": "hamza-sheets"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "function normDocKey(raw) {\n  if (raw === null || raw === undefined) return null;\n  const digits = String(raw).replace(/[^0-9]/g, '');\n  if (!digits) return null;\n  const last6 = digits.length >= 6 ? digits.slice(-6) : digits.padStart(6, '0');\n  return last6.padStart(6, '0');\n}\nfunction pickCol(row, names) {\n  for (const n of names) {\n    if (row[n] !== undefined && row[n] !== null && String(row[n]).trim() !== '') return row[n];\n  }\n  return null;\n}\nconst items = $input.all();\nconst smvLookup = {};\nfor (const item of items) {\n  const row = item.json || {};\n  const docCode = pickCol(row, ['Document Code', 'Document code', 'DOCUMENT CODE', 'Reference', 'REFERENCE']);\n  if (docCode == null) continue;\n  const key = normDocKey(docCode);\n  if (!key) continue;\n  const detailed = pickCol(row, ['Detailed Description', 'Detailed description', 'DETAILED DESCRIPTION']);\n  smvLookup[key] = { documentCode: String(docCode).trim(), detailedDescription: detailed != null ? String(detailed).trim() : '' };\n}\nreturn [{ json: { smvLookup, smv_unique_keys: Object.keys(smvLookup).length } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -14832,
+        17152
+      ],
+      "id": "c5d3170d-0111-41dc-b530-b33a002a0610",
+      "name": "Build SMV Lookup"
+    },
+    {
+      "parameters": {
+        "jsCode": "const prep = $('Prepare for AI').first().json;\nconst smvLookup = ($('Build SMV Lookup').first().json || {}).smvLookup || {};\n\nfunction normDocKey(raw) {\n  if (raw == null) return null;\n  const digits = String(raw).replace(/[^0-9]/g, '');\n  if (!digits) return null;\n  const last6 = digits.length >= 6 ? digits.slice(-6) : digits;\n  return last6.padStart(6, '0');\n}\n\nfunction parseBoqFromText(plain) {\n  const lines = String(plain || '').split(/\\r?\\n/).map(l => l.trim()).filter(Boolean);\n  const boq = [];\n  const codeRe = /^(\\d{1,3}[A-Z]{2}\\d{4,6})$/i;\n  for (let i = 0; i < lines.length; i++) {\n    const m = lines[i].match(codeRe);\n    if (!m) continue;\n    const code = m[1].toUpperCase();\n    let qty = 1;\n    let location = '';\n    for (let j = i + 1; j < Math.min(i + 12, lines.length); j++) {\n      if (/^\\d+(\\.\\d+)?$/.test(lines[j]) && qty === 1) {\n        qty = parseFloat(lines[j]) || 1;\n        continue;\n      }\n      if (/^(KITCH|BATHRM|BED\\d|LIVROOM|HALL|LOFT|EXT|LANDING|STAIR)/i.test(lines[j])) {\n        location = lines[j].toUpperCase();\n        break;\n      }\n    }\n    boq.push({ code, quantity: qty, location });\n  }\n  return boq;\n}\n\nfunction parseQtyFromContext(code, plain, boqLines) {\n  const codeNorm = String(code || '').replace(/\\s+/g, '').toUpperCase();\n  const hit = (boqLines || []).find(ln => String(ln.code || '').replace(/\\s+/g, '').toUpperCase() === codeNorm);\n  if (hit && hit.quantity != null) return Math.max(1, parseFloat(hit.quantity) || 1);\n  const c = codeNorm.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\\\$&');\n  const re = new RegExp(c + '[^\\\\d]{0,40}(\\\\d+(?:\\\\.\\\\d+)?)', 'i');\n  const m = String(plain || '').match(re);\n  return m ? parseFloat(m[1]) : 1;\n}\n\nfunction smvMetaForCode(code, plain, boqLines) {\n  const key = normDocKey(code);\n  const row = key ? smvLookup[key] : null;\n  const detailed = row ? String(row.detailedDescription || '').trim() : '';\n  const isSub = /^subcontract/i.test(detailed);\n  const smvNum = !isSub && detailed && !/^error/i.test(detailed) ? parseFloat(detailed.replace(/[^0-9.]/g, '')) : NaN;\n  return {\n    code: String(code).trim(),\n    document_code_key: key,\n    quantity: parseQtyFromContext(code, plain, boqLines),\n    detailed_description: detailed || null,\n    smv_raw: Number.isFinite(smvNum) ? smvNum : null,\n    is_subcontract: isSub,\n  };\n}\n\nfunction buildAppointmentPlanningHints(plain, description, asbestosItems) {\n  const text = `${plain || ''} ${description || ''}`.toLowerCase();\n  const hints = [];\n  const hasRender = /\\brender(ing)?\\b|scratch coat|top coat|hack off.*render|defective render/i.test(text);\n  const hasPlaster = /\\bplaster\\b|skim|bonding|reboard|plasterboard|hack off.*plaster|replaster|dub out/i.test(text);\n  const hasDecorate = /\\bemulsion\\b|decorat|mist coat|paint\\b|biocheck|halophen|bactdet/i.test(text);\n  const hasDehumid = /de-?humidifier|dry out|fully dry/i.test(text);\n  const hasTiles = /wall tiles|tile/i.test(text);\n  if (hasDehumid) {\n    hints.push('SPLIT REQUIRED: Dehumidifier week hire is its own visit BEFORE hack-off/plaster in bathroom');\n  }\n  if (hasRender) {\n    hints.push('SPLIT REQUIRED: Visit 1 = hack off / scratch coat only \u2014 RETURN FOLLOWING DAY TO TOP COAT');\n    hints.push('SPLIT REQUIRED: Top coat render = separate visit');\n  }\n  if (hasPlaster && (hasRender || hasTiles)) {\n    hints.push('SPLIT REQUIRED: Plaster/skim AFTER render/tiles prep dry \u2014 ALLOW TO DRY 3 DAYS between wet-trade visits');\n  } else if (hasPlaster) {\n    hints.push('Hack off + dub out + skim are often SEPARATE visits with drying between');\n  }\n  if (hasDecorate && (hasPlaster || hasRender)) {\n    hints.push('SPLIT REQUIRED: Decorator (Bactdet/Halophen/emulsion) LAST after plaster dry 3\u20134 days');\n  }\n  if (hints.length === 0) {\n    hints.push('Split by trade and drying time \u2014 use up to 5 appointments; do not merge kitchen, bathroom wet trades, and decorating into one visit');\n  }\n  const acmText = String(asbestosItems || '').toLowerCase();\n  if (acmText && /\\bptca\\b|presumed|asbestos identified|s0[1-3]/i.test(acmText)) {\n  if (/hack off|replaster|tiles|reboard/i.test(text)) {\n      hints.unshift('ASBESTOS: sequence intrusive bathroom/kitchen works per register \u2014 shadow vac bullets under trade, not separate appt unless full removal');\n    }\n  }\n  return hints;\n}\n\nconst plainText = prep.body_text || '';\nconst boqLines = parseBoqFromText(plainText);\nconst sorRegex = /\\b\\d{1,3}\\s*[A-Z]{2}\\s*\\d{4,6}\\b/gi;\nconst fromBoq = boqLines.map(ln => ln.code);\nconst fromText = (plainText.match(sorRegex) || []).map(s => s.replace(/\\s+/g, ''));\nconst foundSors = [...new Set([...fromBoq, ...fromText].map(s => String(s).replace(/\\s+/g, '').toUpperCase()).filter(Boolean))];\nconst sorLines = foundSors.map(code => smvMetaForCode(code, plainText, boqLines));\nconst jobRefMatch = (prep.subject || '').match(/(\\d+\\/\\d+)/);\nconst worksOrderRef = jobRefMatch ? jobRefMatch[1] : '';\n\nreturn [{\n  json: {\n    ...prep,\n    body_plain_text: plainText,\n    UPRN: prep.uprn || '',\n    job_no: worksOrderRef,\n    works_order_extracted: {\n      works_order_ref: worksOrderRef,\n      uprn: prep.uprn || '',\n      address: prep.address || '',\n      site_address: prep.address || '',\n      description: plainText.slice(0, 800),\n    },\n    found_sors_in_email: foundSors,\n    boq_sor_lines: boqLines,\n    sor_lines_with_smv: sorLines,\n    appointment_planning_hints: buildAppointmentPlanningHints(plainText, '', prep.asbestos_items || ''),\n  },\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -12368,
+        17728
+      ],
+      "id": "c9646a0c-3a75-4c15-8002-b5a60e82327c",
+      "name": "Prepare Appointment AI Input"
+    },
+    {
+      "parameters": {
+        "modelId": {
+          "__rl": true,
+          "value": "gpt-4.1-mini",
+          "mode": "list",
+          "cachedResultName": "GPT-4.1-MINI"
+        },
+        "responses": {
+          "values": [
+            {
+              "role": "system",
+              "content": "=You are a UK construction appointment planner for Jeffway JIS (sections Q7.1\u2013Q11.1 only).\n\nYou receive a BCC works order email, extracted fields, SOR lines with SMV (Detailed Description from the data bank), and appointment_planning_hints.\n\nReturn ONLY valid JSON matching the schema. No markdown.\n\nCORE RULE \u2014 one appointment = one site visit. Create a NEW appointment when the operative must leave and return (next day, after drying/curing, scaffold, asbestos removal, stain block before decorate, or a different trade/subcontractor).\n\nMaximum 5 appointments (Q7 \u2192 Q11). Use ALL slots if needed \u2014 do not merge visits to save space.\n\nsection_label: always \"Appointment details\" (never \"Q7.1\" etc.).\n\ntrade: CAPS trade name, e.g. PLASTERER, DECORATOR OR MULTI, PLASTERER, DAN & OLLIE when known.\n\nhours_bookable: whole hours only as a string integer for that visit, e.g. \"4\", \"3\" \u2014 based on sor_codes assigned to THAT visit only (SMV \u00d7 80% \u00d7 qty + 30 min allowance, round bookable time up to nearest whole hour). Do not combine SMV from other visits.\n\nanother_appointment: \"yes\" if any further visit is required after this one; \"no\" only on the final visit.\n\nsor_codes: list ONLY codes (with quantity) completed on THIS visit \u2014 split quantities across visits when the same code spans days.\n\nNOTES style (phone-friendly):\n- First line: location(s) in caps, e.g. BEDROOM 3 or BEDROOM 3 & KITCHEN\n- Then bullets starting with * including task, m\u00b2/qty, SOR code where known\n- End with explicit sequencing: RETURN FOLLOWING DAY TO TOP COAT RENDERING / ALLOW TO DRY 3 DAYS RETURN TO PLASTER / ALLOW TO DRY 4 DAYS RETURN TO DECORATE ALL AREAS / BOOK AFTER APPOINTMENT N\n\nPLASTER / RENDER \u2014 mandatory splits (do NOT combine into one visit):\n1) Scratch coat / hack off / reboard / first-day render prep \u2192 visit 1 only. another_appointment=yes. Notes must include RETURN FOLLOWING DAY TO TOP COAT RENDERING when top coat is next day.\n2) Top coat render (from previous day scratch) \u2192 separate visit 2. another_appointment=yes. Note ALLOW TO DRY before plaster if applicable.\n3) Plaster over cured render / skim / bonding after render dry \u2192 separate visit 3. another_appointment=yes. Note drying days before decoration.\n4) Decorator / emulsion \u2192 final visit only after plaster dry (typically 3\u20134 days). another_appointment=no on last slot.\n\nNever put scratch coat + top coat + final plaster skim + decoration in one appointment.\n\nOther sequencing: asbestos removal \u2192 scaffold \u2192 external/roof \u2192 multi/plaster stages \u2192 stain block (own visit) \u2192 decorator. Shadow vac is NOT a separate appointment \u2014 note under the trade bullet.\n\nSubcontract-only lines: hours_bookable \"Subcontract - book separately\".\n\nDo NOT fill Q1\u2013Q6 or Q5.1/Q5.2.\n\nASBESTOS SEQUENCING (use the ASBESTOS_REPORT block in the user message):\n- If any SOR work area is PTCA/positive AND the task is major intrusive (ceiling renewal, plaster strip, material break-out) \u2192 Appointment 1 MUST be ASBESTOS REMOVAL SUBCONTRACT before any work in that area. hours_bookable = \"Subcontract - book separately\". another_appointment = yes.\n- Shadow vac: Do NOT create a separate appointment for shadow vac. Add it as a bullet under the affected trade: \"* SHADOW VAC REQUIRED during [specific task] \u2014 [room] \u2014 [level/type from report]\".\n- No-access areas: Flag in appointment notes that works in that room/area cannot proceed until asbestos status is confirmed. Do not omit the flag.\n- NAD/clear areas: No asbestos precaution needed \u2014 proceed normally.\n- If ASBESTOS_REPORT has no data, do not invent an asbestos removal appointment; proceed based on works scope only."
+            },
+            {
+              "content": "=Plan appointments (Q7.1\u2013Q11.1 only) for this works order.\n\nSubject: {{ $('Prepare Appointment AI Input').item.json.subject ?? '' }}\n\nPre-extracted:\n{{ JSON.stringify($('Prepare Appointment AI Input').item.json.works_order_extracted, null, 2) }}\n\nSOR lines with SMV bank:\n{{ JSON.stringify($('Prepare Appointment AI Input').item.json.sor_lines_with_smv, null, 2) }}\n\nFull email:\n{{ $('Prepare Appointment AI Input').item.json.body_plain_text ?? '' }}\n\n=====\nASBESTOS_REPORT (for sequencing \u2014 see system rules):\nReport linked: {{ $('Prepare Appointment AI Input').item.json.asbestos_status ? 'Yes' : 'No' }}\nSummary: {{ $('Prepare Appointment AI Input').item.json.asbestos_summary ?? '(none)' }}\nACM Register items:\n{{ $('Prepare Appointment AI Input').item.json.asbestos_items ?? '(no items parsed)' }}\n\nappointment_planning_hints:\n{{ JSON.stringify($('Prepare Appointment AI Input').item.json.appointment_planning_hints, null, 2) }}"
+            }
+          ]
+        },
+        "builtInTools": {},
+        "options": {
+          "textFormat": {
+            "textOptions": {
+              "type": "json_schema",
+              "schema": "{\"type\": \"object\", \"additionalProperties\": false, \"required\": [\"appointments\", \"planning_summary\"], \"properties\": {\"appointments\": {\"type\": \"array\", \"items\": {\"type\": \"object\", \"additionalProperties\": false, \"required\": [\"section_label\", \"trade\", \"hours_bookable\", \"notes\", \"another_appointment\", \"sor_codes\"], \"properties\": {\"section_label\": {\"type\": [\"string\", \"null\"]}, \"trade\": {\"type\": \"string\"}, \"hours_bookable\": {\"type\": [\"string\", \"null\"]}, \"notes\": {\"type\": \"string\"}, \"another_appointment\": {\"type\": \"string\", \"enum\": [\"yes\", \"no\"]}, \"sor_codes\": {\"type\": \"array\", \"items\": {\"type\": \"object\", \"additionalProperties\": false, \"required\": [\"code\", \"quantity\"], \"properties\": {\"code\": {\"type\": \"string\"}, \"quantity\": {\"type\": [\"number\", \"null\"]}}}}}}}, \"planning_summary\": {\"type\": [\"string\", \"null\"]}}}"
+            }
+          }
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "typeVersion": 2.1,
+      "position": [
+        -11792,
+        17728
+      ],
+      "id": "070c2ab0-fed7-4230-b45b-d88a928c8453",
+      "name": "AI Plan Appointments",
+      "credentials": {
+        "openAiApi": {
+          "id": "aBG3b1KH705oNjYs",
+          "name": "jeffway open ai"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "function unwrapAI(r) {\n  if (!r || typeof r !== 'object') return {};\n  if (r?.output?.[0]?.content?.[0]?.text !== undefined) {\n    const t = r.output[0].content[0].text;\n    if (typeof t === 'object' && t !== null) return t;\n    if (typeof t === 'string') {\n      try {\n        return JSON.parse(t);\n      } catch (e) {}\n    }\n  }\n  const cc = r?.message?.content ?? r?.choices?.[0]?.message?.content ?? null;\n  if (cc !== null) {\n    if (typeof cc === 'object') return cc;\n    if (typeof cc === 'string') {\n      try {\n        return JSON.parse(cc);\n      } catch (e) {}\n    }\n  }\n  if (r.appointments !== undefined) return r;\n  return {};\n}\n\nfunction normDocKey(raw) {\n  if (raw == null) return null;\n  const digits = String(raw).replace(/[^0-9]/g, '');\n  if (!digits) return null;\n  const last6 = digits.length >= 6 ? digits.slice(-6) : digits;\n  return last6.padStart(6, '0');\n}\n\nfunction parseSmv(raw) {\n  if (raw == null) return null;\n  const s = String(raw).trim();\n  if (!s || /^subcontract/i.test(s)) return null;\n  if (/^error:#?n\\/a/i.test(s)) return null;\n  const n = parseFloat(s.replace(/[^0-9.]/g, ''));\n  return Number.isFinite(n) ? n : null;\n}\n\nfunction roundUp15(mins) {\n  if (!Number.isFinite(mins) || mins <= 0) return 0;\n  return Math.ceil(mins / 15) * 15;\n}\n\n/** Admin sheet uses whole hours (e.g. 4, 3) not \"7 hrs 15 mins\". */\nfunction formatHoursForSheet(totalMins) {\n  if (!Number.isFinite(totalMins) || totalMins <= 0) return '';\n  const rounded = roundUp15(totalMins);\n  const hours = Math.ceil(rounded / 60);\n  return String(Math.max(1, hours));\n}\n\nfunction normalizeHoursOutput(raw, sorRefs, smvLookup) {\n  if (raw == null || raw === '') {\n    return calcHoursFromSors(sorRefs, smvLookup, '');\n  }\n  const s = String(raw).trim();\n  if (/^subcontract/i.test(s)) return s;\n  if (/^time tbc/i.test(s)) return s;\n  const plainNum = s.match(/^(\\d+(?:\\.\\d+)?)\\s*$/);\n  if (plainNum) return String(Math.max(1, Math.ceil(parseFloat(plainNum[1]))));\n  const hrMatch = s.match(/(\\d+)\\s*hrs?/i);\n  if (hrMatch) return hrMatch[1];\n  const minMatch = s.match(/(\\d+)\\s*mins?/i);\n  if (minMatch && !hrMatch) {\n    return formatHoursForSheet(parseInt(minMatch[1], 10));\n  }\n  return calcHoursFromSors(sorRefs, smvLookup, s);\n}\n\nfunction calcHoursFromSors(sorRefs, smvLookup, fallbackHours) {\n  let productive = 0;\n  let anySub = false;\n  let anyTbc = false;\n  for (const s of sorRefs || []) {\n    const code = s.code || s.sor_code || s;\n    const key = normDocKey(code);\n    const qty = Math.max(1, parseFloat(s.quantity) || 1);\n    const row = key ? smvLookup[key] : null;\n    const smvRaw = row ? parseSmv(row.detailedDescription) : null;\n    if (row && /^subcontract/i.test(String(row.detailedDescription || ''))) {\n      anySub = true;\n      continue;\n    }\n    if (smvRaw == null) {\n      anyTbc = true;\n      continue;\n    }\n    productive += smvRaw * 0.8 * qty;\n  }\n  if (anySub && productive === 0) return 'Subcontract - book separately';\n  const total = productive + 30;\n  if (productive === 0 && anyTbc) return fallbackHours || 'Time TBC';\n  return formatHoursForSheet(total);\n}\n\nfunction yesNo(v) {\n  if (v === true || v === 1) return 'yes';\n  const s = String(v ?? '')\n    .trim()\n    .toLowerCase();\n  if (s === 'yes' || s === 'y' || s === 'true') return 'yes';\n  return 'no';\n}\n\nfunction sectionLabelForSlot(slotQ, ap) {\n  const raw = String(ap?.section_label ?? '').trim();\n  if (raw && !/^Q\\d+\\.\\d+$/i.test(raw)) return raw;\n  return 'Appointment details';\n}\n\nfunction getSmvLookup() {\n  for (const name of [\n    'Build SMV Lookup',\n    'Build SMV Lookup',\n    'Build SMV Lookup2',\n  ]) {\n    try {\n      const data = $(name).first().json || {};\n      if (data.smvLookup) return data.smvLookup;\n    } catch (e) {}\n  }\n  return {};\n}\n\nfunction getPairedSourceIndex(it) {\n  const p = it && it.pairedItem != null ? it.pairedItem : null;\n  if (Array.isArray(p)) {\n    const first = p.find((x) => x && typeof x.item === 'number');\n    return first ? first.item : null;\n  }\n  if (p && typeof p.item === 'number') return p.item;\n  return null;\n}\n\nconst smvLookup = getSmvLookup();\nconst prepItems = $('Prepare Appointment AI Input').all();\nconst aiItems = $input.all();\n\nreturn aiItems.map((item, idx) => {\n  const ai = unwrapAI(item.json || {});\n  const srcIdx = getPairedSourceIndex(item);\n  const prep =\n    (srcIdx != null ? prepItems[srcIdx]?.json : null) ||\n    prepItems[idx]?.json ||\n    prepItems[0]?.json ||\n    {};\n  const extracted = prep.works_order_extracted || {};\n  const uprn =\n    prep.UPRN ||\n    prep.uprn ||\n    extracted.uprn ||\n    '';\n  const jobNo =\n    extracted.works_order_ref ||\n    prep.job_no ||\n    '';\n\n  const appts = Array.isArray(ai.appointments) ? ai.appointments : [];\n  const slotDefs = [\n    { q: '7.1', yn: '7.2' },\n    { q: '8.1', yn: '8.2' },\n    { q: '9.1', yn: '9.2' },\n    { q: '10.1', yn: '10.2' },\n    { q: '11.1', yn: '11.2' },\n  ];\n\n  const row = {\n    UPRN: String(uprn || '').trim(),\n    'Job No': String(jobNo || '').trim(),\n  };\n\n  for (let i = 0; i < slotDefs.length; i++) {\n    const slot = slotDefs[i];\n    const ap = appts[i] || null;\n    const n = i + 1;\n\n    if (ap) {\n      const sorRefs = ap.sor_codes || ap.sors || [];\n      const hours = normalizeHoursOutput(\n        ap.hours_bookable,\n        sorRefs,\n        smvLookup\n      );\n      row[slot.q] = sectionLabelForSlot(slot.q, ap);\n      row[`Trade_${n}`] = ap.trade || '';\n      row[`Hours_${n}`] = hours || '';\n      row[`Notes_${n}`] = ap.notes || '';\n      row[slot.yn] = yesNo(ap.another_appointment);\n    } else {\n      row[slot.q] = '';\n      row[`Trade_${n}`] = '';\n      row[`Hours_${n}`] = '';\n      row[`Notes_${n}`] = '';\n      row[slot.yn] = 'no';\n    }\n  }\n\n  row._appointment_count = appts.length;\n  row._jis_check_row_number = prep._jis_check_row_number ?? null;\n  row._jis_check_corf = prep._jis_check_corf ?? null;\n  return { json: row };\n});"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -11440,
+        17728
+      ],
+      "id": "a9deded4-2930-4600-b8dc-4ebf94633751",
+      "name": "Format Appointment Row"
+    },
+    {
+      "parameters": {
+        "jsCode": "function normQ13(v) {\n  const raw = String(v ?? '').trim();\n  if (!raw) return '';\n  const t = raw.toLowerCase().replace(/\\s+/g, '');\n  const slash = t.match(/^(\\d+)\\/(\\d+)$/);\n  if (slash) return parseInt(slash[1], 10) + '/' + parseInt(slash[2], 10);\n  const under = t.match(/^(\\d+)_(\\d+)$/);\n  if (under) return parseInt(under[1], 10) + '/' + parseInt(under[2], 10);\n  const digits = t.replace(/\\D/g, '');\n  if (digits.length >= 5) return String(parseInt(digits, 10));\n  return t;\n}\nfunction q13FromText(text) {\n  const t = String(text || '');\n  let m = t.match(/(\\d+\\/\\d+)/);\n  if (m) return m[1];\n  for (const re of [\n    /WO[\\s_-]*Ref[\\s_-]*(\\d+)[_/](\\d+)/i,\n    /Ref[\\s_-]*(\\d+)[_/](\\d+)/i,\n    /(\\d{4,6})[_/](\\d+)(?:\\.msg)?(?:\\s|$|&)/i,\n  ]) {\n    m = t.match(re);\n    if (m) return parseInt(m[1], 10) + '/' + parseInt(m[2], 10);\n  }\n  return '';\n}\nfunction q13FromWoUrl(url) {\n  const u = String(url || '');\n  const m1 = u.match(/filename_orig=([^&]+)/i);\n  if (m1) {\n    const hit = q13FromText(decodeURIComponent(m1[1]));\n    if (hit) return hit;\n  }\n  const m2 = u.match(/file=([^&]+)/i);\n  if (m2) {\n    const hit = q13FromText(decodeURIComponent(m2[1]));\n    if (hit) return hit;\n  }\n  return q13FromText(u);\n}\nconst job = $('Loop Each Job').item.json;\nconst existingSet = new Set((job._existingQ13Set || []).map(normQ13).filter(Boolean));\nconst q13_candidate = normQ13(job.client_order_reference)\n  || normQ13(q13FromWoUrl(job.works_order_url));\nconst _duplicate_q13 = !!(q13_candidate && existingSet.has(q13_candidate));\nreturn [{ json: { ...job, q13_candidate, _duplicate_q13, _skip_reason: _duplicate_q13 ? 'duplicate_q13_url' : null } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -14832,
+        17632
+      ],
+      "id": "672f4387-737b-4ab1-b500-8db3fda9d3c9",
+      "name": "Check Q1.3 Early (from URL)"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": false,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json._duplicate_q13 }}",
+              "rightValue": false,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -14608,
+        17712
+      ],
+      "id": "95a883b7-58ba-4451-aac5-0420a5996d4c",
+      "name": "IF Q1.3 Not on jis Tab (URL)"
+    },
+    {
+      "parameters": {
+        "jsCode": "function normQ13(v) {\n  const raw = String(v ?? '').trim();\n  if (!raw) return '';\n  const t = raw.toLowerCase().replace(/\\s+/g, '');\n  const slash = t.match(/^(\\d+)\\/(\\d+)$/);\n  if (slash) return parseInt(slash[1], 10) + '/' + parseInt(slash[2], 10);\n  const under = t.match(/^(\\d+)_(\\d+)$/);\n  if (under) return parseInt(under[1], 10) + '/' + parseInt(under[2], 10);\n  const digits = t.replace(/\\D/g, '');\n  if (digits.length >= 5) return String(parseInt(digits, 10));\n  return t;\n}\nfunction q13FromText(text) {\n  const t = String(text || '');\n  let m = t.match(/(\\d+\\/\\d+)/);\n  if (m) return m[1];\n  for (const re of [\n    /WO[\\s_-]*Ref[\\s_-]*(\\d+)[_/](\\d+)/i,\n    /Ref[\\s_-]*(\\d+)[_/](\\d+)/i,\n    /(\\d{4,6})[_/](\\d+)(?:\\.msg)?(?:\\s|$|&)/i,\n  ]) {\n    m = t.match(re);\n    if (m) return parseInt(m[1], 10) + '/' + parseInt(m[2], 10);\n  }\n  return '';\n}\nfunction q13FromWoUrl(url) {\n  const u = String(url || '');\n  const m1 = u.match(/filename_orig=([^&]+)/i);\n  if (m1) {\n    const hit = q13FromText(decodeURIComponent(m1[1]));\n    if (hit) return hit;\n  }\n  const m2 = u.match(/file=([^&]+)/i);\n  if (m2) {\n    const hit = q13FromText(decodeURIComponent(m2[1]));\n    if (hit) return hit;\n  }\n  return q13FromText(u);\n}\nfunction q13FromSubject(subject) {\n  return q13FromText(subject);\n}\nconst job = $('Loop Each Job').item.json;\nconst wo = $input.first().json || {};\nconst existingSet = new Set((job._existingQ13Set || []).map(normQ13).filter(Boolean));\nlet q13_resolved = normQ13(job.client_order_reference)\n  || normQ13(job.q13_candidate)\n  || normQ13(q13FromSubject(wo.subject))\n  || normQ13(q13FromWoUrl(job.works_order_url));\nconst _duplicate_q13 = !!(q13_resolved && existingSet.has(q13_resolved));\nreturn [{ json: {\n  ...job,\n  subject: wo.subject || '',\n  from_addr: wo.from_addr || '',\n  received: wo.received || '',\n  body_text: wo.body_text || '',\n  full_body_length: wo.full_body_length || 0,\n  wo_filename: wo.filename || '',\n  q13_resolved,\n  _duplicate_q13,\n  _skip_reason: _duplicate_q13 ? 'duplicate_q13_subject' : null,\n} }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -13040,
+        17712
+      ],
+      "id": "23f73290-8b46-44c9-a72b-329075365fac",
+      "name": "Check Q1.3 from WO Subject"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": false,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json._duplicate_q13 }}",
+              "rightValue": false,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -12816,
+        17728
+      ],
+      "id": "4e4bed1e-046e-4cfd-9911-0cd8e34d8a66",
+      "name": "IF Q1.3 Not on jis Tab (WO)"
+    },
+    {
+      "parameters": {
+        "operation": "pdf",
+        "binaryPropertyName": "pdf",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.extractFromFile",
+      "typeVersion": 1,
+      "position": [
+        -14160,
+        17712
+      ],
+      "id": "3a6384b6-73cb-4e60-ab38-7afa86df22d7",
+      "name": "Extract Asbestos PDF Text",
+      "notesInFlow": true,
+      "continueOnFail": true,
+      "notes": "Built-in n8n PDF text extraction (no filler API)."
+    },
+    {
+      "parameters": {
+        "jsCode": "const rows = $json.rows_written || 0;\nreturn [{\n  json: {\n    source: 'pre_works_jis_auto_fill',\n    reason: 'rows_written',\n    rows_written: rows,\n    triggered_at: new Date().toISOString(),\n  },\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -14384,
+        17248
+      ],
+      "id": "366b0ec9-57bc-4016-b538-660a8f080411",
+      "name": "Prepare filler trigger",
+      "notesInFlow": true,
+      "notes": "Payload for jis-filler webhook (body is optional; filler reads jis sheet)."
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "jis-filler-webhook-url",
+              "name": "jis_filler_webhook_url",
+              "value": "https://automations.cybix.ai/webhook/jeffway/jis-fill-new",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -14160,
+        17248
+      ],
+      "id": "c0ba08f0-81f0-4b2d-8e93-ef0fe8863169",
+      "name": "Set jis-filler webhook URL",
+      "notesInFlow": true,
+      "notes": "Production URL from jis-filler Webhook jis-fill (workflow must be ACTIVE)."
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ ($('Set jis-filler webhook URL').first().json.jis_filler_webhook_url || '').replace(/\\/+$/, '') }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($('Prepare filler trigger').first().json) }}",
+        "options": {
+          "timeout": 920000
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -13936,
+        17248
+      ],
+      "id": "393c113a-f4c9-4ba5-bb20-83fc39650e86",
+      "name": "Trigger jis-filler (webhook)",
+      "notesInFlow": true,
+      "notes": "POST to jis-filler webhook. Timeout ~15 min (EasyBOP batch fill)."
+    },
+    {
+      "parameters": {
+        "jsCode": "const raw = $input.first().json || {};\nconst html = String(raw.html || '');\nconst ids = [];\nconst re = /<tr[^>]+id=\"(\\d+)\"/gi;\nlet m;\nwhile ((m = re.exec(html)) !== null) ids.push(m[1]);\nconst unique = [...new Set(ids)];\n\nconst pages = raw.pages_scraped;\nconst rowsApi = raw.rows_total;\nconst recordsTotal = raw.records_total ?? null;\n\nreturn [{\n  json: {\n    success: raw.success !== false,\n    contract_id: raw.contract_id || null,\n    pages_scraped: pages ?? null,\n    rows_total_api: rowsApi ?? null,\n    records_total: recordsTotal,\n    rows_counted_in_html: unique.length,\n    html_length: raw.length ?? html.length,\n    verify_message:\n      `pages_scraped=${pages ?? 'missing'} | ` +\n      `api rows_total=${rowsApi ?? 'n/a'} | ` +\n      `jqGrid records=${recordsTotal ?? 'n/a'} | ` +\n      `counted <tr id> in html=${unique.length}`,\n    sample_row_ids: unique.slice(0, 8),\n    pagination_ok:\n      (pages != null && pages >= 2) ||\n      (recordsTotal != null && unique.length >= recordsTotal) ||\n      unique.length > 500,\n  },\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -16288,
+        17664
+      ],
+      "id": "22d5aa54-5776-435d-8dc6-f0b7f1fe9e3b",
+      "name": "Pre-Works Fetch Summary",
+      "notesInFlow": true,
+      "notes": "Open this node output to verify pages_scraped / row count (no server logs needed)."
+    }
+  ],
+  "connections": {
+    "Schedule (every 12h)": {
+      "main": [
+        [
+          {
+            "node": "Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Config": {
+      "main": [
+        [
+          {
+            "node": "Fetch Pre-Works Table HTML (Playwright)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Pre-Works Table HTML (Playwright)": {
+      "main": [
+        [
+          {
+            "node": "Pre-Works Fetch Summary",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Pre-Works HTML": {
+      "main": [
+        [
+          {
+            "node": "IF Qualifying Jobs Found",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF Qualifying Jobs Found": {
+      "main": [
+        [
+          {
+            "node": "Read Existing jis Tab",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "No Qualifying Jobs \u2014 Stop",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Existing jis Tab": {
+      "main": [
+        [
+          {
+            "node": "Build Existing Q1.3 Set",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Existing Q1.3 Set": {
+      "main": [
+        [
+          {
+            "node": "Merge Jobs + Existing Set",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge Jobs + Existing Set": {
+      "main": [
+        [
+          {
+            "node": "Loop Each Job",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Get SMV rows (Sheet2)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Loop Each Job": {
+      "main": [
+        [
+          {
+            "node": "Check Rows Written",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Check Q1.3 Early (from URL)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Download Asbestos PDF": {
+      "main": [
+        [
+          {
+            "node": "Extract Asbestos PDF Text",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Asbestos PDF": {
+      "main": [
+        [
+          {
+            "node": "Download Works Order .msg",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Download Works Order .msg": {
+      "main": [
+        [
+          {
+            "node": "Encode Works Order Base64",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Encode Works Order Base64": {
+      "main": [
+        [
+          {
+            "node": "Parse Works Order .msg",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Works Order .msg": {
+      "main": [
+        [
+          {
+            "node": "Check Q1.3 from WO Subject",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare for AI": {
+      "main": [
+        [
+          {
+            "node": "Prepare Appointment AI Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Extract JIS (Q1-Q5)": {
+      "main": [
+        [
+          {
+            "node": "AI Plan Appointments",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Sheet Rows": {
+      "main": [
+        [
+          {
+            "node": "IF Not Duplicate / Not Skipped",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF Not Duplicate / Not Skipped": {
+      "main": [
+        [
+          {
+            "node": "Append to jis Tab",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Loop Each Job",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Append to jis Tab": {
+      "main": [
+        [
+          {
+            "node": "Track Rows Written",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Track Rows Written": {
+      "main": [
+        [
+          {
+            "node": "IF Has Appointment Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF Has Appointment Data": {
+      "main": [
+        [
+          {
+            "node": "Append to appointment Tab",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Loop Each Job",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Append to appointment Tab": {
+      "main": [
+        [
+          {
+            "node": "Loop Each Job",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Rows Written": {
+      "main": [
+        [
+          {
+            "node": "IF Rows Written",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF Rows Written": {
+      "main": [
+        [
+          {
+            "node": "Prepare filler trigger",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "No Rows Written \u2014 Stop",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get SMV rows (Sheet2)": {
+      "main": [
+        [
+          {
+            "node": "Build SMV Lookup",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Appointment AI Input": {
+      "main": [
+        [
+          {
+            "node": "AI Extract JIS (Q1-Q5)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Plan Appointments": {
+      "main": [
+        [
+          {
+            "node": "Format Appointment Row",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Appointment Row": {
+      "main": [
+        [
+          {
+            "node": "Build Sheet Rows",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Q1.3 Early (from URL)": {
+      "main": [
+        [
+          {
+            "node": "IF Q1.3 Not on jis Tab (URL)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF Q1.3 Not on jis Tab (URL)": {
+      "main": [
+        [
+          {
+            "node": "Download Asbestos PDF",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Loop Each Job",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Q1.3 from WO Subject": {
+      "main": [
+        [
+          {
+            "node": "IF Q1.3 Not on jis Tab (WO)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF Q1.3 Not on jis Tab (WO)": {
+      "main": [
+        [
+          {
+            "node": "Prepare for AI",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Loop Each Job",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Asbestos PDF Text": {
+      "main": [
+        [
+          {
+            "node": "Parse Asbestos PDF",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare filler trigger": {
+      "main": [
+        [
+          {
+            "node": "Set jis-filler webhook URL",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Set jis-filler webhook URL": {
+      "main": [
+        [
+          {
+            "node": "Trigger jis-filler (webhook)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Pre-Works Fetch Summary": {
+      "main": [
+        [
+          {
+            "node": "Parse Pre-Works HTML",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "a5cd22a95d5313a977e9ac21c3a833db76b18ca78fb8cb2cf7013465d69f17f8"
+  }
+}

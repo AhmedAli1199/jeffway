@@ -1,0 +1,621 @@
+{
+    "nodes": [
+      {
+        "parameters": {
+          "rule": {
+            "interval": [
+              {
+                "triggerAtHour": 12
+              }
+            ]
+          }
+        },
+        "type": "n8n-nodes-base.scheduleTrigger",
+        "typeVersion": 1.1,
+        "position": [
+          14816,
+          2272
+        ],
+        "id": "c1041145-83ee-40a1-941c-9aefbb0142ff",
+        "name": "Schedule Trigger"
+      },
+      {
+        "parameters": {
+          "assignments": {
+            "assignments": [
+              {
+                "id": "api",
+                "name": "api_base_url",
+                "value": "http://173.212.233.153:8000",
+                "type": "string"
+              }
+            ]
+          },
+          "options": {}
+        },
+        "type": "n8n-nodes-base.set",
+        "typeVersion": 3.4,
+        "position": [
+          15040,
+          2272
+        ],
+        "id": "9e980dcd-d0bc-4710-bb71-035fda6bb521",
+        "name": "Set API URL"
+      },
+      {
+        "parameters": {
+          "documentId": {
+            "__rl": true,
+            "value": "17WI7AM3bdtdwbMnBj4Ldcb7PVBv9iMOhoNxnqvdau3A",
+            "mode": "list",
+            "cachedResultName": "Reactive-Works-Instructions-Template"
+          },
+          "sheetName": {
+            "__rl": true,
+            "value": "BOQ-Bypass-list",
+            "mode": "name",
+            "cachedResultName": "BOQ-Bypass-list"
+          },
+          "options": {}
+        },
+        "type": "n8n-nodes-base.googleSheets",
+        "typeVersion": 4.7,
+        "position": [
+          15264,
+          2272
+        ],
+        "id": "3140c686-c326-47db-af2b-9773d3e045c7",
+        "name": "Read BOQ-Bypass-list",
+        "executeOnce": true,
+        "alwaysOutputData": true,
+        "credentials": {
+          "googleSheetsOAuth2Api": {
+            "id": "0bvpVa8frZ7qSwzx",
+            "name": "hamza-sheets"
+          }
+        }
+      },
+      {
+        "parameters": {
+          "method": "POST",
+          "url": "={{ $('Set API URL').first().json.api_base_url.replace(/\\/+$/, '') + '/pre-works/fetch-table-html' }}",
+          "sendHeaders": true,
+          "headerParameters": {
+            "parameters": [
+              {
+                "name": "Content-Type",
+                "value": "application/json"
+              }
+            ]
+          },
+          "sendBody": true,
+          "specifyBody": "json",
+          "jsonBody": "={{ { contract_id: '321129', timeout_ms: 120000, max_pages: 200 } }}",
+          "options": {
+            "timeout": 180000
+          }
+        },
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.2,
+        "position": [
+          15488,
+          2272
+        ],
+        "id": "8441a52e-41dc-446e-b859-f7ee0e6b2be6",
+        "name": "Fetch Pre-Works Table HTML",
+        "executeOnce": true
+      },
+      {
+        "parameters": {
+          "jsCode": "const raw = $input.first().json || {};\nconst html = String(raw.html || '');\nconst ids = [];\nconst re = /<tr[^>]+id=\"(\\d+)\"/gi;\nlet m;\nwhile ((m = re.exec(html)) !== null) ids.push(m[1]);\nconst unique = [...new Set(ids)];\nconst pages = raw.pages_scraped;\nconst rowsApi = raw.rows_total;\nreturn [{\n  json: {\n    success: raw.success !== false,\n    pages_scraped: pages ?? null,\n    rows_total_api: rowsApi ?? null,\n    rows_counted_in_html: unique.length,\n    verify_message: `pages_scraped=${pages ?? '?'} | rows_total=${rowsApi ?? '?'} | counted=${unique.length}`,\n  },\n}];"
+        },
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          15712,
+          2272
+        ],
+        "id": "6b441f24-14c3-4c16-ac13-b11fd33a7e39",
+        "name": "Pre-Works Fetch Summary"
+      },
+      {
+        "parameters": {
+          "jsCode": "const fetchMeta = $('Pre-Works Fetch Summary').first().json || {};\nconst html = ($('Fetch Pre-Works Table HTML').first().json || {}).html || '';\nconst EASYBOP_BASE = 'https://easybop.co.uk';\nconst ASBESTOS_SUFFIX = '_wi_pw_24818_upload';\nconst WO_SUFFIX = '_wi_pw_24819_upload';\nconst UPRN_SUFFIX = '_property_ref';\nconst ADDR_SUFFIX = '_address';\nconst CORF_SUFFIX = '_client_order_reference';\n\nfunction normCorf(v) {\n  const raw = String(v ?? '').trim();\n  if (!raw) return '';\n  const t = raw.toLowerCase().replace(/\\s+/g, '');\n  const slash = t.match(/^(\\d+)\\/(\\d+)$/);\n  if (slash) return parseInt(slash[1], 10) + '/' + parseInt(slash[2], 10);\n  const under = t.match(/^(\\d+)_(\\d+)$/);\n  if (under) return parseInt(under[1], 10) + '/' + parseInt(under[2], 10);\n  return t;\n}\nfunction cellClass(attrs) {\n  const m = String(attrs || '').match(/class=\"([^\"]*)\"/i);\n  if (!m) return '';\n  return m[1].split(/\\s+/).find(c => c.startsWith('jqgrid_bg_')) || '';\n}\nfunction cellTitle(attrs) {\n  const m = String(attrs || '').match(/title=\"([^\"]*)\"/i);\n  return m ? m[1].trim() : '';\n}\nfunction absHref(href) {\n  const h = String(href || '').replace(/&amp;/g, '&');\n  if (!h) return '';\n  if (h.startsWith('http')) return h;\n  return EASYBOP_BASE + '/' + h.replace(/^\\//, '');\n}\nfunction isMsgDownloadUrl(url) {\n  const u = decodeURIComponent(String(url || '')).toLowerCase();\n  if (!u) return false;\n  if (/filename_orig=[^&]*\\.msg\\b/i.test(u)) return true;\n  if (/\\.msg(?:\\?|$|&)/i.test(u)) return true;\n  if (/file=[^&]*\\.msg\\b/i.test(u)) return true;\n  return false;\n}\nfunction cellMsgHref(cell) {\n  if (!cell) return null;\n  const blob = (cell.attrs || '') + (cell.inner || '');\n  const hrefs = [];\n  const re = /href=\"([^\"]+)\"/gi;\n  let m;\n  while ((m = re.exec(blob)) !== null) {\n    const href = absHref(m[1]);\n    if (href) hrefs.push(href);\n  }\n  for (const href of hrefs) {\n    if (isMsgDownloadUrl(href)) return href;\n  }\n  return null;\n}\n\nconst trRegex = /<tr[^>]+id=\"(\\d+)\"[^>]*>([\\s\\S]*?)<\\/tr>/gi;\nconst rows = [];\nlet trMatch;\nwhile ((trMatch = trRegex.exec(html)) !== null) {\n  const rowId = trMatch[1];\n  const rowHtml = trMatch[2];\n  const cells = {};\n  const tdRegex = /<td([^>]+)>([\\s\\S]*?)<\\/td>/gi;\n  let tdMatch;\n  while ((tdMatch = tdRegex.exec(rowHtml)) !== null) {\n    const keyMatch = tdMatch[1].match(/aria-describedby=\"([^\"]+)\"/i);\n    if (!keyMatch) continue;\n    cells[keyMatch[1]] = { attrs: tdMatch[1], inner: tdMatch[2] };\n  }\n  function getCell(suffix) {\n    for (const [key, val] of Object.entries(cells)) {\n      if (key.endsWith(suffix)) return val;\n    }\n    return null;\n  }\n\n  const asbCell = getCell(ASBESTOS_SUFFIX);\n  if (!asbCell) continue;\n  const asbClass = cellClass(asbCell.attrs);\n  if (!asbClass.includes('red')) continue;\n\n  const woCell = getCell(WO_SUFFIX);\n  const woClass = woCell ? cellClass(woCell.attrs) : '';\n  const woMsgUrl = cellMsgHref(woCell);\n\n  const corfRaw = cellTitle(getCell(CORF_SUFFIX)?.attrs);\n  const corf = normCorf(corfRaw) || normCorf(corfRaw.replace(/_/g, '/'));\n  rows.push({\n    pre_work_id: rowId,\n    uprn: cellTitle(getCell(UPRN_SUFFIX)?.attrs),\n    address: cellTitle(getCell(ADDR_SUFFIX)?.attrs),\n    client_order_reference: corfRaw || corf,\n    corf,\n    asbestos_class: asbClass,\n    works_order_url: woMsgUrl,\n    wo_upload_class: woClass,\n    wo_msg_on_preworks: !!(woClass.includes('green') && woMsgUrl),\n  });\n}\n\nconsole.log(`${fetchMeta.verify_message || ''} | Red asbestos rows=${rows.length} | with green WO .msg=${rows.filter(r => r.wo_msg_on_preworks).length}`);\nif (!rows.length) {\n  return [{ json: { _no_red_rows: true, red_count: 0, message: 'No red Global Asbestos Survey rows on pre-works report.' } }];\n}\nreturn rows.map(r => ({ json: r }));"
+        },
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          15936,
+          2272
+        ],
+        "id": "780b1e12-d747-4fe5-b19d-7bdfbabd244b",
+        "name": "Parse Red Asbestos Rows",
+        "notesInFlow": true,
+        "note": "Red asbestos + extract .msg href from WO upload column (24819) only"
+      },
+      {
+        "parameters": {
+          "method": "POST",
+          "url": "={{ $('Set API URL').first().json.api_base_url.replace(/\\/+$/, '') + '/works-index' }}",
+          "sendHeaders": true,
+          "headerParameters": {
+            "parameters": [
+              {
+                "name": "Content-Type",
+                "value": "application/json"
+              }
+            ]
+          },
+          "sendBody": true,
+          "specifyBody": "json",
+          "jsonBody": "={{ { timeout_ms: 120000 } }}",
+          "options": {
+            "response": {
+              "response": {
+                "fullResponse": true,
+                "neverError": true
+              }
+            },
+            "timeout": 180000
+          }
+        },
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.2,
+        "position": [
+          16160,
+          2272
+        ],
+        "id": "546b22ed-ba74-4b13-8ddb-4368c0c01ae5",
+        "name": "Fetch Works Index",
+        "executeOnce": true
+      },
+      {
+        "parameters": {
+          "jsCode": "function bodyFrom(resp) {\n  let body = resp.body ?? resp.data ?? resp;\n  if (typeof body === 'string') { try { body = JSON.parse(body); } catch (e) { body = {}; } }\n  if (body && body.body && body.items === undefined && body.total === undefined) body = body.body;\n  return body || {};\n}\nfunction normCorf(v) {\n  const raw = String(v ?? '').trim();\n  if (!raw) return '';\n  const t = raw.toLowerCase().replace(/\\s+/g, '');\n  const slash = t.match(/^(\\d+)\\/(\\d+)$/);\n  if (slash) return parseInt(slash[1], 10) + '/' + parseInt(slash[2], 10);\n  const digits = t.replace(/\\D/g, '');\n  if (digits.length >= 4) return String(parseInt(digits, 10));\n  return t;\n}\nconst resp = $input.first().json || {};\nconst data = bodyFrom(resp);\nconst items = Array.isArray(data.items) ? data.items : [];\nconst corfToWorksId = {};\nfor (const item of items) {\n  const wid = String(item.works_id || '').trim();\n  if (!wid) continue;\n  const corf = normCorf(item.client_order_reference || '');\n  if (corf) corfToWorksId[corf] = wid;\n}\nconst sd = $getWorkflowStaticData('global');\nsd.corfToWorksId = corfToWorksId;\nreturn [{ json: { works_index_total: data.total ?? items.length, corf_map_size: Object.keys(corfToWorksId).length } }];"
+        },
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          16384,
+          2272
+        ],
+        "id": "23cad754-789c-4e3c-8f25-2e8e03423cd9",
+        "name": "Build CORF works_id Map",
+        "executeOnce": true
+      },
+      {
+        "parameters": {
+          "conditions": {
+            "options": {
+              "caseSensitive": true,
+              "leftValue": "",
+              "typeValidation": "strict",
+              "version": 2
+            },
+            "conditions": [
+              {
+                "id": "skip",
+                "leftValue": "={{ $json._skip }}",
+                "rightValue": true,
+                "operator": {
+                  "type": "boolean",
+                  "operation": "equals"
+                }
+              }
+            ],
+            "combinator": "and"
+          },
+          "options": {}
+        },
+        "type": "n8n-nodes-base.if",
+        "typeVersion": 2.2,
+        "position": [
+          16832,
+          2272
+        ],
+        "id": "b0627841-d853-4b12-a7cf-c0d045a8f9ab",
+        "name": "IF Nothing Pending"
+      },
+      {
+        "parameters": {
+          "jsCode": "function normCorf(v) {\n  const raw = String(v ?? '').trim();\n  if (!raw) return '';\n  const t = raw.toLowerCase().replace(/\\s+/g, '');\n  const slash = t.match(/^(\\d+)\\/(\\d+)$/);\n  if (slash) return parseInt(slash[1], 10) + '/' + parseInt(slash[2], 10);\n  const under = t.match(/^(\\d+)_(\\d+)$/);\n  if (under) return parseInt(under[1], 10) + '/' + parseInt(under[2], 10);\n  return t;\n}\nfunction normBypassRef(raw) {\n  const digits = String(raw ?? '').replace(/[^0-9]/g, '');\n  if (!digits) return '';\n  return String(parseInt(digits, 10));\n}\nfunction isYes(v) {\n  const t = String(v ?? '').trim().toLowerCase();\n  return t === 'yes' || t === 'y' || t === 'true' || t === '1';\n}\nfunction sliceAfterJobDetails(text) {\n  const t = String(text || '');\n  const m = t.match(/Job\\s*Details\\s*[:-]/i);\n  if (!m || m.index == null) return '';\n  return t.slice(m.index);\n}\nfunction extractBoqRefsFromText(text) {\n  const section = sliceAfterJobDetails(text);\n  if (!section) return [];\n  const refs = [];\n  const seen = new Set();\n  const re = /\\b(\\d{1,3}[A-Z]{2})(\\d{4,6})\\b/gi;\n  let m;\n  while ((m = re.exec(section)) !== null) {\n    const ref = String(parseInt(m[2], 10));\n    if (!seen.has(ref)) { seen.add(ref); refs.push(ref); }\n  }\n  return refs;\n}\nfunction corfInSubject(corf, subject) {\n  const c = normCorf(corf);\n  if (!c) return false;\n  const s = String(subject || '');\n  if (s.includes(c)) return true;\n  const parts = c.split('/');\n  if (parts.length === 2) {\n    const alt = parts[0] + '_' + parts[1];\n    if (s.includes(alt)) return true;\n  }\n  return false;\n}\n\nconst bypassRows = $('Read BOQ-Bypass-list').all().map(i => i.json || {});\nconst allowed = new Set();\nfor (const row of bypassRows) {\n  const ref = normBypassRef(row.Reference ?? row['BOQ Item Ref.'] ?? row['BOQ Item Ref'] ?? '');\n  const bypass = row['Bypass for Asbestos'] ?? row['Bypass for asbestos'] ?? row.Bypass;\n  if (ref && isYes(bypass)) allowed.add(ref);\n}\n\nconst agg = $('Aggregate Extract Batch').first().json || {};\nconst prepared = $('Prepare Bypass Candidates').all()\n  .map(i => i.json || {})\n  .filter(j => !j._skip);\nlet batch = $('POST extract-msg-from-urls-batch').first().json || {};\nif (batch.body && !batch.results) batch = batch.body;\n\nconst extractByCorf = {};\nfor (const r of (batch.results || [])) {\n  const k = normCorf(r.corf);\n  if (k) extractByCorf[k] = r;\n}\n\nconst out = [];\nfor (const skipped of (agg._extract_skipped || [])) {\n  out.push({ json: skipped });\n}\n\nfor (const base of prepared) {\n  const k = normCorf(base.corf);\n  const extract = extractByCorf[k] || {};\n  if (!extract.success) {\n    out.push({ json: {\n      pre_work_id: base.pre_work_id,\n      corf: base.corf,\n      works_id: base.works_id,\n      address: base.address,\n      bypass_eligible: false,\n      bypass_reason: `extract_error: ${extract.error || 'missing batch result'}`,\n    }});\n    continue;\n  }\n  const body = extract.body_text || '';\n  const subject = extract.subject || '';\n  if (!corfInSubject(base.corf, subject)) {\n    out.push({ json: {\n      pre_work_id: base.pre_work_id,\n      corf: base.corf,\n      works_id: base.works_id,\n      address: base.address,\n      bypass_eligible: false,\n      bypass_reason: `subject_mismatch: expected ${base.corf} got ${subject}`,\n      content_md5: extract.content_md5,\n    }});\n    continue;\n  }\n  const boqRefs = extractBoqRefsFromText(body);\n  const non = boqRefs.filter(r => !allowed.has(r));\n  const eligible = boqRefs.length > 0 && non.length === 0;\n  let reason = 'all_refs_allowlisted';\n  if (!sliceAfterJobDetails(body)) reason = 'no_job_details_section';\n  else if (!boqRefs.length) reason = 'no_boq_refs_in_job_details';\n  else if (non.length) reason = `refs_not_allowlisted: ${non.join(',')}`;\n  out.push({ json: {\n    pre_work_id: base.pre_work_id,\n    corf: base.corf,\n    works_id: base.works_id,\n    address: base.address,\n    body_text_len: body.length,\n    content_md5: extract.content_md5,\n    boq_refs: boqRefs,\n    bypass_eligible: eligible,\n    bypass_reason: reason,\n    non_bypass_refs: non,\n    allowed_bypass_count: allowed.size,\n  }});\n}\nreturn out;"
+        },
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          17504,
+          2272
+        ],
+        "id": "d9931656-d429-4ec2-bcd8-23db8db6fae8",
+        "name": "Check Bypass Eligibility"
+      },
+      {
+        "parameters": {
+          "jsCode": "const apiBase = String($('Set API URL').first().json.api_base_url || '').replace(/\\/+$/, '');\nconst rows = $('Check Bypass Eligibility').all();\nconst items = [];\nconst batchMeta = [];\nconst skipped = [];\nfor (const item of rows) {\n  const j = item.json || {};\n  const base = { pre_work_id: j.pre_work_id, corf: j.corf, works_id: j.works_id, boq_refs: j.boq_refs };\n  if (!j.bypass_eligible) {\n    skipped.push({ ...base, _status: `SKIPPED: ${j.bypass_reason || 'not eligible'}`, _api_success: false });\n    continue;\n  }\n  const corf = String(j.corf || '').trim();\n  const wid = String(j.works_id || '').trim();\n  if (!corf || !wid) {\n    skipped.push({ ...base, _status: 'ERROR: Missing corf/works_id', _api_success: false });\n    continue;\n  }\n  items.push({ corf, works_id: wid });\n  batchMeta.push({ ...base, bypass_reason: j.bypass_reason });\n}\nreturn [{\n  json: {\n    _api_url: `${apiBase}/asbestos-bypass/batch`,\n    _skipped: skipped,\n    _batch_meta: batchMeta,\n    _batch_body: { items, contract_id: '321129', timeout_ms: 45000 },\n    _item_count: items.length,\n    _skipped_count: skipped.length,\n  },\n}];"
+        },
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          17728,
+          2272
+        ],
+        "id": "e114e9d4-5dad-44ca-a2b0-e32306415c68",
+        "name": "Aggregate Bypass Batch"
+      },
+      {
+        "parameters": {
+          "conditions": {
+            "options": {
+              "caseSensitive": true,
+              "leftValue": "",
+              "typeValidation": "strict",
+              "version": 2
+            },
+            "conditions": [
+              {
+                "id": "has",
+                "leftValue": "={{ $json._item_count }}",
+                "rightValue": 0,
+                "operator": {
+                  "type": "number",
+                  "operation": "gt"
+                }
+              }
+            ],
+            "combinator": "and"
+          },
+          "options": {}
+        },
+        "type": "n8n-nodes-base.if",
+        "typeVersion": 2.2,
+        "position": [
+          17952,
+          2272
+        ],
+        "id": "91d066e2-b56b-4e07-ba50-9926cc77b036",
+        "name": "IF Has Items To Bypass"
+      },
+      {
+        "parameters": {
+          "method": "POST",
+          "url": "={{ $json._api_url }}",
+          "sendHeaders": true,
+          "headerParameters": {
+            "parameters": [
+              {
+                "name": "Content-Type",
+                "value": "application/json"
+              }
+            ]
+          },
+          "sendBody": true,
+          "specifyBody": "json",
+          "jsonBody": "={{ $json._batch_body }}",
+          "options": {
+            "response": {
+              "response": {
+                "fullResponse": true,
+                "neverError": true
+              }
+            },
+            "timeout": 600000
+          }
+        },
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.2,
+        "position": [
+          18176,
+          2192
+        ],
+        "id": "2dbf96c6-684d-4334-ab74-f15c40fe719f",
+        "name": "POST asbestos-bypass batch"
+      },
+      {
+        "parameters": {
+          "jsCode": "const agg = $('Aggregate Bypass Batch').first().json;\nconst skipped = agg._skipped || [];\nconst batchMeta = agg._batch_meta || [];\nfunction extractResults(resp) {\n  const statusCode = resp.statusCode ?? resp.status ?? 0;\n  let body = resp.body ?? resp.data ?? resp;\n  if (typeof body === 'string') { try { body = JSON.parse(body); } catch (e) { body = {}; } }\n  if (body && typeof body === 'object' && body.body && !body.results) body = body.body;\n  return { statusCode, body: body || {}, results: Array.isArray(body?.results) ? body.results : [] };\n}\nfunction mapApiResult(r, meta) {\n  const ok = !!(r.success || r.bypassed || r.already_bypassed);\n  const status = ok ? 'true' : `ERROR: ${r.error || r.message || 'Unknown error'}`;\n  return {\n    pre_work_id: meta.pre_work_id,\n    corf: r.corf || meta.corf,\n    works_id: r.works_id || meta.works_id,\n    boq_refs: meta.boq_refs,\n    _status: status,\n    _api_success: ok,\n    _bypassed: !!r.bypassed,\n    _already_bypassed: !!r.already_bypassed,\n  };\n}\nlet apiResults = [];\nif (agg._item_count > 0) {\n  const resp = ($('POST asbestos-bypass batch').first().json || {});\n  const { results } = extractResults(resp);\n  for (let idx = 0; idx < results.length; idx++) {\n    apiResults.push(mapApiResult(results[idx], batchMeta[idx] || {}));\n  }\n}\nconst all = [...skipped, ...apiResults];\nreturn all.map(j => ({ json: j }));"
+        },
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          18400,
+          2272
+        ],
+        "id": "db7c1187-73b1-4faa-b236-24bdf2b0d791",
+        "name": "Expand Batch Results",
+        "executeOnce": true
+      },
+      {
+        "parameters": {
+          "jsCode": "const rows = $('Expand Batch Results').all().map(i => i.json || {});\nlet bypassed = 0, already = 0, skipped = 0, errors = 0;\nconst errorDetails = [];\nfor (const r of rows) {\n  const status = String(r._status ?? '').trim();\n  if (status === 'true') {\n    if (r._already_bypassed) already++;\n    else if (r._bypassed) bypassed++;\n    else already++;\n  } else if (status.startsWith('SKIPPED:')) skipped++;\n  else if (status.startsWith('ERROR:')) { errors++; errorDetails.push({ corf: r.corf, works_id: r.works_id, error: status }); }\n}\nreturn [{ json: {\n  workflow: 'pre_works_asbestos_bypass',\n  total_results: rows.length,\n  bypassed,\n  already_bypassed: already,\n  skipped_not_eligible: skipped,\n  errors,\n  error_details: errorDetails,\n} }];"
+        },
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          18624,
+          2272
+        ],
+        "id": "f8064365-aecc-4f4f-9f5a-936882f7705a",
+        "name": "Run Summary",
+        "executeOnce": true
+      },
+      {
+        "parameters": {
+          "content": "## Pre-Works Asbestos Bypass\n\n1. Red asbestos + green WO `.msg` link on pre-works\n2. **One** API call: `/pre-works/extract-msg-from-urls-batch` (server downloads with session)\n3. BOQ refs from **Job Details:-** → BOQ-Bypass-list\n4. Bypass via `/asbestos-bypass/batch`",
+          "height": 384
+        },
+        "type": "n8n-nodes-base.stickyNote",
+        "typeVersion": 1,
+        "position": [
+          14480,
+          2160
+        ],
+        "id": "b1d57424-8113-43ff-a811-2a41c4400dfa",
+        "name": "Sticky Note"
+      },
+      {
+        "parameters": {
+          "jsCode": "const rows = $('Parse Red Asbestos Rows').all().map(i => i.json || {}).filter(r => !r._no_red_rows);\nconst sd = $getWorkflowStaticData('global');\nconst corfToWorksId = sd.corfToWorksId || {};\n\nfunction normCorf(v) {\n  const raw = String(v ?? '').trim();\n  if (!raw) return '';\n  const t = raw.toLowerCase().replace(/\\s+/g, '');\n  const slash = t.match(/^(\\d+)\\/(\\d+)$/);\n  if (slash) return parseInt(slash[1], 10) + '/' + parseInt(slash[2], 10);\n  const under = t.match(/^(\\d+)_(\\d+)$/);\n  if (under) return parseInt(under[1], 10) + '/' + parseInt(under[2], 10);\n  return t;\n}\nfunction isMsgDownloadUrl(url) {\n  const u = decodeURIComponent(String(url || '')).toLowerCase();\n  if (!u) return false;\n  return /filename_orig=[^&]*\\.msg\\b/i.test(u) || /\\.msg(?:\\?|$|&)/i.test(u) || /file=[^&]*\\.msg\\b/i.test(u);\n}\n\nconst pending = [];\nconst skipped = [];\nfor (const row of rows) {\n  const corfRaw = String(row.client_order_reference || row.corf || '').trim();\n  const corf = normCorf(corfRaw) || corfRaw;\n  if (!corf) {\n    skipped.push({ pre_work_id: row.pre_work_id, reason: 'no_corf' });\n    continue;\n  }\n  const woClass = String(row.wo_upload_class || '');\n  const woUrl = String(row.works_order_url || '').trim();\n  if (!woClass.includes('green')) {\n    skipped.push({ pre_work_id: row.pre_work_id, corf, address: row.address, reason: 'wo_not_green_on_preworks' });\n    continue;\n  }\n  if (!woUrl || !isMsgDownloadUrl(woUrl)) {\n    skipped.push({ pre_work_id: row.pre_work_id, corf, address: row.address, reason: 'no_wo_msg_link_on_preworks', wo_upload_class: woClass });\n    continue;\n  }\n  const works_id = corfToWorksId[corf] || '';\n  if (!works_id) {\n    skipped.push({ pre_work_id: row.pre_work_id, corf, address: row.address, reason: 'no_works_id' });\n    continue;\n  }\n  pending.push({\n    json: {\n      _skip: false,\n      pre_work_id: row.pre_work_id,\n      corf: corfRaw || corf,\n      works_id,\n      address: row.address || '',\n      uprn: row.uprn || '',\n      works_order_url: woUrl,\n    },\n  });\n}\n\nif (!pending.length) {\n  return [{ json: { _skip: true, message: 'No pending asbestos bypass candidates (need red asbestos + green WO .msg on pre-works).', skipped_count: skipped.length, skipped } }];\n}\nreturn pending;"
+        },
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          16608,
+          2272
+        ],
+        "id": "a3e9c0f3-28dd-495e-a1e1-5947f813f801",
+        "name": "Prepare Bypass Candidates",
+        "notesInFlow": true,
+        "note": "works_order_url from pre-works + works_id from index"
+      },
+      {
+        "parameters": {
+          "jsCode": "const apiBase = String($('Set API URL').first().json.api_base_url || '').replace(/\\/+$/, '');\nconst rows = $('Prepare Bypass Candidates').all().filter(i => !(i.json || {})._skip);\nconst items = [];\nconst skipped = [];\nfor (const item of rows) {\n  const j = item.json || {};\n  const base = {\n    pre_work_id: j.pre_work_id,\n    corf: j.corf,\n    works_id: j.works_id,\n    address: j.address,\n    uprn: j.uprn,\n    works_order_url: j.works_order_url,\n  };\n  const corf = String(j.corf || '').trim();\n  const url = String(j.works_order_url || '').trim();\n  if (!corf || !url) {\n    skipped.push({\n      ...base,\n      bypass_eligible: false,\n      bypass_reason: 'missing_corf_or_works_order_url',\n      _status: 'SKIPPED: missing_corf_or_works_order_url',\n      _api_success: false,\n    });\n    continue;\n  }\n  items.push({ corf, works_order_url: url });\n}\nreturn [{\n  json: {\n    _api_url: `${apiBase}/pre-works/extract-msg-from-urls-batch`,\n    _extract_body: { items },\n    _extract_skipped: skipped,\n    _extract_count: items.length,\n    _skipped_prepare_count: skipped.length,\n  },\n}];"
+        },
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          17056,
+          2272
+        ],
+        "id": "f6e998ec-1fd7-496d-ab01-ea6fd0e78baa",
+        "name": "Aggregate Extract Batch",
+        "executeOnce": true
+      },
+      {
+        "parameters": {
+          "method": "POST",
+          "url": "={{ $json._api_url }}",
+          "sendHeaders": true,
+          "headerParameters": {
+            "parameters": [
+              {
+                "name": "Content-Type",
+                "value": "application/json"
+              }
+            ]
+          },
+          "sendBody": true,
+          "specifyBody": "json",
+          "jsonBody": "={{ $json._extract_body }}",
+          "options": {
+            "response": {
+              "response": {
+                "neverError": true
+              }
+            },
+            "timeout": 600000
+          }
+        },
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.2,
+        "position": [
+          17280,
+          2272
+        ],
+        "id": "43c900fe-b972-4160-a8ef-7212ccb1330d",
+        "name": "POST extract-msg-from-urls-batch",
+        "executeOnce": true
+      }
+    ],
+    "connections": {
+      "Schedule Trigger": {
+        "main": [
+          [
+            {
+              "node": "Set API URL",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Set API URL": {
+        "main": [
+          [
+            {
+              "node": "Read BOQ-Bypass-list",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Read BOQ-Bypass-list": {
+        "main": [
+          [
+            {
+              "node": "Fetch Pre-Works Table HTML",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Fetch Pre-Works Table HTML": {
+        "main": [
+          [
+            {
+              "node": "Pre-Works Fetch Summary",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Pre-Works Fetch Summary": {
+        "main": [
+          [
+            {
+              "node": "Parse Red Asbestos Rows",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Parse Red Asbestos Rows": {
+        "main": [
+          [
+            {
+              "node": "Fetch Works Index",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Fetch Works Index": {
+        "main": [
+          [
+            {
+              "node": "Build CORF works_id Map",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Build CORF works_id Map": {
+        "main": [
+          [
+            {
+              "node": "Prepare Bypass Candidates",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "IF Nothing Pending": {
+        "main": [
+          [],
+          [
+            {
+              "node": "Aggregate Extract Batch",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Check Bypass Eligibility": {
+        "main": [
+          [
+            {
+              "node": "Aggregate Bypass Batch",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Aggregate Bypass Batch": {
+        "main": [
+          [
+            {
+              "node": "IF Has Items To Bypass",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "IF Has Items To Bypass": {
+        "main": [
+          [
+            {
+              "node": "POST asbestos-bypass batch",
+              "type": "main",
+              "index": 0
+            }
+          ],
+          [
+            {
+              "node": "Expand Batch Results",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "POST asbestos-bypass batch": {
+        "main": [
+          [
+            {
+              "node": "Expand Batch Results",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Expand Batch Results": {
+        "main": [
+          [
+            {
+              "node": "Run Summary",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Prepare Bypass Candidates": {
+        "main": [
+          [
+            {
+              "node": "IF Nothing Pending",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Aggregate Extract Batch": {
+        "main": [
+          [
+            {
+              "node": "POST extract-msg-from-urls-batch",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "POST extract-msg-from-urls-batch": {
+        "main": [
+          [
+            {
+              "node": "Check Bypass Eligibility",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      }
+    },
+    "pinData": {},
+    "meta": {
+      "instanceId": "a5cd22a95d5313a977e9ac21c3a833db76b18ca78fb8cb2cf7013465d69f17f8"
+    }
+  }

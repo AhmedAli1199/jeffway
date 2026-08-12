@@ -1,0 +1,808 @@
+{
+  "nodes": [
+    {
+      "parameters": {
+        "url": "https://graph.microsoft.com/v1.0/sites/jeffway.sharepoint.com:/bccvoids",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "oAuth2Api",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -16624,
+        14992
+      ],
+      "id": "f9072c33-ada7-431e-be59-5a441c9256b1",
+      "name": "Get bccvoids Site",
+      "credentials": {
+        "oAuth2Api": {
+          "id": "nNC3eYQ9UeulKHjg",
+          "name": "Jeffway-M365-GraphAPI"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "url": "=https://graph.microsoft.com/v1.0/sites/{{ $json.id }}/lists/BCC/drive",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "oAuth2Api",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -16416,
+        14992
+      ],
+      "id": "3380008b-df9e-4460-8bfb-6236fad1d3e1",
+      "name": "Get BCC Library Drive",
+      "credentials": {
+        "oAuth2Api": {
+          "id": "nNC3eYQ9UeulKHjg",
+          "name": "Jeffway-M365-GraphAPI"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "url": "=https://graph.microsoft.com/v1.0/drives/{{ $json.id }}/root:/RR Job imports and JIS/Asbestos reports:/children?$top=2000&$select=id,name,size,lastModifiedDateTime,webUrl,file",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "oAuth2Api",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -16224,
+        14992
+      ],
+      "id": "c927e252-893e-4471-a307-853783e564cf",
+      "name": "List SP Asbestos Folder",
+      "credentials": {
+        "oAuth2Api": {
+          "id": "nNC3eYQ9UeulKHjg",
+          "name": "Jeffway-M365-GraphAPI"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "url": "=https://graph.microsoft.com/v1.0/users/BCCorders@jeffway.co.uk/messages?$top=100&$select=id,subject,receivedDateTime,from,hasAttachments",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "oAuth2Api",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -16016,
+        14992
+      ],
+      "id": "86a39cd7-a1a8-4cb6-a82c-d4a35ec3f8b3",
+      "name": "Fetch Inbox Messages",
+      "executeOnce": true,
+      "credentials": {
+        "oAuth2Api": {
+          "id": "nNC3eYQ9UeulKHjg",
+          "name": "Jeffway-M365-GraphAPI"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "url": "=https://graph.microsoft.com/v1.0/users/BCCorders@jeffway.co.uk/mailFolders?$top=100&$select=id,displayName",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "oAuth2Api",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          }
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -15824,
+        14992
+      ],
+      "id": "425c1b50-342c-472d-bd99-b7defbdc1e71",
+      "name": "List Mailbox Folders",
+      "credentials": {
+        "oAuth2Api": {
+          "id": "nNC3eYQ9UeulKHjg",
+          "name": "Jeffway-M365-GraphAPI"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const mailbox = 'BCCorders@jeffway.co.uk';\nconst resp = $input.first().json || {};\nconst status = resp.statusCode ?? 200;\nconst body = resp.body ?? resp;\nconst folders = (status >= 200 && status < 300) ? (body.value || []) : [];\nconst inbox = folders.find(f => /^inbox$/i.test(String(f.displayName || '').trim()));\n\nif (!inbox) {\n  return [{ json: { ok: false, mailbox, error: 'Inbox not found' } }];\n}\n\nreturn [{ json: { ok: true, mailbox, inbox_id: inbox.id } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -15616,
+        14992
+      ],
+      "id": "cd2b796a-1793-468d-8f99-31e9c2b11107",
+      "name": "Find Inbox"
+    },
+    {
+      "parameters": {
+        "url": "=https://graph.microsoft.com/v1.0/users/{{ $json.mailbox }}/mailFolders/{{ $json.inbox_id }}/childFolders?$top=100&$select=id,displayName",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "oAuth2Api",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          }
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -15424,
+        14992
+      ],
+      "id": "e17a619f-25ad-46d1-bb26-ee9f6e82176f",
+      "name": "List Inbox Children",
+      "credentials": {
+        "oAuth2Api": {
+          "id": "nNC3eYQ9UeulKHjg",
+          "name": "Jeffway-M365-GraphAPI"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const seed = $('Find Inbox').first().json;\nconst resp = $input.first().json || {};\nconst status = resp.statusCode ?? 200;\nconst body = resp.body ?? resp;\nconst children = (status >= 200 && status < 300) ? (body.value || []) : [];\nconst needle = 'asbestos';\nconst norm = s => String(s || '').trim().toLowerCase();\n\nconst match = children.find(c => norm(c.displayName).includes(needle));\n\nif (!match) {\n  return [{ json: {\n    ok: false,\n    mailbox: seed.mailbox,\n    error: 'No Inbox subfolder matching asbestos',\n    inbox_child_names: children.map(c => c.displayName)\n  }}];\n}\n\nreturn [{ json: {\n  ok: true,\n  mailbox: seed.mailbox,\n  folder_id: match.id,\n  folder_path: `Inbox/${match.displayName}`\n}}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -15216,
+        14992
+      ],
+      "id": "f5282fc5-1e4b-470e-af83-26ac8c0e6173",
+      "name": "Pick Asbestos Folder"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "asbestos-folder-ok",
+              "leftValue": "={{ $json.ok }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -15024,
+        14992
+      ],
+      "id": "033c4020-f089-4755-b98e-5169241608f0",
+      "name": "IF Asbestos Folder Found"
+    },
+    {
+      "parameters": {
+        "url": "=https://graph.microsoft.com/v1.0/users/{{ $json.mailbox }}/mailFolders/{{ $json.folder_id }}/messages?$top=999&$select=id,subject,receivedDateTime,from,hasAttachments",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "oAuth2Api",
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          }
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -14816,
+        15088
+      ],
+      "id": "0c8b0b20-1b1f-4996-8c05-d1ef848f94e8",
+      "name": "Fetch Asbestos Folder Messages",
+      "credentials": {
+        "oAuth2Api": {
+          "id": "nNC3eYQ9UeulKHjg",
+          "name": "Jeffway-M365-GraphAPI"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Tag Inbox messages with source label\nconst SP_FOLDER = 'RR Job imports and JIS/Asbestos reports';\nconst msgs = $('Fetch Inbox Messages').first().json.value || [];\nreturn msgs.map(m => ({\n  json: {\n    ...m,\n    message_source: 'inbox',\n    mailbox_folder_path: 'Inbox',\n    sharepoint_upload_folder: SP_FOLDER\n  }\n}));"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -14816,
+        14880
+      ],
+      "id": "fd0ea251-0857-4fa8-9c40-0a73f0f79d17",
+      "name": "Tag Inbox Messages"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Tag Asbestos subfolder messages with source label\nconst SP_FOLDER = 'RR Job imports and JIS/Asbestos reports';\nlet msgs = [];\nlet folderPath = 'Inbox/Asbestos';\ntry {\n  const ar = $('Fetch Asbestos Folder Messages').first().json;\n  msgs = ar?.value || ar?.body?.value || [];\n  folderPath = $('Pick Asbestos Folder').first().json.folder_path || folderPath;\n} catch (e) {\n  msgs = [];\n}\n\nif (!msgs.length) {\n  return [{ json: { _merge_placeholder: true } }];\n}\n\nreturn msgs.map(m => ({\n  json: {\n    ...m,\n    message_source: 'asbestos_folder',\n    mailbox_folder_path: folderPath,\n    sharepoint_upload_folder: SP_FOLDER\n  }\n}));"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -14816,
+        15296
+      ],
+      "id": "e5cd8959-6d89-4bda-9579-3eda927216c9",
+      "name": "Tag Asbestos Messages"
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "position": [
+        -14624,
+        15088
+      ],
+      "id": "6438147a-bb0b-433a-9f18-7b1ab0dab264",
+      "name": "Merge Sources"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Deduplicate messages by email ID, merging source labels for messages that appear in both folders\nconst items = $input.all().map(i => i.json).filter(j => j && !j._merge_placeholder);\nconst seen = new Map();\n\nfor (const m of items) {\n  if (!m?.id) continue;\n  const existing = seen.get(m.id);\n  if (!existing) {\n    seen.set(m.id, m);\n    continue;\n  }\n  const sources = new Set([existing.message_source, m.message_source].filter(Boolean));\n  seen.set(m.id, {\n    ...existing,\n    ...m,\n    message_source: sources.size > 1 ? 'both' : (m.message_source || existing.message_source),\n    mailbox_folder_path: [...new Set([existing.mailbox_folder_path, m.mailbox_folder_path].filter(Boolean))].join(' | ')\n  });\n}\n\nconst merged = [...seen.values()];\nmerged.sort((a, b) => String(b.receivedDateTime || '').localeCompare(String(a.receivedDateTime || '')));\n\nif (!merged.length) return [];\n\nreturn merged.map(m => ({ json: m }));"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -14416,
+        15088
+      ],
+      "id": "c5b2d0fa-51a7-4c35-b31a-f395a4e8262b",
+      "name": "Dedupe Messages"
+    },
+    {
+      "parameters": {
+        "batchSize": 40,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        -14224,
+        15088
+      ],
+      "id": "f79b5b59-b7ef-4df3-9d8c-cd77b2fc8541",
+      "name": "Loop Emails (Batch 40)"
+    },
+    {
+      "parameters": {
+        "amount": 1
+      },
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        -14016,
+        14992
+      ],
+      "id": "f48cf1f2-7182-4fa2-b649-f40c981e98af",
+      "name": "Wait 1s",
+      "webhookId": "prod-wait-01"
+    },
+    {
+      "parameters": {
+        "url": "=https://graph.microsoft.com/v1.0/users/BCCorders@jeffway.co.uk/messages/{{ $json.id }}/attachments?$select=id,name,contentType,size",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "oAuth2Api",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -13824,
+        14992
+      ],
+      "id": "850b57a2-f0b4-413b-af8d-f4c981041c28",
+      "name": "Fetch Attachments",
+      "retryOnFail": true,
+      "waitBetweenTries": 3000,
+      "maxTries": 3,
+      "credentials": {
+        "oAuth2Api": {
+          "id": "nNC3eYQ9UeulKHjg",
+          "name": "Jeffway-M365-GraphAPI"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Filter to only valid PDF attachments not already present in SharePoint.\n// SharePoint folder listing is the sole source of truth — no DataTable needed.\nconst emails = $('Dedupe Messages').all();\nconst fetches = $input.all();\nconst spFiles = $('List SP Asbestos Folder').first().json.value || [];\n\n// Build a lowercase set of filenames already in SharePoint\nconst spNames = new Set(spFiles.map(f => String(f.name || '').toLowerCase()));\n\nconst results = [];\n\nfor (let i = 0; i < fetches.length; i++) {\n  const email = emails[i]?.json || {};\n  if (email._no_messages) continue;\n\n  const attachments = fetches[i].json.value || [];\n\n  const pdfs = attachments.filter(a => {\n    const name = String(a.name || '');\n    if (!name.toLowerCase().endsWith('.pdf')) return false;\n    // Skip attachments with hash-like names (system-generated)\n    const stem = name.replace(/\\.pdf$/i, '');\n    if (/^[0-9a-f]{20,}$/i.test(stem)) return false;\n    return true;\n  });\n\n  for (const p of pdfs) {\n    const fileName = String(p.name || '').trim();\n\n    // Skip if file already exists in SharePoint\n    if (spNames.has(fileName.toLowerCase())) {\n      console.log(`SKIP (already in SP): ${fileName}`);\n      continue;\n    }\n\n    results.push({\n      json: {\n        ...p,\n        email_id: String(email.id || '').trim(),\n        email_subject: email.subject || '',\n        email_from: email.from?.emailAddress?.address || '',\n        email_received: email.receivedDateTime || '',\n        message_source: email.message_source || '',\n        mailbox_folder_path: email.mailbox_folder_path || '',\n        sharepoint_upload_folder: email.sharepoint_upload_folder || 'RR Job imports and JIS/Asbestos reports'\n      }\n    });\n  }\n}\n\nif (!results.length) {\n  return [{ json: { _no_new_pdfs: true } }];\n}\n\nconsole.log(`New PDFs to upload: ${results.length}`);\nreturn results;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -13616,
+        15088
+      ],
+      "id": "776bcf44-fcdb-4798-b54a-81f7af4edab0",
+      "name": "Filter New PDFs (SP Dedup)"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "cond-no-new",
+              "leftValue": "={{ $json._no_new_pdfs }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -13424,
+        15088
+      ],
+      "id": "cf82f285-3b6e-46db-bb0e-cb79d62db47c",
+      "name": "IF No New PDFs"
+    },
+    {
+      "parameters": {
+        "batchSize": 4,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        -13216,
+        15184
+      ],
+      "id": "78a4eb37-596e-4e94-b797-c922bb848894",
+      "name": "Loop Uploads (Batch 4)"
+    },
+    {
+      "parameters": {
+        "url": "=https://graph.microsoft.com/v1.0/users/BCCorders@jeffway.co.uk/messages/{{ $json.email_id }}/attachments/{{ $json.id }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "oAuth2Api",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -12944,
+        15200
+      ],
+      "id": "6a237efd-946e-4fa1-9f38-cb32d4d978d6",
+      "name": "Fetch PDF Content",
+      "credentials": {
+        "oAuth2Api": {
+          "id": "nNC3eYQ9UeulKHjg",
+          "name": "Jeffway-M365-GraphAPI"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const base64Data = String($json.contentBytes || '').trim();\nconst fileName = String($json.name || 'report.pdf').trim();\nconst mimeType = $json.contentType || 'application/pdf';\nconst driveId = $('Get BCC Library Drive').first().json.id;\n\n// Graph returns no contentBytes for reference/link attachments — skip gracefully\nif (!base64Data) {\n  console.log(`SKIP (no contentBytes — likely a link attachment): ${fileName}`);\n  return null;\n}\n\nconst buffer = Buffer.from(base64Data, 'base64');\nif (buffer.length < 256) {\n  console.log(`SKIP (PDF too small, likely corrupt): ${fileName} (${buffer.length} bytes)`);\n  return null;\n}\n\nconst binary = await this.helpers.prepareBinaryData(buffer, fileName, mimeType);\n\nreturn {\n  json: {\n    drive_id: driveId,\n    pdf_file_name: fileName,\n    pdf_bytes: buffer.length\n  },\n  binary: {\n    attachment_0: binary\n  }\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -12736,
+        15200
+      ],
+      "id": "941fd6e0-6f49-4b81-83ad-df1dbe57b32f",
+      "name": "Convert to Binary"
+    },
+    {
+      "parameters": {
+        "method": "PUT",
+        "url": "=https://graph.microsoft.com/v1.0/drives/{{ $json.drive_id }}/root:/RR Job imports and JIS/Asbestos reports/{{ $json.pdf_file_name }}:/content",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "oAuth2Api",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/pdf"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "binaryData",
+        "inputDataFieldName": "attachment_0",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -12528,
+        15200
+      ],
+      "id": "0dfe6172-a189-44fa-8572-8fc0fb61d66c",
+      "name": "Upload to SharePoint",
+      "credentials": {
+        "oAuth2Api": {
+          "id": "nNC3eYQ9UeulKHjg",
+          "name": "Jeffway-M365-GraphAPI"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "content": "## Asbestos Report mailbox to SharePoint\n\n**Sources (merged):**\n1. Mailbox recent messages\n2. Inbox → ASBESTOS SURVEYS subfolder\n\n**Skips:**\n- Already in **asbestos-upload-tracker** (`email_id` + `pdf_name`)\n- Already in SharePoint folder (same filename)\n\n**Merge Sources** → **Dedupe Messages** → PDF upload.",
+        "height": 304,
+        "width": 360
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -16784,
+        14496
+      ],
+      "id": "64d74b06-6301-4eda-9438-a57ac8d0f7c2",
+      "name": "Sticky Note"
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "20 9-19/1 * * 1-6"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.3,
+      "position": [
+        -16880,
+        14992
+      ],
+      "id": "a53c3c46-73e3-4425-889a-4a9dbbf4097e",
+      "name": "Schedule Trigger8",
+      "notesInFlow": true,
+      "note": "Mon–Fri 09:00–19:00 Europe/London, every hour (cron: 0 9-19 * * 1-5)"
+    }
+  ],
+  "connections": {
+    "Get bccvoids Site": {
+      "main": [
+        [
+          {
+            "node": "Get BCC Library Drive",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get BCC Library Drive": {
+      "main": [
+        [
+          {
+            "node": "List SP Asbestos Folder",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "List SP Asbestos Folder": {
+      "main": [
+        [
+          {
+            "node": "Fetch Inbox Messages",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Inbox Messages": {
+      "main": [
+        [
+          {
+            "node": "List Mailbox Folders",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "List Mailbox Folders": {
+      "main": [
+        [
+          {
+            "node": "Find Inbox",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Find Inbox": {
+      "main": [
+        [
+          {
+            "node": "List Inbox Children",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "List Inbox Children": {
+      "main": [
+        [
+          {
+            "node": "Pick Asbestos Folder",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Pick Asbestos Folder": {
+      "main": [
+        [
+          {
+            "node": "IF Asbestos Folder Found",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF Asbestos Folder Found": {
+      "main": [
+        [
+          {
+            "node": "Fetch Asbestos Folder Messages",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Tag Inbox Messages",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Tag Asbestos Messages",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Asbestos Folder Messages": {
+      "main": [
+        [
+          {
+            "node": "Tag Inbox Messages",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Tag Asbestos Messages",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Tag Inbox Messages": {
+      "main": [
+        [
+          {
+            "node": "Merge Sources",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Tag Asbestos Messages": {
+      "main": [
+        [
+          {
+            "node": "Merge Sources",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Merge Sources": {
+      "main": [
+        [
+          {
+            "node": "Dedupe Messages",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Dedupe Messages": {
+      "main": [
+        [
+          {
+            "node": "Loop Emails (Batch 40)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Loop Emails (Batch 40)": {
+      "main": [
+        [
+          {
+            "node": "Filter New PDFs (SP Dedup)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Wait 1s",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait 1s": {
+      "main": [
+        [
+          {
+            "node": "Fetch Attachments",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Attachments": {
+      "main": [
+        [
+          {
+            "node": "Loop Emails (Batch 40)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filter New PDFs (SP Dedup)": {
+      "main": [
+        [
+          {
+            "node": "IF No New PDFs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF No New PDFs": {
+      "main": [
+        [],
+        [
+          {
+            "node": "Loop Uploads (Batch 4)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Loop Uploads (Batch 4)": {
+      "main": [
+        [],
+        [
+          {
+            "node": "Fetch PDF Content",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch PDF Content": {
+      "main": [
+        [
+          {
+            "node": "Convert to Binary",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Convert to Binary": {
+      "main": [
+        [
+          {
+            "node": "Upload to SharePoint",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Upload to SharePoint": {
+      "main": [
+        [
+          {
+            "node": "Loop Uploads (Batch 4)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Schedule Trigger8": {
+      "main": [
+        [
+          {
+            "node": "Get bccvoids Site",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "a5cd22a95d5313a977e9ac21c3a833db76b18ca78fb8cb2cf7013465d69f17f8"
+  }
+}

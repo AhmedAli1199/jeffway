@@ -1,0 +1,1001 @@
+{
+  "nodes": [
+    {
+      "parameters": {
+        "jsCode": "const fetchMeta = $('Pre-Works Fetch Summary1').first().json || {};\nconst html = ($('Fetch Pre-Works Table HTML1').first().json || {}).html || '';\nconst WO_UPLOAD_SUFFIX = '_wi_pw_24819_upload';\nconst WO_NOTES_SUFFIX = '_wi_pw_24819_notes';\nconst UPRN_SUFFIX = '_property_ref';\nconst ADDR_SUFFIX = '_address';\nconst CORF_SUFFIX = '_client_order_reference';\n\nfunction normCorf(v) {\n  const raw = String(v ?? '').trim();\n  if (!raw) return '';\n  const t = raw.toLowerCase().replace(/\\s+/g, '');\n  const slash = t.match(/^(\\d+)\\/(\\d+)$/);\n  if (slash) return parseInt(slash[1], 10) + '/' + parseInt(slash[2], 10);\n  const under = t.match(/^(\\d+)_(\\d+)$/);\n  if (under) return parseInt(under[1], 10) + '/' + parseInt(under[2], 10);\n  return t;\n}\nfunction cellClass(attrs) {\n  const m = String(attrs || '').match(/class=\"([^\"]*)\"/i);\n  if (!m) return '';\n  return m[1].split(/\\s+/).find(c => c.startsWith('jqgrid_bg_')) || '';\n}\nfunction cellTitle(attrs) {\n  const m = String(attrs || '').match(/title=\"([^\"]*)\"/i);\n  return m ? m[1].trim() : '';\n}\n\nconst preWorksWoByCorf = {};\nconst redRows = [];\nlet greenCount = 0;\n\nconst trRegex = /<tr[^>]+id=\"(\\d+)\"[^>]*>([\\s\\S]*?)<\\/tr>/gi;\nlet trMatch;\nwhile ((trMatch = trRegex.exec(html)) !== null) {\n  const rowId = trMatch[1];\n  const rowHtml = trMatch[2];\n  const cells = {};\n  const tdRegex = /<td([^>]+)>([\\s\\S]*?)<\\/td>/gi;\n  let tdMatch;\n  while ((tdMatch = tdRegex.exec(rowHtml)) !== null) {\n    const keyMatch = tdMatch[1].match(/aria-describedby=\"([^\"]+)\"/i);\n    if (!keyMatch) continue;\n    cells[keyMatch[1]] = { attrs: tdMatch[1] };\n  }\n  function getCell(suffix) {\n    for (const [key, val] of Object.entries(cells)) {\n      if (key.endsWith(suffix)) return val;\n    }\n    return null;\n  }\n  const woCell = getCell(WO_UPLOAD_SUFFIX) || getCell(WO_NOTES_SUFFIX);\n  if (!woCell) continue;\n  const woClass = cellClass(woCell.attrs);\n  const corfRaw = cellTitle(getCell(CORF_SUFFIX)?.attrs);\n  const corf = normCorf(corfRaw) || normCorf(corfRaw.replace(/_/g, '/'));\n  if (!corf) continue;\n\n  const isRed = woClass.includes('red');\n  const isGreen = woClass.includes('green');\n  const status = isRed ? 'red' : (isGreen ? 'green' : 'other');\n  preWorksWoByCorf[corf] = {\n    status,\n    corf_raw: corfRaw || corf,\n    pre_work_id: rowId,\n    address: cellTitle(getCell(ADDR_SUFFIX)?.attrs),\n    uprn: cellTitle(getCell(UPRN_SUFFIX)?.attrs),\n    wo_upload_class: woClass,\n  };\n  if (isGreen) greenCount++;\n  if (isRed) {\n    redRows.push({\n      pre_work_id: rowId,\n      uprn: cellTitle(getCell(UPRN_SUFFIX)?.attrs),\n      address: cellTitle(getCell(ADDR_SUFFIX)?.attrs),\n      client_order_reference: corfRaw || corf,\n      corf,\n      wo_upload_class: woClass,\n    });\n  }\n}\n\nconst sd = $getWorkflowStaticData('global');\nsd.preWorksWoByCorf = preWorksWoByCorf;\n\nconsole.log(\n  `${fetchMeta.verify_message || ''} | pre-works WO green=${greenCount} red=${redRows.length} total_corfs=${Object.keys(preWorksWoByCorf).length}`\n);\n\nif (!redRows.length) {\n  return [{\n    json: {\n      _no_red_rows: true,\n      red_count: 0,\n      green_count: greenCount,\n      message: 'No red Global Works Order Form rows — greens synced separately.',\n    },\n  }];\n}\nreturn redRows.map(r => ({ json: r }));"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1488,
+        -4400
+      ],
+      "id": "259555d9-fd0c-47e9-bff3-5fa3107a2e6a",
+      "name": "Parse Pre-Works WO Status",
+      "notesInFlow": true,
+      "note": "Builds green/red CORF map + outputs red rows for upload"
+    },
+    {
+      "parameters": {
+        "jsCode": "function normCorf(v) {\n  const raw = String(v ?? '').trim();\n  if (!raw) return '';\n  const t = raw.toLowerCase().replace(/\\s+/g, '');\n  const slash = t.match(/^(\\d+)\\/(\\d+)$/);\n  if (slash) return parseInt(slash[1], 10) + '/' + parseInt(slash[2], 10);\n  const under = t.match(/^(\\d+)_(\\d+)$/);\n  if (under) return parseInt(under[1], 10) + '/' + parseInt(under[2], 10);\n  return t;\n}\nfunction isEasybopDone(raw) {\n  const s = String(raw ?? '').trim().toLowerCase();\n  if (!s) return false;\n  return s === 'true' || s === '1' || s === 'yes' || s === 'uploaded' || s === 'done';\n}\n\nconst sd = $getWorkflowStaticData('global');\nconst preWorks = sd.preWorksWoByCorf || {};\nconst sheetRows = $('Read Work Order Form1').all().map(i => i.json || {});\n\nconst updates = [];\nfor (const row of sheetRows) {\n  const corfKey = normCorf(row.CORF);\n  if (!corfKey) continue;\n  if (isEasybopDone(row['.msg on easybop'])) continue;\n  const pw = preWorks[corfKey];\n  if (!pw || pw.status !== 'green') continue;\n  updates.push({\n    CORF: row.CORF ?? corfKey,\n    '.msg on easybop': 'TRUE',\n    _sheet_update_reason: 'already_green_on_preworks',\n  });\n}\n\nconsole.log(`Sheet sync (pre-works green): ${updates.length} row(s) to mark TRUE`);\n\nif (!updates.length) {\n  return [{ json: { _no_sheet_updates: true, _phase: 'preworks_green' } }];\n}\nreturn updates.map(u => ({ json: u }));"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1232,
+        -4192
+      ],
+      "id": "0d5e9376-1db0-4f14-abbc-8a975de2a2a2",
+      "name": "Sync Sheet Pre-Works Green",
+      "executeOnce": true,
+      "notesInFlow": true,
+      "note": "CORF on sheet + green on pre-works → .msg on easybop TRUE"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "cond",
+              "leftValue": "={{ $json._no_sheet_updates !== true }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -976,
+        -4192
+      ],
+      "id": "792fcd9d-ef47-4fc9-be59-0c0f1f1a6845",
+      "name": "IF Has Green Sheet Updates"
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "documentId": {
+          "__rl": true,
+          "value": "17WI7AM3bdtdwbMnBj4Ldcb7PVBv9iMOhoNxnqvdau3A",
+          "mode": "list",
+          "cachedResultName": "Reactive-Works-Instructions-Template"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 2080783995,
+          "mode": "list",
+          "cachedResultName": "Work Order Form ",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/17WI7AM3bdtdwbMnBj4Ldcb7PVBv9iMOhoNxnqvdau3A/edit#gid=2080783995"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "CORF": "={{ $json.CORF }}",
+            ".msg on easybop": "={{ $json['.msg on easybop'] }}",
+            "row_number": 0
+          },
+          "matchingColumns": [
+            "CORF"
+          ],
+          "schema": [
+            {
+              "id": "CORF",
+              "displayName": "CORF",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": ".msg on easybop",
+              "displayName": ".msg on easybop",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        -720,
+        -4112
+      ],
+      "id": "908dfd54-73a1-45e1-adc9-aafc6da03d2e",
+      "name": "Update Sheet Pre-Works Green",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "0bvpVa8frZ7qSwzx",
+          "name": "hamza-sheets"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "function normCorf(v) {\n  const raw = String(v ?? '').trim();\n  if (!raw) return '';\n  const t = raw.toLowerCase().replace(/\\s+/g, '');\n  const slash = t.match(/^(\\d+)\\/(\\d+)$/);\n  if (slash) return parseInt(slash[1], 10) + '/' + parseInt(slash[2], 10);\n  const under = t.match(/^(\\d+)_(\\d+)$/);\n  if (under) return parseInt(under[1], 10) + '/' + parseInt(under[2], 10);\n  return t;\n}\nfunction isEasybopDone(raw) {\n  const s = String(raw ?? '').trim().toLowerCase();\n  if (!s) return false;\n  return s === 'true' || s === '1' || s === 'yes' || s === 'uploaded' || s === 'done';\n}\n\nconst sheetRows = $('Read Work Order Form1').all().map(i => i.json || {});\nconst sheetByCorf = {};\nfor (const row of sheetRows) {\n  const k = normCorf(row.CORF);\n  if (k) sheetByCorf[k] = row;\n}\n\nconst results = $('Expand Batch Results3').all().map(i => i.json || {});\nconst updates = [];\nconst seen = new Set();\n\nfor (const r of results) {\n  if (!r._api_success) continue;\n  const k = normCorf(r.corf);\n  if (!k || seen.has(k)) continue;\n  const sheet = sheetByCorf[k];\n  if (!sheet) continue;\n  if (isEasybopDone(sheet['.msg on easybop'])) continue;\n  seen.add(k);\n  updates.push({\n    CORF: sheet.CORF ?? k,\n    '.msg on easybop': 'TRUE',\n    _sheet_update_reason: r._already_uploaded ? 'already_on_easybop_api' : 'uploaded_this_run',\n  });\n}\n\nconsole.log(`Sheet sync (after upload): ${updates.length} row(s) to mark TRUE`);\n\nif (!updates.length) {\n  return [{ json: { _no_sheet_updates: true, _phase: 'after_upload' } }];\n}\nreturn updates.map(u => ({ json: u }));"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2096,
+        -4192
+      ],
+      "id": "aaa121c7-fb43-4d84-ae30-6637c63c738a",
+      "name": "Prepare Sheet Updates From Upload",
+      "executeOnce": true
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "cond",
+              "leftValue": "={{ $json._no_sheet_updates !== true }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        2352,
+        -4192
+      ],
+      "id": "f114b5cd-3283-44a1-bce7-fc19fbb995e7",
+      "name": "IF Has Upload Sheet Updates"
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "documentId": {
+          "__rl": true,
+          "value": "17WI7AM3bdtdwbMnBj4Ldcb7PVBv9iMOhoNxnqvdau3A",
+          "mode": "list",
+          "cachedResultName": "Reactive-Works-Instructions-Template"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 2080783995,
+          "mode": "list",
+          "cachedResultName": "Work Order Form ",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/17WI7AM3bdtdwbMnBj4Ldcb7PVBv9iMOhoNxnqvdau3A/edit#gid=2080783995"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "CORF": "={{ $json.CORF }}",
+            ".msg on easybop": "={{ $json['.msg on easybop'] }}",
+            "row_number": 0
+          },
+          "matchingColumns": [
+            "CORF"
+          ],
+          "schema": [
+            {
+              "id": "CORF",
+              "displayName": "CORF",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": ".msg on easybop",
+              "displayName": ".msg on easybop",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        2608,
+        -4112
+      ],
+      "id": "82dec7ed-64f1-4aac-9a72-efc1102af366",
+      "name": "Update Sheet After Upload",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "0bvpVa8frZ7qSwzx",
+          "name": "hamza-sheets"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Set API URL3').first().json.api_base_url.replace(/\\/+$/, '') + '/pre-works/fetch-table-html' }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { contract_id: '321129', timeout_ms: 120000, max_pages: 200 } }}",
+        "options": {
+          "timeout": 180000
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -2000,
+        -4400
+      ],
+      "id": "0ccb17a6-ed64-4407-a55e-2bc696b38ef7",
+      "name": "Fetch Pre-Works Table HTML1",
+      "executeOnce": true
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Set API URL3').first().json.api_base_url.replace(/\\/+$/, '') + '/works-index' }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { timeout_ms: 120000 } }}",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          },
+          "timeout": 180000
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -1232,
+        -4400
+      ],
+      "id": "e173b424-095f-4b37-8d4d-c1f8de999514",
+      "name": "Fetch Works Index1",
+      "executeOnce": true,
+      "notesInFlow": true,
+      "note": "Paginated CORF → works_id"
+    },
+    {
+      "parameters": {
+        "jsCode": "function bodyFrom(resp) {\n  let body = resp.body ?? resp.data ?? resp;\n  if (typeof body === 'string') {\n    try { body = JSON.parse(body); } catch (e) { body = {}; }\n  }\n  if (body && body.body && body.items === undefined && body.total === undefined) {\n    body = body.body;\n  }\n  return body || {};\n}\nfunction normCorf(v) {\n  const raw = String(v ?? '').trim();\n  if (!raw) return '';\n  const t = raw.toLowerCase().replace(/\\s+/g, '');\n  const slash = t.match(/^(\\d+)\\/(\\d+)$/);\n  if (slash) return parseInt(slash[1], 10) + '/' + parseInt(slash[2], 10);\n  const digits = t.replace(/\\D/g, '');\n  if (digits.length >= 4) return String(parseInt(digits, 10));\n  return t;\n}\nfunction cleanAddrKey(str) {\n  return String(str || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').replace(/\\s+/g, ' ').trim();\n}\nconst resp = $input.first().json || {};\nconst data = bodyFrom(resp);\nconst items = Array.isArray(data.items) ? data.items : [];\nconst corfToWorksId = {};\nconst addrToWorksId = {};\nfor (const item of items) {\n  const wid = String(item.works_id || '').trim();\n  if (!wid) continue;\n  const corf = normCorf(item.client_order_reference || '');\n  if (corf) corfToWorksId[corf] = wid;\n  const addr = cleanAddrKey(item.address || '');\n  if (addr) addrToWorksId[addr] = wid;\n}\nconst sd = $getWorkflowStaticData('global');\nsd.corfToWorksId = corfToWorksId;\nsd.addrToWorksId = addrToWorksId;\nreturn [{\n  json: {\n    works_index_total: data.total ?? items.length,\n    works_index_ok: data.success === true,\n    corf_map_size: Object.keys(corfToWorksId).length,\n    message: data.message || `Indexed ${items.length} works`,\n  },\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -976,
+        -4400
+      ],
+      "id": "407ee2eb-3a85-406a-aab0-74516168d657",
+      "name": "Build CORF works_id Map1",
+      "executeOnce": true
+    },
+    {
+      "parameters": {
+        "url": "=https://graph.microsoft.com/v1.0/drives/{{ $json.id }}/root:/RR Job imports and JIS/Orders/RR-South/inbox:/children?$top=2000&$select=id,name,size,lastModifiedDateTime,webUrl,file",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "oAuth2Api",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -208,
+        -4400
+      ],
+      "id": "c2b01467-0484-4ade-903a-0c7576b8079b",
+      "name": "List RR-South inbox1",
+      "executeOnce": true,
+      "credentials": {
+        "oAuth2Api": {
+          "id": "nNC3eYQ9UeulKHjg",
+          "name": "Jeffway-M365-GraphAPI"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const driveId = $('Get BCC library drive2').first().json.id;\nconst SP_FOLDER = 'RR Job imports and JIS/Orders/RR-South/inbox';\nconst spFiles = ($('List RR-South inbox1').first().json.value || []).filter(f => f.file && f.name.toLowerCase().endsWith('.msg'));\nconst rows = $('Parse Pre-Works WO Status').all().map(i => i.json || {}).filter(r => !r._no_red_rows);\nconst sd = $getWorkflowStaticData('global');\nconst corfToWorksId = sd.corfToWorksId || {};\n\nfunction normCorf(v) {\n  const raw = String(v ?? '').trim();\n  if (!raw) return '';\n  const t = raw.toLowerCase().replace(/\\s+/g, '');\n  const slash = t.match(/^(\\d+)\\/(\\d+)$/);\n  if (slash) return parseInt(slash[1], 10) + '/' + parseInt(slash[2], 10);\n  const under = t.match(/^(\\d+)_(\\d+)$/);\n  if (under) return parseInt(under[1], 10) + '/' + parseInt(under[2], 10);\n  return t;\n}\n\nfunction corfFromSpFileName(name) {\n  const n = String(name || '');\n  let m = n.match(/WO[_\\s]*Ref[_\\s]*(\\d+)[_\\s\\/\\\\-]+(\\d+)/i);\n  if (m) return normCorf(parseInt(m[1], 10) + '/' + parseInt(m[2], 10));\n  m = n.match(/(\\d{4,6})[_\\s](\\d+)/);\n  if (m) return normCorf(parseInt(m[1], 10) + '/' + parseInt(m[2], 10));\n  return '';\n}\n\nfunction cleanWoMsgFileName(corf) {\n  const c = String(corf || '').trim();\n  return `Works_Order_Details_for_WO_Ref_${c}.msg`;\n}\n\nconst corfToFile = {};\nfor (const f of spFiles) {\n  const c = corfFromSpFileName(f.name);\n  if (c && !corfToFile[c]) corfToFile[c] = f;\n}\n\nconst pending = [];\nconst skipped = [];\n\nfor (const row of rows) {\n  const corfRaw = String(row.client_order_reference || '').trim();\n  const corf = normCorf(corfRaw) || corfRaw;\n  if (!corf) {\n    skipped.push({ pre_work_id: row.pre_work_id, reason: 'no_corf', address: row.address });\n    continue;\n  }\n  const spFile = corfToFile[corf];\n  if (!spFile) {\n    skipped.push({ pre_work_id: row.pre_work_id, corf, address: row.address, reason: 'no_sharepoint_msg' });\n    continue;\n  }\n  const works_id = corfToWorksId[corf] || '';\n  if (!works_id) {\n    skipped.push({ pre_work_id: row.pre_work_id, corf, address: row.address, reason: 'no_works_id', sp_file: spFile.name });\n    continue;\n  }\n  const uploadName = cleanWoMsgFileName(corf);\n  pending.push({\n    json: {\n      _skip: false,\n      pre_work_id: row.pre_work_id,\n      corf: corfRaw || corf,\n      works_id,\n      address: row.address || '',\n      uprn: row.uprn || '',\n      sp_file_id: spFile.id,\n      sp_file_name: spFile.name,\n      upload_file_name: uploadName,\n      download_url: `https://graph.microsoft.com/v1.0/drives/${driveId}/items/${spFile.id}/content`,\n    },\n  });\n}\n\nif (pending.length === 0) {\n  return [{ json: { _skip: true, message: 'No pending WO .msg uploads.', skipped_count: skipped.length, skipped } }];\n}\nreturn pending;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        48,
+        -4400
+      ],
+      "id": "c099fc74-d99a-48b4-9f78-ce729f9f8e66",
+      "name": "Match SharePoint MSGs1",
+      "notesInFlow": true
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "skip",
+              "leftValue": "={{ $json._skip }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        304,
+        -4320
+      ],
+      "id": "bdc544eb-256b-4890-8b84-74ec858948f5",
+      "name": "IF Nothing to Upload1"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Process each download with explicit item index so binary + metadata stay paired.\nconst items = $input.all();\nconst out = [];\n\nfor (let i = 0; i < items.length; i++) {\n  const item = items[i];\n  const row = { ...(item.json || {}) };\n  if (row._skip) {\n    out.push({ json: { ...row, _skip: true } });\n    continue;\n  }\n  const corf = String(row.corf || '').trim();\n  const spFile = String(row.sp_file_name || '').trim();\n  const bin = item.binary || {};\n  const binKey = bin.data ? 'data' : Object.keys(bin)[0];\n  if (!binKey) {\n    out.push({ json: { ...row, _encode_error: `No binary for CORF ${corf}${spFile ? ` (${spFile})` : ''}`, _skip: true } });\n    continue;\n  }\n\n  let buffer;\n  try {\n    buffer = await this.helpers.getBinaryDataBuffer(i, binKey);\n  } catch (e) {\n    out.push({ json: { ...row, _encode_error: `No binary for CORF ${corf}: ${e.message}`, _skip: true } });\n    continue;\n  }\n\n  const size = buffer.length;\n  if (size < 256) {\n    out.push({ json: { ...row, _encode_error: `MSG too small (${size} bytes)`, _skip: true } });\n    continue;\n  }\n  const ole = buffer.slice(0, 4).toString('hex') === 'd0cf11e0';\n  const head = buffer.slice(0, 512).toString('latin1').toLowerCase();\n  const mime = head.includes('mime-version:') || head.includes('received:');\n  if (!ole && !mime) {\n    out.push({ json: { ...row, _encode_error: `Not a valid .msg for CORF ${corf}`, _skip: true } });\n    continue;\n  }\n  out.push({ json: { ...row, _msg_base64: buffer.toString('base64'), _msg_size: size, _skip: false } });\n}\n\nreturn out;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        816,
+        -4320
+      ],
+      "id": "355a940d-808c-4a6d-9bf2-94ee454d1f16",
+      "name": "Encode MSG Base"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $json._api_url }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $json._batch_body }}",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          },
+          "timeout": 600000
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1584,
+        -4400
+      ],
+      "id": "fc2c90ce-930f-4d61-8273-7eaced13832f",
+      "name": "POST wi-msg upload-batch1"
+    },
+    {
+      "parameters": {
+        "jsCode": "const raw = $input.first().json || {};\nconst html = String(raw.html || '');\nconst ids = [];\nconst re = /<tr[^>]+id=\"(\\d+)\"/gi;\nlet m;\nwhile ((m = re.exec(html)) !== null) ids.push(m[1]);\nconst unique = [...new Set(ids)];\nconst pages = raw.pages_scraped;\nconst rowsApi = raw.rows_total;\nreturn [{\n  json: {\n    success: raw.success !== false,\n    pages_scraped: pages ?? null,\n    rows_total_api: rowsApi ?? null,\n    rows_counted_in_html: unique.length,\n    verify_message: `pages_scraped=${pages ?? '?'} | rows_total=${rowsApi ?? '?'} | counted=${unique.length}`,\n  },\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1744,
+        -4400
+      ],
+      "id": "a8e32ed1-bcbb-4052-ad7d-925825851f84",
+      "name": "Pre-Works Fetch Summary1"
+    },
+    {
+      "parameters": {
+        "content": "## Pre-Works Works Order .msg Upload\n\n1. Read **Work Order Form** sheet + scrape pre-works (all pages)\n2. **Green** WO on pre-works → mark matching sheet CORF `.msg on easybop` = **TRUE**\n3. **Red** WO → match SharePoint RR-South/inbox by CORF → upload batch\n4. After upload → mark successful CORFs **TRUE** on sheet\n\nUpload filename: `Works_Order_Details_for_WO_Ref_98050/2.msg`",
+        "height": 400
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -2928,
+        -4432
+      ],
+      "id": "f413b473-364b-4307-8eb9-83765a9aa341",
+      "name": "Sticky Note WO1"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "api-base",
+              "name": "api_base_url",
+              "value": "http://173.212.233.153:8000",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -2256,
+        -4400
+      ],
+      "id": "78c8fe5d-3bf9-44f7-8b06-aeeb841d895e",
+      "name": "Set API URL3",
+      "notesInFlow": true,
+      "note": "VPS jeffway-api"
+    },
+    {
+      "parameters": {
+        "url": "https://graph.microsoft.com/v1.0/sites/jeffway.sharepoint.com:/bccvoids",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "oAuth2Api",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -720,
+        -4400
+      ],
+      "id": "f7339b27-43d7-4e0e-8a33-13f9d37ce956",
+      "name": "Get bccvoids site2",
+      "executeOnce": true,
+      "credentials": {
+        "oAuth2Api": {
+          "id": "nNC3eYQ9UeulKHjg",
+          "name": "Jeffway-M365-GraphAPI"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "url": "=https://graph.microsoft.com/v1.0/sites/{{ $json.id }}/lists/BCC/drive",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "oAuth2Api",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -464,
+        -4400
+      ],
+      "id": "ca279318-232c-4150-bcee-c3d9610dbcf3",
+      "name": "Get BCC library drive2",
+      "executeOnce": true,
+      "credentials": {
+        "oAuth2Api": {
+          "id": "nNC3eYQ9UeulKHjg",
+          "name": "Jeffway-M365-GraphAPI"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "url": "={{ $json.download_url }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "oAuth2Api",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "file"
+            }
+          }
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        560,
+        -4320
+      ],
+      "id": "364a908a-222c-4a5d-b3c7-cb91b4b79626",
+      "name": "Download MSG from SharePoint3",
+      "credentials": {
+        "oAuth2Api": {
+          "id": "nNC3eYQ9UeulKHjg",
+          "name": "Jeffway-M365-GraphAPI"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const apiBase = String($('Set API URL3').first().json.api_base_url || '').replace(/\\/+$/, '');\nconst rows = $('Encode MSG Base').all();\nconst items = [];\nconst batchMeta = [];\nconst skipped = [];\nconst seenB64 = new Map();\nfor (const item of rows) {\n  const j = item.json || {};\n  const base = { pre_work_id: j.pre_work_id, corf: j.corf, works_id: j.works_id };\n  if (j._skip) {\n    skipped.push({ ...base, _status: `ERROR: ${j._encode_error || 'Skipped'}`, _api_success: false });\n    continue;\n  }\n  const corf = String(j.corf || '').trim();\n  const wid = String(j.works_id || '').trim();\n  const fileName = String(j.upload_file_name || '').trim();\n  const b64 = String(j._msg_base64 || '').trim();\n  if (!corf || !wid || !fileName || !b64) {\n    skipped.push({ ...base, _status: 'ERROR: Missing corf/works_id/file/base64', _api_success: false });\n    continue;\n  }\n  const dupCorf = seenB64.get(b64);\n  if (dupCorf) {\n    skipped.push({ ...base, _status: `ERROR: Duplicate MSG content for CORF ${corf} (same bytes as ${dupCorf})`, _api_success: false });\n    continue;\n  }\n  seenB64.set(b64, corf);\n  items.push({ corf, works_id: wid, file_name: fileName, msg_base64: b64 });\n  batchMeta.push({ ...base, upload_file_name: fileName, sp_file_name: j.sp_file_name });\n}\nreturn [{\n  json: {\n    _api_url: `${apiBase}/wi-msg/upload-batch`,\n    _skipped: skipped,\n    _batch_meta: batchMeta,\n    _batch_body: { items, contract_id: '321129', use_works_id_navigation: true, timeout_ms: 45000 },\n    _item_count: items.length,\n    _skipped_count: skipped.length,\n  },\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1072,
+        -4320
+      ],
+      "id": "7b74f140-4725-4876-8026-5117ad76083c",
+      "name": "Aggregate Batch Payload3"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "has",
+              "leftValue": "={{ $json._item_count }}",
+              "rightValue": 0,
+              "operator": {
+                "type": "number",
+                "operation": "gt"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1328,
+        -4320
+      ],
+      "id": "b40014f5-8856-40db-9766-8e1a1c0be629",
+      "name": "IF Has Items To Upload3"
+    },
+    {
+      "parameters": {
+        "jsCode": "const agg = $('Aggregate Batch Payload3').first().json;\nconst skipped = agg._skipped || [];\nconst batchMeta = agg._batch_meta || [];\nconst pendingByKey = {};\nfor (const item of $('Match SharePoint MSGs1').all()) {\n  const j = item.json || {};\n  if (j._skip) continue;\n  const key = `${j.works_id}::${j.corf}`;\n  pendingByKey[key] = j;\n}\nfunction resolvePending(meta) {\n  const key = `${meta.works_id}::${meta.corf}`;\n  return pendingByKey[key] || {};\n}\nfunction mapApiResult(r, meta) {\n  const pending = resolvePending(meta);\n  const msg = String(r.message || '').toLowerCase();\n  const already = !!(r.already_uploaded || msg.includes('already present'));\n  const ok = !!(r.success || r.uploaded || already);\n  const status = ok ? 'true' : `ERROR: ${r.error || r.message || 'Unknown error'}`;\n  return {\n    pre_work_id: pending.pre_work_id ?? meta.pre_work_id,\n    corf: r.corf || meta.corf || pending.corf,\n    works_id: r.works_id || meta.works_id || pending.works_id,\n    address: pending.address || '',\n    sp_file_name: meta.sp_file_name || pending.sp_file_name || '',\n    upload_file_name: meta.upload_file_name || pending.upload_file_name || '',\n    _status: status,\n    _api_success: ok,\n    _already_uploaded: already,\n    _newly_uploaded: !!r.uploaded,\n  };\n}\nfunction extractResults(resp) {\n  const statusCode = resp.statusCode ?? resp.status ?? 0;\n  let body = resp.body ?? resp.data ?? resp;\n  if (typeof body === 'string') {\n    try { body = JSON.parse(body); } catch (e) { body = {}; }\n  }\n  if (body && typeof body === 'object' && body.body && !body.results) body = body.body;\n  const results = Array.isArray(body?.results) ? body.results : [];\n  return { statusCode, body: body || {}, results };\n}\nfunction markErrors(metaList, errMsg) {\n  return metaList.map(meta => {\n    const pending = resolvePending(meta);\n    return {\n      pre_work_id: pending.pre_work_id ?? meta.pre_work_id,\n      corf: meta.corf,\n      works_id: meta.works_id,\n      address: pending.address || '',\n      _status: `ERROR: ${errMsg}`,\n      _api_success: false,\n    };\n  });\n}\nlet apiResults = [];\nif (agg._item_count > 0) {\n  const postItems = $('POST wi-msg upload-batch1').all();\n  const resp = postItems.length ? (postItems[0].json || {}) : ($input.first()?.json || {});\n  const { results, statusCode, body } = extractResults(resp);\n  if (results.length > 0) {\n    for (let idx = 0; idx < results.length; idx++) {\n      apiResults.push(mapApiResult(results[idx], batchMeta[idx] || {}));\n    }\n    if (results.length < batchMeta.length) {\n      const tail = batchMeta.slice(results.length);\n      apiResults.push(...markErrors(tail, `Batch interrupted (HTTP ${statusCode || 'unknown'})`));\n    }\n  } else if (batchMeta.length > 0) {\n    const err = body.detail || body.message || body.error || `HTTP ${statusCode || 'connection failed'}`;\n    apiResults.push(...markErrors(batchMeta, err));\n  }\n}\nconst all = [...skipped, ...apiResults];\nreturn all.map(j => ({ json: j }));"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1840,
+        -4320
+      ],
+      "id": "dffccf42-3346-4208-8f5f-26b6c9f1ee2b",
+      "name": "Expand Batch Results3"
+    },
+    {
+      "parameters": {
+        "jsCode": "const rows = $('Expand Batch Results3').all().map(i => i.json || {});\nlet newlyUploaded = 0, alreadyUploaded = 0, errors = 0;\nconst errorDetails = [];\nfor (const r of rows) {\n  const status = String(r._status ?? '').trim();\n  if (status === 'true') {\n    if (r._already_uploaded) alreadyUploaded++;\n    else newlyUploaded++;\n  } else if (status.startsWith('ERROR:')) {\n    errors++;\n    errorDetails.push({ corf: r.corf, works_id: r.works_id, error: status });\n  }\n}\nconst greenSync = $('Sync Sheet Pre-Works Green').all().filter(i => !i.json?._no_sheet_updates).length;\nconst uploadSync = $('Prepare Sheet Updates From Upload').all().filter(i => !i.json?._no_sheet_updates).length;\nreturn [{\n  json: {\n    workflow: 'pre_works_wo_msg_to_easybop',\n    total_results: rows.length,\n    newly_uploaded: newlyUploaded,\n    already_on_easybop: alreadyUploaded,\n    errors,\n    sheet_marked_preworks_green: greenSync,\n    sheet_marked_after_upload: uploadSync,\n    error_details: errorDetails,\n  },\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2096,
+        -4384
+      ],
+      "id": "4ddf20fa-a763-4245-8e23-e7ab817b0d07",
+      "name": "Run Summary3"
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "17WI7AM3bdtdwbMnBj4Ldcb7PVBv9iMOhoNxnqvdau3A",
+          "mode": "list",
+          "cachedResultName": "Reactive-Works-Instructions-Template"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 2080783995,
+          "mode": "list",
+          "cachedResultName": "Work Order Form ",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/17WI7AM3bdtdwbMnBj4Ldcb7PVBv9iMOhoNxnqvdau3A/edit#gid=2080783995"
+        },
+        "options": {
+          "returnFirstMatch": false
+        }
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        -2256,
+        -4192
+      ],
+      "id": "8a8f94dd-e8d2-4cdd-8fe8-762e641d431b",
+      "name": "Read Work Order Form1",
+      "executeOnce": true,
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "0bvpVa8frZ7qSwzx",
+          "name": "hamza-sheets"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "20,50 9-19 * * 1-5"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.3,
+      "position": [
+        -2464,
+        -4400
+      ],
+      "id": "855ceefd-4f58-4a85-83d5-7f862b0323a4",
+      "name": "Schedule Trigger",
+      "notesInFlow": true,
+      "note": "Mon–Fri 09:00–19:00 Europe/London, every hour (cron: 0 9-19 * * 1-5)"
+    }
+  ],
+  "connections": {
+    "Parse Pre-Works WO Status": {
+      "main": [
+        [
+          {
+            "node": "Sync Sheet Pre-Works Green",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sync Sheet Pre-Works Green": {
+      "main": [
+        [
+          {
+            "node": "IF Has Green Sheet Updates",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF Has Green Sheet Updates": {
+      "main": [
+        [
+          {
+            "node": "Update Sheet Pre-Works Green",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Fetch Works Index1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Sheet Pre-Works Green": {
+      "main": [
+        [
+          {
+            "node": "Fetch Works Index1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Sheet Updates From Upload": {
+      "main": [
+        [
+          {
+            "node": "IF Has Upload Sheet Updates",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF Has Upload Sheet Updates": {
+      "main": [
+        [
+          {
+            "node": "Update Sheet After Upload",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Run Summary3",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Sheet After Upload": {
+      "main": [
+        [
+          {
+            "node": "Run Summary3",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Pre-Works Table HTML1": {
+      "main": [
+        [
+          {
+            "node": "Pre-Works Fetch Summary1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Works Index1": {
+      "main": [
+        [
+          {
+            "node": "Build CORF works_id Map1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build CORF works_id Map1": {
+      "main": [
+        [
+          {
+            "node": "Get bccvoids site2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "List RR-South inbox1": {
+      "main": [
+        [
+          {
+            "node": "Match SharePoint MSGs1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Match SharePoint MSGs1": {
+      "main": [
+        [
+          {
+            "node": "IF Nothing to Upload1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF Nothing to Upload1": {
+      "main": [
+        [],
+        [
+          {
+            "node": "Download MSG from SharePoint3",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Encode MSG Base": {
+      "main": [
+        [
+          {
+            "node": "Aggregate Batch Payload3",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "POST wi-msg upload-batch1": {
+      "main": [
+        [
+          {
+            "node": "Expand Batch Results3",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Pre-Works Fetch Summary1": {
+      "main": [
+        [
+          {
+            "node": "Parse Pre-Works WO Status",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Set API URL3": {
+      "main": [
+        [
+          {
+            "node": "Read Work Order Form1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get bccvoids site2": {
+      "main": [
+        [
+          {
+            "node": "Get BCC library drive2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get BCC library drive2": {
+      "main": [
+        [
+          {
+            "node": "List RR-South inbox1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Download MSG from SharePoint3": {
+      "main": [
+        [
+          {
+            "node": "Encode MSG Base",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Aggregate Batch Payload3": {
+      "main": [
+        [
+          {
+            "node": "IF Has Items To Upload3",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF Has Items To Upload3": {
+      "main": [
+        [
+          {
+            "node": "POST wi-msg upload-batch1",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Expand Batch Results3",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Expand Batch Results3": {
+      "main": [
+        [
+          {
+            "node": "Prepare Sheet Updates From Upload",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Work Order Form1": {
+      "main": [
+        [
+          {
+            "node": "Fetch Pre-Works Table HTML1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "Set API URL3",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "meta": {
+    "instanceId": "a5cd22a95d5313a977e9ac21c3a833db76b18ca78fb8cb2cf7013465d69f17f8"
+  }
+}

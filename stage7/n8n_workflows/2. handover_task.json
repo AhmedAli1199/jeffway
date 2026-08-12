@@ -1,0 +1,622 @@
+{
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## Stage 7 — Handover task (Shannon)\n\nReads **Operative Job Sheet** and queues jobs where:\n- **BCC Response Repairs**\n- **Job Status** = Completed (not SmartForm **Status**)\n- **Ready To Hand over** is empty / No\n- **Hand Over Task Created** is empty / No\n\nPer job: `resolve-works-id` → `create-handover-task-stage7` → write **Hand Over Task Created** date on OJS row",
+        "height": 300,
+        "width": 620
+      },
+      "id": "c2e8534a-4402-49d6-9c72-98788ac2bae0",
+      "name": "Note — handover task",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -176,
+        -1104
+      ]
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "1mkklLpvi8klaN4Zo4D_cBrb95PGQ4NbUvtTAvLI4CII",
+          "mode": "list",
+          "cachedResultName": "stage 6",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1mkklLpvi8klaN4Zo4D_cBrb95PGQ4NbUvtTAvLI4CII/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list",
+          "cachedResultName": "Operative Job Sheet",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1mkklLpvi8klaN4Zo4D_cBrb95PGQ4NbUvtTAvLI4CII/edit#gid=0"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        128,
+        -704
+      ],
+      "id": "19b587ce-d3e0-4d04-b83b-3f690d1cc2b0",
+      "name": "Read Operative Job Sheet",
+      "alwaysOutputData": true,
+      "executeOnce": true,
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "0bvpVa8frZ7qSwzx",
+          "name": "hamza-sheets"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const OJS_NODE = 'Read Operative Job Sheet';\n\nfunction rowsFrom(name) {\n  try { return $(name).all().map((i) => i.json || {}); } catch (e) { return []; }\n}\n\nfunction norm(v) {\n  return String(v ?? '').trim().toLowerCase().replace(/\\s+/g, ' ');\n}\n\nfunction normCorf(v) {\n  return String(v ?? '').trim().toUpperCase().replace(/\\s+/g, '');\n}\n\nfunction corfFromQ11(addr) {\n  const s = String(addr ?? '').trim();\n  const m = s.match(/-(\\d+\\/\\d+)\\s*$/);\n  return m ? m[1] : '';\n}\n\nfunction corfFromRow(row) {\n  const direct = normCorf(row.CORF ?? row.corf);\n  if (direct) return direct;\n  return normCorf(corfFromQ11(row['Q1.1 Address']));\n}\n\nfunction isHeader(row) {\n  return /^smartform name$/i.test(String(row['SmartForm Name'] ?? '').trim());\n}\n\nfunction isBcc(name) {\n  return /:\\s*BCC\\s+Respon(?:se|sive)\\s+Repairs\\b/i.test(String(name ?? '').trim());\n}\n\nfunction isNoOrEmpty(v) {\n  const s = String(v ?? '').trim();\n  if (!s) return true;\n  const low = s.toLowerCase();\n  return low === 'no' || low === 'n' || low === 'false' || low === '0';\n}\n\nfunction normJobStatus(v) {\n  const s = norm(v);\n  if (!s) return '';\n  if (s.startsWith('incomp') || s === 'incomplete') return 'incomplete';\n  if (s.startsWith('comp') || s === 'complete' || s === 'completed') return 'completed';\n  return s;\n}\n\nfunction jobStatusValue(row) {\n  return row['Job Status'] ?? row.job_status ?? '';\n}\n\nfunction isJobStatusComplete(row) {\n  return normJobStatus(jobStatusValue(row)) === 'completed';\n}\n\nfunction isReadyHandoverNo(row) {\n  return isNoOrEmpty(row['Ready To Hand over'] ?? row['Ready to handover']);\n}\n\nfunction isHandoverTaskNotCreated(row) {\n  return isNoOrEmpty(row['Hand Over Task Created'] ?? row['Handover Task Created']);\n}\n\nconst rows = rowsFrom(OJS_NODE).filter((r) => !isHeader(r));\nconst queue = [];\nlet skippedNotBcc = 0;\nlet skippedNotCompleted = 0;\nlet skippedReadyHandover = 0;\nlet skippedTaskDone = 0;\nlet skippedNoCorf = 0;\n\nfor (const row of rows) {\n  const name = String(row['SmartForm Name'] ?? '').trim();\n  if (!isBcc(name)) { skippedNotBcc++; continue; }\n  if (!isJobStatusComplete(row)) { skippedNotCompleted++; continue; }\n  if (!isReadyHandoverNo(row)) { skippedReadyHandover++; continue; }\n  if (!isHandoverTaskNotCreated(row)) { skippedTaskDone++; continue; }\n\n  const corfRaw = String(row.CORF ?? corfFromRow(row) ?? '').trim();\n  const corf = normCorf(corfRaw);\n  if (!corf) { skippedNoCorf++; continue; }\n\n  queue.push({\n    row_number: row.row_number ?? row.rowNumber ?? null,\n    client_order_reference: corfRaw || corf,\n    corf,\n    smart_form_name: name,\n    job_status: String(jobStatusValue(row)).trim(),\n    smartform_status: String(row.Status ?? '').trim(),\n    ready_to_handover: String(row['Ready To Hand over'] ?? row['Ready to handover'] ?? '').trim() || null,\n    hand_over_task_created: String(row['Hand Over Task Created'] ?? '').trim() || null,\n    address: String(row['Q1.1 Address'] ?? row['Job Header'] ?? '').trim(),\n    action: 'create_handover_task',\n  });\n}\n\nconst stats = {\n  ojs_rows: rows.length,\n  eligible: queue.length,\n  queued: queue.length,\n  skipped_not_bcc: skippedNotBcc,\n  skipped_not_complete: skippedNotCompleted,\n  skipped_ready_handover: skippedReadyHandover,\n  skipped_task_done: skippedTaskDone,\n  skipped_no_corf: skippedNoCorf,\n};\n\nconst sd = $getWorkflowStaticData('global');\nsd.handoverTaskLogs = [];\nsd.handoverTaskStats = stats;\n\nif (!queue.length) {\n  return [{\n    json: {\n      _workflow_only: true,\n      _no_jobs: true,\n      message: `No eligible OJS rows for handover task (eligible=${queue.length})`,\n      ...stats,\n    },\n  }];\n}\n\nreturn queue.map((row, i) => ({\n  json: { ...row, _job_index: i + 1, _job_total: queue.length, ...stats },\n}));\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        384,
+        -704
+      ],
+      "id": "43a61c8a-675a-4e90-b39e-279789b7fd3c",
+      "name": "Build handover task queue",
+      "executeOnce": true,
+      "notesInFlow": true,
+      "note": "Processes all eligible OJS rows"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "c-no-jobs",
+              "leftValue": "={{ $json._no_jobs }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "notEquals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        640,
+        -704
+      ],
+      "id": "42ae7a3d-d8ef-43cf-a111-307edf95faf6",
+      "name": "IF jobs to process"
+    },
+    {
+      "parameters": {
+        "options": {
+          "reset": false
+        }
+      },
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        896,
+        -784
+      ],
+      "id": "478b8e14-edfc-43a5-9933-30211d4347d5",
+      "name": "Loop handover tasks",
+      "notesInFlow": true,
+      "note": "One job per iteration"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://173.212.233.153:8000/resolve-works-id-stage6",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { \"contract_id\": \"321129\", \"client_order_reference\": $json.client_order_reference } }}",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          },
+          "timeout": 300000
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1152,
+        -704
+      ],
+      "id": "b7bd5375-76f7-4885-b441-a95a6148847a",
+      "name": "Resolve works_id"
+    },
+    {
+      "parameters": {
+        "jsCode": "function bodyFrom(resp) {\n  let body = resp.body ?? resp.data ?? resp;\n  if (typeof body === 'string') {\n    try { body = JSON.parse(body); } catch (e) { body = {}; }\n  }\n  if (body && body.body && body.works_id === undefined && body.results === undefined) {\n    body = body.body;\n  }\n  return body || {};\n}\n\nconst resp = $input.first().json || {};\nconst resolve = bodyFrom(resp);\nconst job = $('Loop handover tasks').item.json || {};\n\nreturn [{\n  json: {\n    ...job,\n    works_id: String(resolve.works_id || '').trim(),\n    resolve_found: Boolean(resolve.found),\n    resolve_address: resolve.address || '',\n    resolve_error: resolve.error || null,\n  },\n}];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1408,
+        -704
+      ],
+      "id": "0970e1f8-7f22-44f7-8ca1-6745c21bd5d9",
+      "name": "Parse resolve response"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "c-found",
+              "leftValue": "={{ $json.resolve_found }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            },
+            {
+              "id": "c-wid",
+              "leftValue": "={{ $json.works_id }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEquals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1664,
+        -704
+      ],
+      "id": "c127265f-3528-42af-b839-a06aa600713a",
+      "name": "IF works_id found"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://173.212.233.153:8000/create-handover-task-stage7",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ {\n  \"contract_id\": \"321129\",\n  \"works_id\": $json.works_id,\n  \"client_order_reference\": $json.client_order_reference,\n  \"smart_form_name\": $json.smart_form_name,\n  \"skip_if_exists\": true\n} }}",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          },
+          "timeout": 300000
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1920,
+        -784
+      ],
+      "id": "9aa49b93-d4e7-446b-848b-e8adfddd44d1",
+      "name": "Create handover task",
+      "notesInFlow": true,
+      "note": "Shannon / Handover needed / High / tomorrow"
+    },
+    {
+      "parameters": {
+        "jsCode": "function bodyFrom(resp) {\n  let body = resp.body ?? resp.data ?? resp;\n  if (typeof body === 'string') {\n    try { body = JSON.parse(body); } catch (e) { body = {}; }\n  }\n  if (body && body.body && body.success === undefined && body.works_id === undefined) {\n    body = body.body;\n  }\n  return body || {};\n}\n\nconst job = $('Loop handover tasks').item.json || {};\nconst parsed = $('Parse resolve response').first().json || {};\nconst raw = $input.first().json || {};\nconst task = bodyFrom(raw);\nconst rn = job.row_number;\nconst taskOk = task.success === true;\nconst shouldMark = taskOk && rn !== null && rn !== undefined && rn !== '';\n\nif (!shouldMark) {\n  return [{\n    json: {\n      _skip_sheet: true,\n      row_number: rn,\n      client_order_reference: job.client_order_reference || '',\n      works_id: parsed.works_id || '',\n      smart_form_name: job.smart_form_name || '',\n      task_success: taskOk,\n      task_already_exists: task.already_exists === true,\n      task_message: task.message || '',\n    },\n  }];\n}\n\nconst now = new Date();\nconst taskCreatedDate = `${String(now.getDate()).padStart(2, '0')}/${String(now.getMonth() + 1).padStart(2, '0')}/${now.getFullYear()}`;\n\nreturn [{\n  json: {\n    _skip_sheet: false,\n    row_number: rn,\n    'Hand Over Task Created': taskCreatedDate,\n    client_order_reference: job.client_order_reference || '',\n    works_id: parsed.works_id || '',\n    smart_form_name: job.smart_form_name || '',\n    task_success: true,\n    task_already_exists: task.already_exists === true,\n    task_message: task.message || '',\n  },\n}];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2176,
+        -784
+      ],
+      "id": "3d63e64f-3d4a-42b3-a76d-cd4e2f0b3674",
+      "name": "Prepare sheet mark"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "c-mark-sheet",
+              "leftValue": "={{ $json._skip_sheet }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "notEquals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        2432,
+        -784
+      ],
+      "id": "11ae6ead-9c24-499c-a423-4d5623ff5e24",
+      "name": "IF mark sheet"
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "documentId": {
+          "__rl": true,
+          "value": "1mkklLpvi8klaN4Zo4D_cBrb95PGQ4NbUvtTAvLI4CII",
+          "mode": "list",
+          "cachedResultName": "stage 6",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1mkklLpvi8klaN4Zo4D_cBrb95PGQ4NbUvtTAvLI4CII/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list",
+          "cachedResultName": "Operative Job Sheet",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1mkklLpvi8klaN4Zo4D_cBrb95PGQ4NbUvtTAvLI4CII/edit#gid=0"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": [
+            "row_number"
+          ],
+          "schema": [
+            {
+              "id": "row_number",
+              "displayName": "row_number",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true,
+              "readOnly": true
+            },
+            {
+              "id": "Hand Over Task Created",
+              "displayName": "Hand Over Task Created",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        2688,
+        -864
+      ],
+      "id": "b64f4daa-7fb3-497a-8919-78dcc04273ed",
+      "name": "Update Hand Over Task Created",
+      "notesInFlow": true,
+      "note": "Today's date DD/MM/YYYY",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "0bvpVa8frZ7qSwzx",
+          "name": "hamza-sheets"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "function bodyFrom(resp) {\n  let body = resp.body ?? resp.data ?? resp;\n  if (typeof body === 'string') {\n    try { body = JSON.parse(body); } catch (e) { body = {}; }\n  }\n  if (body && body.body && body.success === undefined && body.works_id === undefined) {\n    body = body.body;\n  }\n  return body || {};\n}\n\nconst sd = $getWorkflowStaticData('global');\nif (!Array.isArray(sd.handoverTaskLogs)) sd.handoverTaskLogs = [];\n\nconst job = $('Loop handover tasks').item.json || {};\nconst parsed = $('Parse resolve response').first().json || {};\n\nlet task = {};\nlet step = 'resolve_failed';\ntry {\n  const raw = $('Create handover task').first().json || {};\n  task = bodyFrom(raw);\n  if (task && (task.success !== undefined || task.works_id)) step = 'task_created';\n} catch (e) {}\n\nlet sheetMarked = false;\nlet handOverTaskCreated = null;\ntry {\n  const prep = $('Prepare sheet mark').first().json || {};\n  if (prep._skip_sheet !== true) {\n    handOverTaskCreated = prep['Hand Over Task Created'] || null;\n    try {\n      $('Update Hand Over Task Created').first();\n      sheetMarked = true;\n    } catch (e2) {\n      sheetMarked = Boolean(handOverTaskCreated);\n    }\n  }\n} catch (e) {}\n\nconst entry = {\n  step,\n  job_index: job._job_index || null,\n  job_total: job._job_total || null,\n  row_number: job.row_number || null,\n  client_order_reference: job.client_order_reference || '',\n  works_id: parsed.works_id || job.works_id || '',\n  smart_form_name: job.smart_form_name || '',\n  resolve_found: Boolean(parsed.resolve_found),\n  resolve_error: parsed.resolve_error || null,\n  task_success: task.success === true,\n  task_already_exists: task.already_exists === true,\n  complete_by_date: task.complete_by_date || null,\n  hand_over_task_created: handOverTaskCreated,\n  sheet_marked: sheetMarked,\n  message: task.message || parsed.resolve_error || 'skipped — works_id not found',\n  logged_at: new Date().toISOString(),\n};\n\nsd.handoverTaskLogs.push(entry);\nreturn [{ json: entry }];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2944,
+        -704
+      ],
+      "id": "b28a6d34-c0c8-4d56-a64e-c312e0df3cb6",
+      "name": "Accumulate task log"
+    },
+    {
+      "parameters": {
+        "jsCode": "return [{ json: { _loop_continue: true } }];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3200,
+        -704
+      ],
+      "id": "bc4713ec-78e8-41e4-aa20-29413192ee86",
+      "name": "Continue loop"
+    },
+    {
+      "parameters": {
+        "jsCode": "const sd = $getWorkflowStaticData('global');\nconst logs = Array.isArray(sd.handoverTaskLogs) ? sd.handoverTaskLogs : [];\nconst stats = sd.handoverTaskStats || {};\n\nconst created = logs.filter((l) => l.step === 'task_created' && l.task_success && !l.task_already_exists).length;\nconst skippedExists = logs.filter((l) => l.task_already_exists).length;\nconst sheetMarked = logs.filter((l) => l.sheet_marked).length;\nconst resolveFailed = logs.filter((l) => l.step === 'resolve_failed').length;\nconst taskFailed = logs.filter((l) => l.step === 'task_created' && !l.task_success).length;\n\nconst lines = logs.map((l) => {\n  const corf = l.client_order_reference || '-';\n  const wid = l.works_id || '-';\n  if (l.step === 'resolve_failed') return `SKIP resolve corf=${corf} — ${l.message}`;\n  if (l.task_already_exists) return `SKIP exists corf=${corf} works_id=${wid} sheet=${l.hand_over_task_created || 'not marked'}`;\n  return `${l.task_success ? 'OK' : 'FAIL'} corf=${corf} works_id=${wid} sheet=${l.hand_over_task_created || '-'} ${l.message || ''}`;\n});\n\nreturn [{\n  json: {\n    _workflow_only: true,\n    workflow: 'stage7_handover_task',\n    finished_at: new Date().toISOString(),\n    stats,\n    processed: logs.length,\n    created,\n    sheet_marked: sheetMarked,\n    skipped_existing: skippedExists,\n    resolve_failed: resolveFailed,\n    task_failed: taskFailed,\n    log_lines: lines,\n    message: `Handover task run done — created ${created}, sheet_marked=${sheetMarked}, skipped_existing=${skippedExists}, failed=${taskFailed + resolveFailed}`,\n  },\n}];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        912,
+        -512
+      ],
+      "id": "c3eb1821-3126-4e70-ab30-f2219e20c9dd",
+      "name": "Final run summary"
+    },
+    {
+      "parameters": {
+        "jsCode": "const row = $input.first().json || {};\nreturn [{ json: { ...row, message: row.message || 'No eligible jobs for handover task.' } }];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        896,
+        -336
+      ],
+      "id": "8a1ad20f-e84e-4980-826b-64b4d8a0c43f",
+      "name": "No jobs summary"
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "triggerAtHour": 11
+            },
+            {
+              "triggerAtHour": 17
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.3,
+      "position": [
+        -80,
+        -704
+      ],
+      "id": "69377f68-7fc3-4002-a177-03c066dd238b",
+      "name": "Schedule Trigger"
+    }
+  ],
+  "connections": {
+    "Read Operative Job Sheet": {
+      "main": [
+        [
+          {
+            "node": "Build handover task queue",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build handover task queue": {
+      "main": [
+        [
+          {
+            "node": "IF jobs to process",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF jobs to process": {
+      "main": [
+        [
+          {
+            "node": "Loop handover tasks",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "No jobs summary",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Loop handover tasks": {
+      "main": [
+        [
+          {
+            "node": "Final run summary",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Resolve works_id",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Resolve works_id": {
+      "main": [
+        [
+          {
+            "node": "Parse resolve response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse resolve response": {
+      "main": [
+        [
+          {
+            "node": "IF works_id found",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF works_id found": {
+      "main": [
+        [
+          {
+            "node": "Create handover task",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Accumulate task log",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create handover task": {
+      "main": [
+        [
+          {
+            "node": "Prepare sheet mark",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare sheet mark": {
+      "main": [
+        [
+          {
+            "node": "IF mark sheet",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF mark sheet": {
+      "main": [
+        [
+          {
+            "node": "Update Hand Over Task Created",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Accumulate task log",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Hand Over Task Created": {
+      "main": [
+        [
+          {
+            "node": "Accumulate task log",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Accumulate task log": {
+      "main": [
+        [
+          {
+            "node": "Continue loop",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Continue loop": {
+      "main": [
+        [
+          {
+            "node": "Loop handover tasks",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "Read Operative Job Sheet",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "a5cd22a95d5313a977e9ac21c3a833db76b18ca78fb8cb2cf7013465d69f17f8"
+  }
+}

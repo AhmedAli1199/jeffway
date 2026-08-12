@@ -1,0 +1,792 @@
+{
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## [VPS] 5. fetch pre-works ready rows → unsuspend (**ASB_Tracking**)\n\nUses `POST /fetch-ready-for-unsuspend` (same browser as suspend flow)",
+        "height": 224,
+        "width": 320
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        7264,
+        6848
+      ],
+      "id": "73c8aa3b-0549-47a3-bc24-8493e20adf8c",
+      "name": "Sticky Note2"
+    },
+    {
+      "parameters": {
+        "content": "## [VPS] Unsuspend all pre-works ready rows; ASB_Tracking sheet updated only when CORF status=suspended",
+        "height": 112,
+        "width": 368,
+        "color": 5
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        9904,
+        6768
+      ],
+      "id": "2db80113-fff4-49a7-b7aa-fdf26a70b5ab",
+      "name": "Sticky Note4"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "api-base-url",
+              "name": "api_base_url",
+              "value": "http://173.212.233.153:8000",
+              "type": "string"
+            },
+            {
+              "id": "contract-id",
+              "name": "contract_id",
+              "value": "321129",
+              "type": "string"
+            },
+            {
+              "id": "skip-already-unsuspended",
+              "name": "skip_already_unsuspended",
+              "value": true,
+              "type": "boolean"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        7904,
+        6928
+      ],
+      "id": "af806dc3-572b-46ce-9a88-a6601ae29b27",
+      "name": "Set API base URL5",
+      "notesInFlow": true,
+      "note": "VPS jeffway-api: http://173.212.233.153:8000"
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "1PRUtOeUec0uMhrj4k1sFEAdo5qvXE9cDOeyAQ67hIDI",
+          "mode": "list",
+          "cachedResultName": "SOR-Codes-Template"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "ASB_Tracking",
+          "mode": "name",
+          "cachedResultName": "ASB_Tracking"
+        },
+        "options": {
+          "returnFirstMatch": false
+        }
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        8800,
+        6928
+      ],
+      "id": "7fe7a9ba-af91-44f7-9712-58659dcb0ae3",
+      "name": "Read ASB_Tracking unsuspend1",
+      "executeOnce": true,
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "0bvpVa8frZ7qSwzx",
+          "name": "hamza-sheets"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "function normCorf(v) {\n  const raw = String(v ?? '').trim();\n  if (!raw) return '';\n  const t = raw.toLowerCase().replace(/\\s+/g, '');\n  const slash = t.match(/^(\\d+)\\/(\\d+)$/);\n  if (slash) return parseInt(slash[1], 10) + '/' + parseInt(slash[2], 10);\n  const digits = t.replace(/\\D/g, '');\n  if (digits.length >= 4) return String(parseInt(digits, 10));\n  return t;\n}\nconst parsedRows = $('Shape ready for unsuspend rows').all().map(i => i.json || {}).filter(r => !r._no_unsuspend_rows);\nconst trackingRows = $('Read ASB_Tracking unsuspend1').all().map(i => i.json || {});\nconst settings = $('Set API base URL5').first().json || {};\nconst api_base_url = settings.api_base_url;\nconst contract_id = settings.contract_id;\nconst skipAlreadyUnsuspended = settings.skip_already_unsuspended !== false && String(settings.skip_already_unsuspended).toLowerCase() !== 'false';\n\nfunction normStatus(s) {\n  return String(s ?? '').trim().toLowerCase();\n}\nfunction isSuspendedStatus(st) {\n  const s = normStatus(st);\n  return s === 'suspended' || s.includes('suspended');\n}\nfunction isAlreadyUnsuspended(st) {\n  const s = normStatus(st);\n  return s === 'unsuspended' || s === 'un suspended' || s.includes('unsuspended');\n}\n\nconst trackingByCorf = new Map();\nfor (const r of trackingRows) {\n  const corf = normCorf(r.corf);\n  if (!corf) continue;\n  trackingByCorf.set(corf, r);\n}\n\nconst eligible_rows = [];\nconst seenCorf = new Set();\nfor (const r of parsedRows) {\n  const corf = normCorf(r.corf);\n  const addr = String(r.address || '').trim();\n  if (!corf || !addr) continue;\n  const tracked = trackingByCorf.get(corf);\n  const sheetStatus = tracked ? normStatus(tracked.status) : '';\n  if (skipAlreadyUnsuspended && tracked && isAlreadyUnsuspended(tracked.status)) continue;\n  const cid = String((tracked && tracked.contract_id) || contract_id || '').trim();\n  const key = `${cid}::${corf}`;\n  if (seenCorf.has(key)) continue;\n  seenCorf.add(key);\n  eligible_rows.push({\n    contract_id: (tracked && tracked.contract_id) || contract_id,\n    uprn: r.uprn || (tracked && tracked.uprn) || null,\n    address: addr,\n    corf,\n    pre_work_id: r.pre_work_id,\n    update_sheet: !!(tracked && isSuspendedStatus(tracked.status)),\n    in_asb_tracking: !!tracked,\n    asb_tracking_status: sheetStatus || null,\n  });\n}\n\nconst addresses = eligible_rows.map(e => e.address);\nconst corfs = eligible_rows.map(e => e.corf).filter(Boolean);\nif (!corfs.length) return [];\nreturn [{ json: { corfs: [...new Set(corfs)], addresses: [...new Set(addresses)], contract_id, api_base_url, eligible_rows } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        9024,
+        6928
+      ],
+      "id": "a53ac8dc-8138-48a8-be6e-c2e7c3e7275c",
+      "name": "Aggregate matched addresses"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ ($json.api_base_url || '').replace(/\\/+$/, '') + '/unsuspend-works' }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ contract_id: $json.contract_id || '321129', corfs: $json.corfs, keep_page_open: true }) }}",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          },
+          "timeout": 600000
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        9248,
+        6928
+      ],
+      "id": "4b89110c-994d-4a8a-b15e-259beb8b820d",
+      "name": "POST unsuspend-works",
+      "notesInFlow": true,
+      "note": "POST /unsuspend-works with corfs — paginates works index, ticks checkboxes, clicks Bulk Un-suspend Works"
+    },
+    {
+      "parameters": {
+        "jsCode": "function normCorf(v) {\n  const raw = String(v ?? '').trim();\n  if (!raw) return '';\n  const t = raw.toLowerCase().replace(/\\s+/g, '');\n  const slash = t.match(/^(\\d+)\\/(\\d+)$/);\n  if (slash) return parseInt(slash[1], 10) + '/' + parseInt(slash[2], 10);\n  const digits = t.replace(/\\D/g, '');\n  if (digits.length >= 4) return String(parseInt(digits, 10));\n  return t;\n}function extractApiBody(resp) {\n  const statusCode = resp.statusCode ?? resp.status ?? 0;\n  let body = resp.body ?? resp.data ?? resp;\n  if (typeof body === 'string') {\n    try { body = JSON.parse(body); } catch (e) {\n      const m = body.match(/\\{[\\s\\S]*\\}/);\n      if (m) { try { body = JSON.parse(m[0]); } catch (e2) { body = {}; } } else { body = {}; }\n    }\n  }\n  if (body && typeof body === 'object' && body.body && body.checked === undefined && body.results === undefined && body.properties === undefined) {\n    body = body.body;\n  }\n  return { statusCode, body: body || {} };\n}\nconst postItems = $('POST unsuspend-works').all();\nconst respRaw = postItems.length ? (postItems[0].json || {}) : {};\nconst { body: response } = extractApiBody(respRaw);\nconst checkedCorfs = Array.isArray(response.checked) ? response.checked : [];\nconst agg = $('Aggregate matched addresses').first().json || {};\nconst eligible = Array.isArray(agg.eligible_rows) ? agg.eligible_rows : [];\n\nfunction corfsMatch(left, right) {\n  return normCorf(left) === normCorf(right);\n}\n\nconst seen = new Set();\nconst updates = [];\nfor (const row of eligible) {\n  const corf = normCorf(row.corf);\n  if (!corf) continue;\n  const wasUnsuspended = checkedCorfs.some((checked) => corfsMatch(corf, checked));\n  if (!wasUnsuspended) continue;\n  if (row.update_sheet === false) continue;\n  const contractId = String(row.contract_id || '').trim();\n  if (!contractId || !corf) continue;\n  const key = `${contractId}::${corf}`;\n  if (seen.has(key)) continue;\n  seen.add(key);\n  updates.push({\n    json: {\n      contract_id: row.contract_id,\n      uprn: row.uprn,\n      corf,\n      status: 'unsuspended',\n      pending_unsuspend_note: true,\n    },\n  });\n}\n\nif (updates.length) return updates;\nreturn [{ json: { contract_id: '', corf: '__SKIP__', status: '', pending_unsuspend_note: false } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        9472,
+        6928
+      ],
+      "id": "427f1769-60f1-4782-92fd-5a0855e983af",
+      "name": "Prepare monitor status updates2"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "skip-monitor-upsert",
+              "leftValue": "={{ String($json.corf || '') }}",
+              "rightValue": "__SKIP__",
+              "operator": {
+                "type": "string",
+                "operation": "notEquals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        9696,
+        6928
+      ],
+      "id": "a4b2c9af-5d98-4ac7-873a-6e0a28e34568",
+      "name": "Has ASB_Tracking upserts?"
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "documentId": {
+          "__rl": true,
+          "value": "1PRUtOeUec0uMhrj4k1sFEAdo5qvXE9cDOeyAQ67hIDI",
+          "mode": "list",
+          "cachedResultName": "SOR-Codes-Template"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "ASB_Tracking",
+          "mode": "name",
+          "cachedResultName": "ASB_Tracking"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {
+            "uprn": "={{ $json.uprn }}",
+            "status": "={{ $json.status }}",
+            "pending_unsuspend_note": "={{ $json.pending_unsuspend_note }}",
+            "row_number": 0,
+            "corf": "={{ $json.corf }}"
+          },
+          "matchingColumns": [
+            "corf"
+          ],
+          "schema": [
+            {
+              "id": "contract_id",
+              "displayName": "contract_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "corf",
+              "displayName": "corf",
+              "required": false,
+              "defaultMatch": true,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "uprn",
+              "displayName": "uprn",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "status",
+              "displayName": "status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "pending_unsuspend_note",
+              "displayName": "pending_unsuspend_note",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "row_number",
+              "displayName": "row_number",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true,
+              "readOnly": true,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        9920,
+        6848
+      ],
+      "id": "5fdf06a8-5127-4d87-b232-e19eecca2ac7",
+      "name": "Update ASB_Tracking unsuspended1",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "0bvpVa8frZ7qSwzx",
+          "name": "hamza-sheets"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "api-base-url",
+              "name": "api_base_url",
+              "value": "http://173.212.233.153:8000",
+              "type": "string"
+            },
+            {
+              "id": "contract-id",
+              "name": "contract_id",
+              "value": "321129",
+              "type": "string"
+            },
+            {
+              "id": "only-pending-unsuspend-notes",
+              "name": "only_pending_unsuspend_notes",
+              "value": true,
+              "type": "boolean"
+            },
+            {
+              "id": "unsuspend-note-text",
+              "name": "unsuspend_note_text",
+              "value": "Works have been un-suspended following receipt of asbestos report.",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        7920,
+        7264
+      ],
+      "id": "ed28287a-9df6-4bf8-93ae-ec14103c4db2",
+      "name": "Set unsuspend note params",
+      "notesInFlow": true,
+      "note": "VPS jeffway-api: http://173.212.233.153:8000"
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "1PRUtOeUec0uMhrj4k1sFEAdo5qvXE9cDOeyAQ67hIDI",
+          "mode": "list",
+          "cachedResultName": "SOR-Codes-Template"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "ASB_Tracking",
+          "mode": "name",
+          "cachedResultName": "ASB_Tracking"
+        },
+        "options": {
+          "returnFirstMatch": false
+        }
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        8144,
+        7264
+      ],
+      "id": "48f1410f-43a5-410d-b9ec-159126a36d5b",
+      "name": "Read ASB_Tracking unsuspend notes1",
+      "executeOnce": true,
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "0bvpVa8frZ7qSwzx",
+          "name": "hamza-sheets"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "function normCorf(v) {\n  const raw = String(v ?? '').trim();\n  if (!raw) return '';\n  const t = raw.toLowerCase().replace(/\\s+/g, '');\n  const slash = t.match(/^(\\d+)\\/(\\d+)$/);\n  if (slash) return parseInt(slash[1], 10) + '/' + parseInt(slash[2], 10);\n  const digits = t.replace(/\\D/g, '');\n  if (digits.length >= 4) return String(parseInt(digits, 10));\n  return t;\n}\nfunction extractApiBody(resp) {\n  let body = resp.body ?? resp.data ?? resp;\n  if (typeof body === 'string') {\n    try { body = JSON.parse(body); } catch (e) { body = {}; }\n  }\n  if (body && typeof body === 'object' && body.body && body.checked === undefined) {\n    body = body.body;\n  }\n  return body || {};\n}\n\nconst settings = $('Set unsuspend note params').first().json || {};\nconst contract_id = settings.contract_id;\nconst api_base_url = settings.api_base_url;\nconst note_text = String(settings.unsuspend_note_text || 'Works have been un-suspended following receipt of asbestos report.').trim();\nconst onlyPending = settings.only_pending_unsuspend_notes !== false && String(settings.only_pending_unsuspend_notes).toLowerCase() !== 'false';\n\nfunction isPendingUnsuspendNote(row) {\n  const p = row.pending_unsuspend_note;\n  return p === true || p === 1 || String(p).toLowerCase() === 'true';\n}\n\nconst sheetRows = $input.all().map((i) => i.json || {});\n\n// Same-run: CORFs successfully unsuspended via POST unsuspend-works\nconst postItems = $('POST unsuspend-works').all();\nconst response = postItems.length ? extractApiBody(postItems[0].json || {}) : {};\nconst checkedCorfs = new Set((Array.isArray(response.checked) ? response.checked : []).map(normCorf));\nconst agg = $('Aggregate matched addresses').first().json || {};\nconst eligible = Array.isArray(agg.eligible_rows) ? agg.eligible_rows : [];\n\nconst runRows = [];\nfor (const row of eligible) {\n  const corf = normCorf(row.corf);\n  if (!corf || !checkedCorfs.has(corf)) continue;\n  runRows.push({\n    contract_id: row.contract_id || contract_id,\n    uprn: row.uprn,\n    address: String(row.address || '').trim(),\n    corf,\n  });\n}\n\nlet filtered = sheetRows;\nif (onlyPending) filtered = sheetRows.filter(isPendingUnsuspendNote);\n\nconst sheetPending = [];\nfor (const r of filtered) {\n  const corf = normCorf(r.corf);\n  if (!corf) continue;\n  sheetPending.push({\n    contract_id: r.contract_id || contract_id,\n    uprn: r.uprn,\n    address: String(r.address || '').trim(),\n    corf,\n  });\n}\n\n// Prefer same-run unsuspend results; fall back to ASB_Tracking pending rows (manual/scheduled note pass)\nconst sourceRows = runRows.length ? runRows : sheetPending;\n\nconst rows_cleared_pending = [];\nconst seenCorf = new Set();\nfor (const r of sourceRows) {\n  const corf = normCorf(r.corf);\n  if (!corf || seenCorf.has(corf)) continue;\n  seenCorf.add(corf);\n  rows_cleared_pending.push(r);\n}\n\nconst corfs = rows_cleared_pending.map((x) => x.corf);\nif (!corfs.length) return [];\nreturn [{ json: { corfs, contract_id, api_base_url, note_text, rows_cleared_pending } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        8368,
+        7264
+      ],
+      "id": "bdabfc33-c106-45df-8315-aa9474e560d2",
+      "name": "Aggregate unsuspend note addresses",
+      "alwaysOutputData": false
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ ($json.api_base_url || '').replace(/\\/+$/, '') + '/bulk-add-notes-report-ordered' }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ contract_id: $json.contract_id || '321129', corfs: $json.corfs, note_text: $json.note_text, keep_page_open: true }) }}",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          },
+          "timeout": 600000
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        8592,
+        7264
+      ],
+      "id": "b264a753-dfa9-46dc-8810-bfcf1e93d71f",
+      "name": "POST bulk-add-notes-report-ordered",
+      "notesInFlow": true,
+      "note": "Adds unsuspend note via bulk-add-notes-report-ordered; corfs from ASB_Tracking."
+    },
+    {
+      "parameters": {
+        "jsCode": "function normCorf(v) {\n  const raw = String(v ?? '').trim();\n  if (!raw) return '';\n  const t = raw.toLowerCase().replace(/\\s+/g, '');\n  const slash = t.match(/^(\\d+)\\/(\\d+)$/);\n  if (slash) return parseInt(slash[1], 10) + '/' + parseInt(slash[2], 10);\n  const digits = t.replace(/\\D/g, '');\n  if (digits.length >= 4) return String(parseInt(digits, 10));\n  return t;\n}function extractApiBody(resp) {\n  const statusCode = resp.statusCode ?? resp.status ?? 0;\n  let body = resp.body ?? resp.data ?? resp;\n  if (typeof body === 'string') {\n    try { body = JSON.parse(body); } catch (e) {\n      const m = body.match(/\\{[\\s\\S]*\\}/);\n      if (m) { try { body = JSON.parse(m[0]); } catch (e2) { body = {}; } } else { body = {}; }\n    }\n  }\n  if (body && typeof body === 'object' && body.body && body.checked === undefined && body.results === undefined && body.properties === undefined) {\n    body = body.body;\n  }\n  return { statusCode, body: body || {} };\n}\nconst settings = $('Set unsuspend note params').first().json || {};\nconst onlyPending = settings.only_pending_unsuspend_notes !== false && String(settings.only_pending_unsuspend_notes).toLowerCase() !== 'false';\nif (!onlyPending) return [];\n\nconst postItems = $('POST bulk-add-notes-report-ordered').all();\nconst respRaw = postItems.length ? (postItems[0].json || {}) : ($input.first()?.json || {});\nconst { body: res } = extractApiBody(respRaw);\nconst agg = $('Aggregate unsuspend note addresses').first().json || {};\nconst pendingRows = Array.isArray(agg.rows_cleared_pending) ? agg.rows_cleared_pending : [];\n\nconst checkedCorfs = Array.isArray(res.checked) ? res.checked : [];\nconst succeeded = new Set(checkedCorfs.map(normCorf));\n\nconst out = [];\nconst seen = new Set();\nfor (const row of pendingRows) {\n  const corf = normCorf(row.corf);\n  if (!corf) continue;\n  if (!succeeded.has(corf)) continue;\n  const cid = String(row.contract_id || '').trim();\n  if (!cid) continue;\n  const key = `${cid}::${corf}`;\n  if (seen.has(key)) continue;\n  seen.add(key);\n  out.push({ json: { contract_id: row.contract_id, corf, pending_unsuspend_note: false } });\n}\nreturn out;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        8816,
+        7264
+      ],
+      "id": "96ac9216-aab0-485d-895c-812d06a75e59",
+      "name": "Clear pending_unsuspend_note after notes"
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "documentId": {
+          "__rl": true,
+          "value": "1PRUtOeUec0uMhrj4k1sFEAdo5qvXE9cDOeyAQ67hIDI",
+          "mode": "list",
+          "cachedResultName": "SOR-Codes-Template"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "ASB_Tracking",
+          "mode": "name",
+          "cachedResultName": "ASB_Tracking"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {
+            "pending_unsuspend_note": "={{ $json.pending_unsuspend_note }}",
+            "row_number": 0,
+            "corf": "={{ $json.corf }}"
+          },
+          "matchingColumns": [
+            "corf"
+          ],
+          "schema": [
+            {
+              "id": "corf",
+              "displayName": "corf",
+              "required": false,
+              "defaultMatch": true,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "pending_unsuspend_note",
+              "displayName": "pending_unsuspend_note",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "row_number",
+              "displayName": "row_number",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true,
+              "readOnly": true,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        9040,
+        7264
+      ],
+      "id": "7797c231-1884-4543-8823-d4bec29ca801",
+      "name": "Update ASB_Tracking clear unsuspend note",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "0bvpVa8frZ7qSwzx",
+          "name": "hamza-sheets"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "content": "## [VPS] 6. write note for un-suspended jobs - from **ASB_Tracking** sheet (bulk)",
+        "height": 208,
+        "width": 288
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        7264,
+        7232
+      ],
+      "id": "75ec7321-4529-4bad-afa9-2ffd8679e206",
+      "name": "Sticky Note7"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ ($json.api_base_url || '').replace(/\\/+$/, '') + '/fetch-ready-for-unsuspend' }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ contract_id: $json.contract_id || '321129' }) }}",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          },
+          "timeout": 600000
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        8128,
+        6928
+      ],
+      "id": "29e59688-2511-4b35-9d9a-201673a664f3",
+      "name": "POST fetch-ready-for-unsuspend",
+      "executeOnce": true,
+      "notesInFlow": true,
+      "note": "VPS: POST /fetch-ready-for-unsuspend — paginates pre_works jqGrid via #next_list_pager"
+    },
+    {
+      "parameters": {
+        "jsCode": "function extractApiBody(resp) {\n  const statusCode = resp.statusCode ?? resp.status ?? 0;\n  let body = resp.body ?? resp.data ?? resp;\n  if (typeof body === 'string') {\n    try { body = JSON.parse(body); } catch (e) {\n      const m = body.match(/\\{[\\s\\S]*\\}/);\n      if (m) { try { body = JSON.parse(m[0]); } catch (e2) { body = {}; } } else { body = {}; }\n    }\n  }\n  if (body && typeof body === 'object' && body.body && body.checked === undefined && body.results === undefined && body.properties === undefined) {\n    body = body.body;\n  }\n  return { statusCode, body: body || {} };\n}\n\nconst postItems = $('POST fetch-ready-for-unsuspend').all();\nconst respRaw = postItems.length ? (postItems[0].json || {}) : ($input.first()?.json || {});\nconst { body: response } = extractApiBody(respRaw);\nconst properties = Array.isArray(response.properties) ? response.properties : [];\n\nif (!properties.length) {\n  return [{\n    json: {\n      _no_unsuspend_rows: true,\n      contract_id: response.contract_id || null,\n      uprn: null,\n      address: null,\n      corf: null,\n      run_total: response.total ?? 0,\n      run_message: response.message || 'No rows ready for un-suspend on pre-works report.',\n      success: String(response.success ?? false),\n    },\n  }];\n}\n\nreturn properties.map((row) => ({\n  json: {\n    contract_id: response.contract_id || null,\n    easybop_row_id: row.row_id || null,\n    uprn: row.uprn || null,\n    address: row.address || null,\n    corf: row.corf || null,\n    pre_work_id: row.row_id || null,\n    run_total: response.total ?? properties.length,\n    run_message: response.message || '',\n    success: String(response.success ?? false),\n  },\n}));"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        8352,
+        6928
+      ],
+      "id": "6ced2887-9def-4fb0-83cd-cbfae0a8ffaa",
+      "name": "Shape ready for unsuspend rows"
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 9-19/1 * * 1-5"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.3,
+      "position": [
+        7680,
+        6928
+      ],
+      "id": "faf1e4ee-c8b4-49b5-b5d4-6ddb50e7f866",
+      "name": "Schedule Trigger7",
+      "notesInFlow": true,
+      "note": "Mon–Fri 09:00–19:00 Europe/London, every hour (cron: 0 9-19 * * 1-5)"
+    }
+  ],
+  "connections": {
+    "Set API base URL5": {
+      "main": [
+        [
+          {
+            "node": "POST fetch-ready-for-unsuspend",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read ASB_Tracking unsuspend1": {
+      "main": [
+        [
+          {
+            "node": "Aggregate matched addresses",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Aggregate matched addresses": {
+      "main": [
+        [
+          {
+            "node": "POST unsuspend-works",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "POST unsuspend-works": {
+      "main": [
+        [
+          {
+            "node": "Prepare monitor status updates2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare monitor status updates2": {
+      "main": [
+        [
+          {
+            "node": "Has ASB_Tracking upserts?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has ASB_Tracking upserts?": {
+      "main": [
+        [
+          {
+            "node": "Update ASB_Tracking unsuspended1",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Set unsuspend note params",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update ASB_Tracking unsuspended1": {
+      "main": [
+        [
+          {
+            "node": "Set unsuspend note params",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Set unsuspend note params": {
+      "main": [
+        [
+          {
+            "node": "Read ASB_Tracking unsuspend notes1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read ASB_Tracking unsuspend notes1": {
+      "main": [
+        [
+          {
+            "node": "Aggregate unsuspend note addresses",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Aggregate unsuspend note addresses": {
+      "main": [
+        [
+          {
+            "node": "POST bulk-add-notes-report-ordered",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "POST bulk-add-notes-report-ordered": {
+      "main": [
+        [
+          {
+            "node": "Clear pending_unsuspend_note after notes",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Clear pending_unsuspend_note after notes": {
+      "main": [
+        [
+          {
+            "node": "Update ASB_Tracking clear unsuspend note",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "POST fetch-ready-for-unsuspend": {
+      "main": [
+        [
+          {
+            "node": "Shape ready for unsuspend rows",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Shape ready for unsuspend rows": {
+      "main": [
+        [
+          {
+            "node": "Read ASB_Tracking unsuspend1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Schedule Trigger7": {
+      "main": [
+        [
+          {
+            "node": "Set API base URL5",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "a5cd22a95d5313a977e9ac21c3a833db76b18ca78fb8cb2cf7013465d69f17f8"
+  }
+}

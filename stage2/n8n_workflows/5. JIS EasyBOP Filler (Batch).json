@@ -1,0 +1,832 @@
+{
+    "nodes": [
+      {
+        "parameters": {
+          "httpMethod": "POST",
+          "path": "jeffway/jis-fill-new",
+          "responseMode": "responseNode",
+          "options": {}
+        },
+        "type": "n8n-nodes-base.webhook",
+        "typeVersion": 2,
+        "position": [
+          -16528,
+          18672
+        ],
+        "id": "983ce892-12a9-4ff4-b89f-fea8ff7756ad",
+        "name": "Webhook jis-fill",
+        "webhookId": "0235e661-38c7-4150-bcd3-bf76ad5ed7df",
+        "notesInFlow": true
+      },
+      {
+        "parameters": {
+          "jsCode": "function rowFilledOk(r) {\n  if (!r) return false;\n  if (r.success === true) return true;\n  const n = Number(r.fields_filled);\n  if (!Number.isNaN(n) && n > 0) return true;\n  return /JIS filled/i.test(String(r.message || ''));\n}\n\nconst res = $input.first().json || {};\nconst previews = $('Build Batch Payload').first().json.previews || [];\nconst results = res.results || [];\nconst updates = [];\nconst failed = [];\n\nfor (const r of results) {\n  const idx = typeof r.index === 'number' ? r.index : parseInt(r.index, 10);\n  const prev = Number.isNaN(idx) ? null : previews[idx];\n  if (rowFilledOk(r) && prev && prev.row_number != null) {\n    updates.push({\n      json: {\n        row_number: prev.row_number,\n        jis_uploaded: true,\n        jis_uploaded_at: new Date().toISOString(),\n        q13: prev.q13 || r.q13 || null,\n        _had_warnings: r.success === false,\n      },\n    });\n  } else if (prev) {\n    failed.push({\n      row_number: prev.row_number ?? null,\n      q13: prev.q13 ?? r.q13 ?? null,\n      message: r.message || res.message || 'Not filled',\n    });\n  }\n}\n\nconst okCount = updates.length;\n\nif (!updates.length) {\n  return [{\n    json: {\n      _skip_update: true,\n      jis_uploaded_marked_count: 0,\n      batch_success: okCount > 0,\n      failed_count: failed.length,\n      failed_rows: failed,\n      http_error: res.http_error === true,\n      message: res.message || 'No rows to mark jis_uploaded on jis tab.',\n    },\n  }];\n}\n\nreturn updates.map((item, i) => ({\n  json: {\n    ...item.json,\n    _skip_update: false,\n    ...(i === 0\n      ? {\n          jis_uploaded_marked_count: updates.length,\n          batch_success: okCount > 0,\n          failed_count: failed.length,\n          failed_rows: failed,\n          http_error: res.http_error === true,\n        }\n      : {}),\n  },\n}));"
+        },
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          -14288,
+          18672
+        ],
+        "id": "94446423-5014-4256-a950-31db927dfd26",
+        "name": "Prepare jis_uploaded updates",
+        "notesInFlow": true
+      },
+      {
+        "parameters": {
+          "conditions": {
+            "options": {
+              "caseSensitive": true,
+              "leftValue": "",
+              "typeValidation": "strict",
+              "version": 2
+            },
+            "conditions": [
+              {
+                "id": "cond-has-upload-updates",
+                "leftValue": "={{ $json._skip_update }}",
+                "rightValue": false,
+                "operator": {
+                  "type": "boolean",
+                  "operation": "equals"
+                }
+              }
+            ],
+            "combinator": "and"
+          },
+          "options": {}
+        },
+        "type": "n8n-nodes-base.if",
+        "typeVersion": 2.2,
+        "position": [
+          -14064,
+          18672
+        ],
+        "id": "1939aaa7-8ae5-4540-b564-3a7f1ce53f43",
+        "name": "IF Has jis_uploaded to mark"
+      },
+      {
+        "parameters": {
+          "operation": "update",
+          "documentId": {
+            "__rl": true,
+            "value": "1PRUtOeUec0uMhrj4k1sFEAdo5qvXE9cDOeyAQ67hIDI",
+            "mode": "list",
+            "cachedResultName": "SOR-Codes-Template"
+          },
+          "sheetName": {
+            "__rl": true,
+            "value": 1611853392,
+            "mode": "list",
+            "cachedResultName": "jis",
+            "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1PRUtOeUec0uMhrj4k1sFEAdo5qvXE9cDOeyAQ67hIDI/edit#gid=1611853392"
+          },
+          "columns": {
+            "mappingMode": "defineBelow",
+            "value": {
+              "jis_uploaded": "={{ $json.jis_uploaded }}",
+              "row_number": "={{ $json.row_number }}"
+            },
+            "matchingColumns": [
+              "row_number"
+            ],
+            "schema": [
+              {
+                "id": "jis_uploaded",
+                "displayName": "jis_uploaded",
+                "required": false,
+                "defaultMatch": false,
+                "display": true,
+                "type": "string",
+                "canBeUsedToMatch": true
+              },
+              {
+                "id": "row_number",
+                "displayName": "row_number",
+                "required": false,
+                "defaultMatch": true,
+                "display": true,
+                "type": "number",
+                "canBeUsedToMatch": true,
+                "readOnly": true
+              }
+            ]
+          },
+          "options": {}
+        },
+        "type": "n8n-nodes-base.googleSheets",
+        "typeVersion": 4.7,
+        "position": [
+          -13840,
+          18592
+        ],
+        "id": "6ec6fdf4-5f92-43b4-9345-7a3adf645537",
+        "name": "Update jis_uploaded on jis tab",
+        "notesInFlow": true,
+        "credentials": {
+          "googleSheetsOAuth2Api": {
+            "id": "0bvpVa8frZ7qSwzx",
+            "name": "hamza-sheets"
+          }
+        }
+      },
+      {
+        "parameters": {
+          "jsCode": "function rowFilledOk(r) {\n  if (!r) return false;\n  if (r.success === true) return true;\n  const n = Number(r.fields_filled);\n  if (!Number.isNaN(n) && n > 0) return true;\n  return /JIS filled/i.test(String(r.message || ''));\n}\n\nconst items = $input.all();\nconst first = items[0]?.json || {};\nconst prep = $('Prepare jis_uploaded updates').first().json || {};\nconst batch = $('Log Batch Result').first().json || $('POST fill-jis-batch').first().json || {};\nconst results = batch.results || [];\nconst okCount = results.filter(rowFilledOk).length;\n\nconst marked =\n  prep.jis_uploaded_marked_count ??\n  items.filter((i) => i.json.jis_uploaded === true || String(i.json.jis_uploaded).toLowerCase() === 'true').length;\n\nconst failedCount = prep.failed_count ?? Math.max(0, results.length - okCount);\nconst batchOk = marked > 0 || okCount > 0 || first.batch_success === true || prep.batch_success === true;\n\nreturn [{\n  json: {\n    ok: batchOk,\n    message:\n      first.message ||\n      prep.message ||\n      batch.message ||\n      `Marked ${marked} row(s) jis_uploaded; ${failedCount} failed`,\n    rows_processed: batch.rows_processed ?? results.length ?? null,\n    jis_uploaded_marked_count: marked,\n    results_ok_count: okCount,\n    results_count: results.length,\n    failed_count: failedCount,\n    failed_rows: prep.failed_rows || [],\n    http_error: prep.http_error === true || batch.http_error === true,\n  },\n}];"
+        },
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          -13616,
+          18672
+        ],
+        "id": "23eb56f0-d880-4590-9ceb-bdae7228209f",
+        "name": "Summarize filler for webhook"
+      },
+      {
+        "parameters": {
+          "respondWith": "json",
+          "responseBody": "={{ JSON.stringify({ ok: $json.ok !== false, message: $json.message || $json._message || 'Done', rows_processed: $json.rows_processed ?? null, jis_uploaded_marked_count: $json.jis_uploaded_marked_count ?? 0, row_count: $json._count ?? $json.row_count ?? null }) }}",
+          "options": {}
+        },
+        "type": "n8n-nodes-base.respondToWebhook",
+        "typeVersion": 1.1,
+        "position": [
+          -13376,
+          18864
+        ],
+        "id": "f653c38c-1665-4254-9f00-da04f254649b",
+        "name": "Respond to Webhook (jis-fill)"
+      },
+      {
+        "parameters": {
+          "documentId": {
+            "__rl": true,
+            "value": "1PRUtOeUec0uMhrj4k1sFEAdo5qvXE9cDOeyAQ67hIDI",
+            "mode": "list",
+            "cachedResultName": "SOR-Codes-Template"
+          },
+          "sheetName": {
+            "__rl": true,
+            "value": 1360938164,
+            "mode": "list",
+            "cachedResultName": "appointment ",
+            "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1PRUtOeUec0uMhrj4k1sFEAdo5qvXE9cDOeyAQ67hIDI/edit#gid=1360938164"
+          },
+          "options": {}
+        },
+        "type": "n8n-nodes-base.googleSheets",
+        "typeVersion": 4.7,
+        "position": [
+          -16080,
+          18768
+        ],
+        "id": "bc18d2b3-a89a-461a-9dee-dbbe5d32dc5e",
+        "name": "Read appointment tab1",
+        "alwaysOutputData": true,
+        "credentials": {
+          "googleSheetsOAuth2Api": {
+            "id": "0bvpVa8frZ7qSwzx",
+            "name": "hamza-sheets"
+          }
+        }
+      },
+      {
+        "parameters": {
+          "jsCode": "const apptByUprn = {};\nfor (const item of $input.all()) {\n  const r = item.json || {};\n  const uprn = String(r.UPRN ?? '').replace(/\\D/g, '');\n  if (uprn) apptByUprn[uprn] = r;\n}\n$getWorkflowStaticData('global').apptByUprn = apptByUprn;\nreturn [{\n  json: {\n    appointment_rows_indexed: Object.keys(apptByUprn).length\n  }\n}];"
+        },
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          -15856,
+          18768
+        ],
+        "id": "61239e96-7a8b-44ab-aabe-5d1edf87f32e",
+        "name": "Index Appointments1"
+      },
+      {
+        "parameters": {
+          "assignments": {
+            "assignments": [
+              {
+                "id": "api-base-url",
+                "name": "api_base_url",
+                "value": "http://173.212.233.153:8000",
+                "type": "string"
+              },
+              {
+                "id": "contract-id",
+                "name": "contract_id",
+                "value": "321129",
+                "type": "string"
+              }
+            ]
+          },
+          "options": {}
+        },
+        "type": "n8n-nodes-base.set",
+        "typeVersion": 3.4,
+        "position": [
+          -16304,
+          18768
+        ],
+        "id": "34097f48-b623-4e96-9865-838993f75427",
+        "name": "Set API base URL",
+        "notesInFlow": true
+      },
+      {
+        "parameters": {
+          "documentId": {
+            "__rl": true,
+            "value": "1PRUtOeUec0uMhrj4k1sFEAdo5qvXE9cDOeyAQ67hIDI",
+            "mode": "list",
+            "cachedResultName": "SOR-Codes-Template"
+          },
+          "sheetName": {
+            "__rl": true,
+            "value": 1611853392,
+            "mode": "list",
+            "cachedResultName": "jis",
+            "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1PRUtOeUec0uMhrj4k1sFEAdo5qvXE9cDOeyAQ67hIDI/edit#gid=1611853392"
+          },
+          "options": {}
+        },
+        "type": "n8n-nodes-base.googleSheets",
+        "typeVersion": 4.7,
+        "position": [
+          -15632,
+          18768
+        ],
+        "id": "957e7708-47dc-40b5-a4eb-ae9214234f77",
+        "name": "Read jis tab",
+        "alwaysOutputData": true,
+        "credentials": {
+          "googleSheetsOAuth2Api": {
+            "id": "0bvpVa8frZ7qSwzx",
+            "name": "hamza-sheets"
+          }
+        }
+      },
+      {
+        "parameters": {
+          "jsCode": "const JIS_KEYS = [\n  'Q1.1', 'Q1.2', 'Q1.3', 'Q1.4', 'Q1.5', 'Q1.6',\n  'Q2.1', 'Q2.2', 'Q3.1', 'Q3.2', 'Q4.1', 'Q4.2', 'Q5.1', 'Q5.2',\n  'QS-Task', 'Asbestos Status'\n];\n\nfunction isJisUploaded(v) {\n  if (v === true || v === 1) return true;\n  const s = String(v ?? '').trim().toLowerCase();\n  return s === 'true' || s === 'yes' || s === '1' || s === 'uploaded';\n}\n\nfunction pickUploadedFlag(row) {\n  return row.jis_uploaded ?? row['JIS-uploaded'] ?? row['JIS uploaded'] ?? null;\n}\n\nconst out = [];\nlet skippedUploaded = 0;\n\nfor (const item of $input.all()) {\n  const row = item.json || {};\n  const q13 = String(row['Q1.3'] ?? '').trim();\n  if (!q13) continue;\n\n  if (isJisUploaded(pickUploadedFlag(row))) {\n    skippedUploaded++;\n    continue;\n  }\n\n  const row_data = {};\n  for (const k of JIS_KEYS) {\n    if (row[k] != null && String(row[k]).trim() !== '') {\n      row_data[k] = String(row[k]).trim();\n    }\n  }\n  if (!row_data['Q1.3']) continue;\n\n  out.push({\n    json: {\n      row_data,\n      row_number: row.row_number ?? null,\n      q13_preview: q13,\n      q12_preview: row_data['Q1.2'] || null\n    }\n  });\n}\n\nif (!out.length) {\n  return [{\n    json: {\n      _message: skippedUploaded\n        ? 'No pending jis rows — all with Q1.3 already have jis_uploaded=true'\n        : 'No jis rows with Q1.3 set',\n      _count: 0,\n      skipped_already_uploaded: skippedUploaded\n    }\n  }];\n}\nreturn out;"
+        },
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          -15408,
+          18768
+        ],
+        "id": "59ff90fa-6dec-4ee3-85f2-b3752d40e9a0",
+        "name": "Filter Rows With Q1.111"
+      },
+      {
+        "parameters": {
+          "conditions": {
+            "options": {
+              "caseSensitive": true,
+              "leftValue": "",
+              "typeValidation": "strict",
+              "version": 2
+            },
+            "conditions": [
+              {
+                "id": "has-q13",
+                "leftValue": "={{ $json.row_data }}",
+                "rightValue": "",
+                "operator": {
+                  "type": "object",
+                  "operation": "exists",
+                  "singleValue": true
+                }
+              }
+            ],
+            "combinator": "and"
+          },
+          "options": {}
+        },
+        "type": "n8n-nodes-base.if",
+        "typeVersion": 2.2,
+        "position": [
+          -15184,
+          18768
+        ],
+        "id": "a3f68e0a-fbb7-44b2-9ae6-828de007081c",
+        "name": "IF Has Rows To Fill"
+      },
+      {
+        "parameters": {
+          "jsCode": "const APPT_KEYS = [\n  'UPRN', '7.1', '7.2', '8.1', '8.2', '9.1', '9.2', '10.1', '10.2', '11.1', '11.2',\n  'Trade_1', 'Hours_1', 'Notes_1', 'Trade_2', 'Hours_2', 'Notes_2',\n  'Trade_3', 'Hours_3', 'Notes_3', 'Trade_4', 'Hours_4', 'Notes_4',\n  'Trade_5', 'Hours_5', 'Notes_5'\n];\n\nfunction normUprn(v) {\n  return String(v ?? '').replace(/\\D/g, '');\n}\n\nfunction uprnFromQ12(q12) {\n  const m = String(q12 ?? '').match(/-\\s*(\\d{5,})\\s*$/);\n  return m ? normUprn(m[1]) : '';\n}\n\nfunction normCorf(v) {\n  const raw = String(v ?? '').trim();\n  if (!raw) return '';\n  const t = raw.toLowerCase().replace(/\\s+/g, '');\n  const slash = t.match(/^(\\d+)\\/(\\d+)$/);\n  if (slash) return parseInt(slash[1], 10) + '/' + parseInt(slash[2], 10);\n  const digits = t.replace(/\\D/g, '');\n  if (digits.length >= 4) return String(parseInt(digits, 10));\n  return t;\n}\n\nfunction cleanAddrKey(str) {\n  return String(str || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').replace(/\\s+/g, ' ').trim();\n}\n\nfunction addrFromQ12(q12) {\n  const m = String(q12 || '').match(/^[^-]+-\\s*(.+?)\\s*-\\s*\\d{5,}\\s*$/);\n  return m ? cleanAddrKey(m[1]) : cleanAddrKey(String(q12 || '').split('-')[0]);\n}\n\nconst apptByUprn = $getWorkflowStaticData('global').apptByUprn || {};\nconst corfToWorksId = $getWorkflowStaticData('global').corfToWorksId || {};\nconst addrToWorksId = $getWorkflowStaticData('global').addrToWorksId || {};\nconst items = $input.all();\nconst opts = $('Set API base URL').first().json || {};\nconst rows = [];\nconst previews = [];\nlet resolved = 0;\nlet missing = 0;\n\nfor (const it of items) {\n  const row_data = { ...(it.json.row_data || {}) };\n  if (!row_data['Q1.3']) continue;\n\n  const uprn = uprnFromQ12(row_data['Q1.2']) || normUprn(row_data.UPRN);\n  const ap = uprn ? apptByUprn[uprn] : null;\n  if (ap) {\n    const appointment_row = {};\n    for (const k of APPT_KEYS) {\n      if (ap[k] != null && String(ap[k]).trim() !== '') {\n        appointment_row[k] = String(ap[k]).trim();\n      }\n    }\n    if (Object.keys(appointment_row).length) {\n      row_data.appointment_row = appointment_row;\n    }\n  }\n\n  const corf = normCorf(row_data['Q1.3']);\n  let works_id = corfToWorksId[corf] || '';\n  if (!works_id) {\n    const addrKey = addrFromQ12(row_data['Q1.2']);\n    if (addrKey) works_id = addrToWorksId[addrKey] || '';\n  }\n  if (works_id) {\n    row_data.works_id = works_id;\n    resolved += 1;\n  } else {\n    missing += 1;\n  }\n\n  rows.push(row_data);\n  previews.push({\n    row_number: it.json.row_number,\n    q13: it.json.q13_preview,\n    q12: it.json.q12_preview,\n    uprn,\n    works_id: works_id || null,\n    has_appointment: Boolean(ap && (ap.Trade_1 || '').toString().trim()),\n  });\n}\n\nreturn [{\n  json: {\n    api_base_url: opts.api_base_url || opts.ngrok_base_url,\n    contract_id: opts.contract_id || '321129',\n    rows,\n    row_count: rows.length,\n    previews,\n    works_id_resolved: resolved,\n    works_id_missing: missing,\n    use_works_id_navigation: resolved > 0,\n  },\n}];"
+        },
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          -14960,
+          18672
+        ],
+        "id": "b924e602-604c-46d6-9aa9-2e1c4769fc22",
+        "name": "Build Batch Payload",
+        "notesInFlow": true,
+        "notes": "Attach works_id per row; direct WI navigation (Stage 6 pattern)."
+      },
+      {
+        "parameters": {
+          "method": "POST",
+          "url": "={{ ($json.api_base_url || $json.ngrok_base_url || '').replace(/\\/+$/, '') + '/fill-jis-batch' }}",
+          "sendHeaders": true,
+          "headerParameters": {
+            "parameters": [
+              {
+                "name": "Content-Type",
+                "value": "application/json"
+              }
+            ]
+          },
+          "sendBody": true,
+          "specifyBody": "json",
+          "jsonBody": "={{ JSON.stringify({\n  rows: $json.rows,\n  contract_id: $json.contract_id || '321129',\n  open_job_information_sheet: true,\n  submit: true,\n  keep_page_open: false,\n  return_to_index_between_rows: !$json.use_works_id_navigation,\n  use_works_id_navigation: $json.use_works_id_navigation === true,\n  skip_questions: ['Q5.1', 'Q5.2'],\n  fill_appointments: true\n}) }}",
+          "options": {
+            "timeout": 900000
+          }
+        },
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.2,
+        "position": [
+          -14736,
+          18672
+        ],
+        "id": "325d5d36-5de2-44c1-90dd-4ba907792378",
+        "name": "POST fill-jis-batch",
+        "notesInFlow": true,
+        "retryOnFail": false,
+        "waitBetweenTries": 3000,
+        "onError": "continueErrorOutput"
+      },
+      {
+        "parameters": {
+          "jsCode": "const res = $input.first().json || {};\nconst previews = $('Build Batch Payload').first().json.previews || [];\nreturn [{\n  json: {\n    success: res.success,\n    message: res.message,\n    rows_processed: res.rows_processed,\n    results: res.results || [],\n    previews\n  }\n}];"
+        },
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          -14512,
+          18672
+        ],
+        "id": "fef37bd5-6772-4b39-b028-7756b1a3c5e0",
+        "name": "Log Batch Result"
+      },
+      {
+        "parameters": {
+          "jsCode": "return [{ json: { _message: $json._message || 'Nothing to fill on jis tab' } }];"
+        },
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          -14960,
+          18864
+        ],
+        "id": "8b5d6586-73b6-4791-b91f-866a26bced15",
+        "name": "Nothing To Fill"
+      },
+      {
+        "parameters": {
+          "rule": {
+            "interval": [
+              {}
+            ]
+          }
+        },
+        "type": "n8n-nodes-base.scheduleTrigger",
+        "typeVersion": 1.3,
+        "position": [
+          -16528,
+          18864
+        ],
+        "id": "5befacff-8e98-4f2e-8114-7ec9a1fc5444",
+        "name": "Schedule Trigger (Top N)"
+      },
+      {
+        "parameters": {
+          "jsCode": "function tryParseJson(raw) {\n  if (raw == null) return null;\n  if (typeof raw === 'object') return raw;\n  if (typeof raw !== 'string') return null;\n  try { return JSON.parse(raw); } catch (e) { return null; }\n}\n\nconst errBody = $input.first().json || {};\nconst previews = $('Build Batch Payload').first().json.previews || [];\n\nlet payload =\n  tryParseJson(errBody.body) ||\n  tryParseJson(errBody.error?.response?.body) ||\n  tryParseJson(errBody.error?.message) ||\n  tryParseJson(errBody.message) ||\n  null;\n\nif (payload && Array.isArray(payload.results)) {\n  return [{\n    json: {\n      success: payload.success === true,\n      message: payload.message || 'Batch returned partial results on HTTP error',\n      rows_processed: payload.rows_processed ?? payload.results.length,\n      results: payload.results,\n      previews,\n      http_error: true,\n    },\n  }];\n}\n\nconst msg =\n  errBody.error?.message ||\n  errBody.message ||\n  errBody.detail ||\n  (typeof errBody === 'string' ? errBody : JSON.stringify(errBody)).slice(0, 500);\n\nreturn [{\n  json: {\n    success: false,\n    message: msg,\n    rows_processed: 0,\n    results: [],\n    previews,\n    http_error: true,\n  },\n}];"
+        },
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          -14512,
+          18512
+        ],
+        "id": "ac2eb9b6-e9cc-45f4-b0ed-b3b8f2ea0cdf",
+        "name": "Handle batch HTTP error1"
+      },
+      {
+        "parameters": {
+          "jsCode": "function rowFilledOk(r) {\n  if (!r) return false;\n  if (r.success === true) return true;\n  const n = Number(r.fields_filled);\n  if (!Number.isNaN(n) && n > 0) return true;\n  return /JIS filled/i.test(String(r.message || ''));\n}\n\nconst sd = $getWorkflowStaticData('global');\nconst today = new Date().toLocaleDateString('en-CA', { timeZone: 'Europe/London' });\nif (sd.jisDailyDate !== today) {\n  sd.jisDailyDate = today;\n  sd.jisDailyLog = [];\n}\nconst log = sd.jisDailyLog || [];\nconst seen = new Set(log.map((e) => `${e.q13}::${e.works_id}`));\n\nconst batch = $('Log Batch Result').first().json || {};\nconst previews = batch.previews || [];\nconst results = batch.results || [];\n\nfor (const r of results) {\n  if (!rowFilledOk(r)) continue;\n  const idx = typeof r.index === 'number' ? r.index : parseInt(r.index, 10);\n  const prev = Number.isNaN(idx) ? null : previews[idx];\n  const q13 = String(prev?.q13 || r.q13 || '').trim();\n  const works_id = String(prev?.works_id || r.works_id || '').trim();\n  if (!q13) continue;\n  const key = `${q13}::${works_id}`;\n  if (seen.has(key)) continue;\n  seen.add(key);\n  log.push({\n    at: new Date().toISOString(),\n    q13,\n    works_id,\n    q12: prev?.q12 || '',\n    row_number: prev?.row_number ?? null,\n    status: 'JIS filled on EasyBOP',\n  });\n}\nsd.jisDailyLog = log;\nreturn $input.all();"
+        },
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          -14512,
+          18512
+        ],
+        "id": "38371503-521c-4ce3-aef9-70ebaa0cf379",
+        "name": "Log Daily JIS Fills",
+        "notesInFlow": true,
+        "note": "Accumulates today's successful JIS fills"
+      },
+      {
+        "parameters": {
+          "method": "POST",
+          "url": "={{ ($('Set API base URL').first().json.api_base_url || '').replace(/\\/+$/, '') + '/works-index' }}",
+          "sendHeaders": true,
+          "headerParameters": {
+            "parameters": [
+              {
+                "name": "Content-Type",
+                "value": "application/json"
+              }
+            ]
+          },
+          "sendBody": true,
+          "specifyBody": "json",
+          "jsonBody": "={{ { timeout_ms: 120000 } }}",
+          "options": {
+            "response": {
+              "response": {
+                "fullResponse": true,
+                "neverError": true
+              }
+            },
+            "timeout": 180000
+          }
+        },
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.2,
+        "position": [
+          -16080,
+          18608
+        ],
+        "id": "8eacba83-03a8-4e8e-b97a-f478ea1525da",
+        "name": "Fetch Works Index1",
+        "executeOnce": true,
+        "notesInFlow": true,
+        "notes": "Stage 6 paginated index scrape — CORF → works_id"
+      },
+      {
+        "parameters": {
+          "jsCode": "function bodyFrom(resp) {\n  let body = resp.body ?? resp.data ?? resp;\n  if (typeof body === 'string') {\n    try { body = JSON.parse(body); } catch (e) { body = {}; }\n  }\n  if (body && body.body && body.items === undefined && body.total === undefined) {\n    body = body.body;\n  }\n  return body || {};\n}\n\nfunction normCorf(v) {\n  const raw = String(v ?? '').trim();\n  if (!raw) return '';\n  const t = raw.toLowerCase().replace(/\\s+/g, '');\n  const slash = t.match(/^(\\d+)\\/(\\d+)$/);\n  if (slash) return parseInt(slash[1], 10) + '/' + parseInt(slash[2], 10);\n  const digits = t.replace(/\\D/g, '');\n  if (digits.length >= 4) return String(parseInt(digits, 10));\n  return t;\n}\n\nfunction cleanAddrKey(str) {\n  return String(str || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').replace(/\\s+/g, ' ').trim();\n}\n\nconst resp = $input.first().json || {};\nconst data = bodyFrom(resp);\nconst items = Array.isArray(data.items) ? data.items : [];\n\nconst corfToWorksId = {};\nconst addrToWorksId = {};\nfor (const item of items) {\n  const wid = String(item.works_id || '').trim();\n  if (!wid) continue;\n  const corf = normCorf(item.client_order_reference || '');\n  if (corf) corfToWorksId[corf] = wid;\n  const addr = cleanAddrKey(item.address || '');\n  if (addr) addrToWorksId[addr] = wid;\n}\n\nconst sd = $getWorkflowStaticData('global');\nsd.corfToWorksId = corfToWorksId;\nsd.addrToWorksId = addrToWorksId;\n\nreturn [{\n  json: {\n    works_index_total: data.total ?? items.length,\n    works_index_ok: data.success === true,\n    corf_map_size: Object.keys(corfToWorksId).length,\n    message: data.message || `Indexed ${items.length} works (paginated scrape)`,\n  },\n}];"
+        },
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          -15856,
+          18608
+        ],
+        "id": "3267deab-7924-4be4-9743-fa22750de6ff",
+        "name": "Build CORF works_id Map1"
+      },
+      {
+        "parameters": {
+          "content": "## JIS EasyBOP filler (works_id + batch)\n\n**Sheet:** SOR-Codes-Template → **jis** → `jis_uploaded` (true = skip)\n\n1. **POST /works-index** (paginated) → map Q1.3 CORF → `works_id`\n2. **POST /fill-jis-batch** opens `works_details.php?tab_nav_item=wi` per job\n3. Clicks JIS pre-item → fills SmartForm → marks `jis_uploaded=true`\n\n**Daily email:** 18:00 UK — Jeffway HTML table of JIS filled today",
+          "height": 416
+        },
+        "type": "n8n-nodes-base.stickyNote",
+        "typeVersion": 1,
+        "position": [
+          -16912,
+          18608
+        ],
+        "id": "ab77493d-1801-4806-8dce-e53b646536b5",
+        "name": "Sticky Note3"
+      },
+      {
+        "parameters": {
+          "rule": {
+            "interval": [
+              {
+                "field": "cronExpression",
+                "expression": "0 18 * * *"
+              }
+            ]
+          }
+        },
+        "type": "n8n-nodes-base.scheduleTrigger",
+        "typeVersion": 1.2,
+        "position": [
+          -16528,
+          19088
+        ],
+        "id": "745525be-ec9b-4c7a-846a-98e8cf5089ae",
+        "name": "Daily Summary 18:00 UK1"
+      },
+      {
+        "parameters": {
+          "jsCode": "function esc(t) {\n  return String(t ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');\n}\n\nconst sd = $getWorkflowStaticData('global');\nconst today = new Date().toLocaleDateString('en-CA', { timeZone: 'Europe/London' });\nconst logs = (sd.jisDailyDate === today && Array.isArray(sd.jisDailyLog)) ? sd.jisDailyLog : [];\nconst reportDate = new Date().toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric', timeZone: 'Europe/London' });\nconst logo = 'https://jeffway.co.uk/wp-content/uploads/2025/05/jeffway-group-1.svg';\n\nlet jobRows = '';\nif (logs.length) {\n  jobRows = logs.map((l, i) => '<tr>'\n    + '<td style=\"padding:8px;border-bottom:1px solid #eee;\">' + esc(i + 1) + '</td>'\n    + '<td style=\"padding:8px;border-bottom:1px solid #eee;\">' + esc(l.q13 || '-') + '</td>'\n    + '<td style=\"padding:8px;border-bottom:1px solid #eee;\">' + esc(l.works_id || '-') + '</td>'\n    + '<td style=\"padding:8px;border-bottom:1px solid #eee;\">' + esc(l.q12 || '-') + '</td>'\n    + '<td style=\"padding:8px;border-bottom:1px solid #eee;color:#15803d;font-weight:bold;\">' + esc(l.status || 'Filled') + '</td>'\n    + '</tr>').join('');\n} else {\n  jobRows = '<tr><td colspan=\"5\" style=\"padding:16px;text-align:center;color:#666;\">No JIS forms filled on EasyBOP today.</td></tr>';\n}\n\nconst html = [\n  '<!DOCTYPE html><html><head><meta charset=\"UTF-8\"></head>',\n  '<body style=\"margin:0;padding:0;font-family:Arial,sans-serif;background:#f4f4f4;\">',\n  '<table width=\"100%\" style=\"background:#f4f4f4;padding:20px;\"><tr><td align=\"center\">',\n  '<table width=\"760\" style=\"background:#fff;border-radius:8px;overflow:hidden;\">',\n  '<tr><td style=\"background:#000;padding:20px;text-align:center;\"><img src=\"' + logo + '\" style=\"max-width:160px;\" alt=\"Jeffway\"></td></tr>',\n  '<tr><td style=\"padding:20px 24px 8px;\"><h2 style=\"margin:0;color:#111;\">JIS EasyBOP Filler — Daily Summary</h2>',\n  '<p style=\"color:#777;font-size:13px;margin:8px 0 0;\">' + esc(reportDate) + ' (Europe/London)</p></td></tr>',\n  '<tr><td style=\"padding:8px 24px 24px;\">',\n  '<p style=\"font-size:13px;color:#444;margin:0 0 12px;\">Job Instruction Sheets filled on EasyBOP today (works_id navigation).</p>',\n  '<table width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" style=\"border-collapse:collapse;font-size:12px;\">',\n  '<tr style=\"background:#f3f3f3;\">',\n  '<th align=\"left\" style=\"padding:8px;\">#</th>',\n  '<th align=\"left\" style=\"padding:8px;\">Q1.3 (CORF)</th>',\n  '<th align=\"left\" style=\"padding:8px;\">Works ID</th>',\n  '<th align=\"left\" style=\"padding:8px;\">Q1.2 Address</th>',\n  '<th align=\"left\" style=\"padding:8px;\">Status</th>',\n  '</tr>',\n  jobRows,\n  '</table></td></tr>',\n  '<tr><td style=\"background:#f9f9f9;padding:16px;text-align:center;font-size:12px;color:#777;\">Jeffway Group · Automated JIS EasyBOP filler</td></tr>',\n  '</table></td></tr></table></body></html>',\n].join('');\n\nreturn [{\n  json: {\n    _alert_subject: 'Jeffway — JIS filled on EasyBOP — ' + reportDate + ' (' + logs.length + ')',\n    _alert_html: html,\n    jis_count: logs.length,\n  },\n}];"
+        },
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          -16288,
+          19088
+        ],
+        "id": "86664f1c-d943-402d-84be-133b65e69780",
+        "name": "Prepare Daily Gmail1",
+        "executeOnce": true
+      },
+      {
+        "parameters": {
+          "sendTo": "hamza@eynvision.com",
+          "subject": "={{ $json._alert_subject }}",
+          "message": "={{ $json._alert_html }}",
+          "options": {
+            "appendAttribution": false
+          }
+        },
+        "type": "n8n-nodes-base.gmail",
+        "typeVersion": 2.2,
+        "position": [
+          -16048,
+          19088
+        ],
+        "id": "8d6f6ffa-02f8-4e48-a3d4-b1e9842a7bb4",
+        "name": "Send Daily Gmail1",
+        "executeOnce": true,
+        "webhookId": "8cc949c7-9d48-4ba7-bbe8-7e1b85fa0011",
+        "credentials": {
+          "gmailOAuth2": {
+            "id": "5zI2J63c77B4YZ0i",
+            "name": "hamza-gmail"
+          }
+        }
+      }
+    ],
+    "connections": {
+      "Webhook jis-fill": {
+        "main": [
+          [
+            {
+              "node": "Set API base URL",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Prepare jis_uploaded updates": {
+        "main": [
+          [
+            {
+              "node": "IF Has jis_uploaded to mark",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "IF Has jis_uploaded to mark": {
+        "main": [
+          [
+            {
+              "node": "Update jis_uploaded on jis tab",
+              "type": "main",
+              "index": 0
+            }
+          ],
+          [
+            {
+              "node": "Summarize filler for webhook",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Update jis_uploaded on jis tab": {
+        "main": [
+          [
+            {
+              "node": "Summarize filler for webhook",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Summarize filler for webhook": {
+        "main": [
+          [
+            {
+              "node": "Respond to Webhook (jis-fill)",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Read appointment tab1": {
+        "main": [
+          [
+            {
+              "node": "Index Appointments1",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Index Appointments1": {
+        "main": [
+          [
+            {
+              "node": "Fetch Works Index1",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Set API base URL": {
+        "main": [
+          [
+            {
+              "node": "Read appointment tab1",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Read jis tab": {
+        "main": [
+          [
+            {
+              "node": "Filter Rows With Q1.111",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Filter Rows With Q1.111": {
+        "main": [
+          [
+            {
+              "node": "IF Has Rows To Fill",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "IF Has Rows To Fill": {
+        "main": [
+          [
+            {
+              "node": "Build Batch Payload",
+              "type": "main",
+              "index": 0
+            }
+          ],
+          [
+            {
+              "node": "Nothing To Fill",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Build Batch Payload": {
+        "main": [
+          [
+            {
+              "node": "POST fill-jis-batch",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "POST fill-jis-batch": {
+        "main": [
+          [
+            {
+              "node": "Log Batch Result",
+              "type": "main",
+              "index": 0
+            }
+          ],
+          [
+            {
+              "node": "Handle batch HTTP error1",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Log Batch Result": {
+        "main": [
+          [
+            {
+              "node": "Log Daily JIS Fills",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Nothing To Fill": {
+        "main": [
+          [
+            {
+              "node": "Respond to Webhook (jis-fill)",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Schedule Trigger (Top N)": {
+        "main": [
+          [
+            {
+              "node": "Set API base URL",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Handle batch HTTP error1": {
+        "main": [
+          [
+            {
+              "node": "Log Batch Result",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Log Daily JIS Fills": {
+        "main": [
+          [
+            {
+              "node": "Prepare jis_uploaded updates",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Fetch Works Index1": {
+        "main": [
+          [
+            {
+              "node": "Build CORF works_id Map1",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Build CORF works_id Map1": {
+        "main": [
+          [
+            {
+              "node": "Read jis tab",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Daily Summary 18:00 UK1": {
+        "main": [
+          [
+            {
+              "node": "Prepare Daily Gmail1",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Prepare Daily Gmail1": {
+        "main": [
+          [
+            {
+              "node": "Send Daily Gmail1",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      }
+    },
+    "pinData": {},
+    "meta": {
+      "templateCredsSetupCompleted": true,
+      "instanceId": "a5cd22a95d5313a977e9ac21c3a833db76b18ca78fb8cb2cf7013465d69f17f8"
+    }
+  }

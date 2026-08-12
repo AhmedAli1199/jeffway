@@ -1,0 +1,763 @@
+<form name="works_form" id="works_form" method="post">
+
+	
+    <div class="clear"></div>
+    <div class="info_box">
+        <div class="ui-state-highlight-message ui-corner-all" style="padding:0 .7em;">
+            <div style="padding:10px 10px 10px 0px;">
+                <span class="ui-icon ui-icon-info" style="float:left;margin-right:.3em;"></span>
+                <strong>Information:</strong> Add new Works for a new or an existing Property, UPRN is the only mandatory field when adding a Property
+            </div>
+        </div>
+        <div class="clear_height"></div>
+    </div>
+
+<table class="works_table">
+    <tbody><tr class="row">
+        <td class="b b_last_row"><label for="search_property">Property</label></td>
+        <td colspan="2" class="b b_last b_last_row" id="search_property_container">
+            <input type="text" name="search_property" id="search_property" value="" style="width: 100%" placeholder="Search for UPRN or Address" class="ui-autocomplete-input" autocomplete="off">
+        </td>
+    </tr>
+</tbody></table>
+<p style="text-align:right;padding-top:10px;">
+    * This property has existing Works Instructions
+</p>
+<div class="clear"></div>
+
+        <h3 class="pw_h3_left">Type of Works</h3>
+    <div class="clear_height"></div>
+
+<div id="new_works_sow_boxes_container">
+    
+        <span class="ui-helper-hidden-accessible"><input type="text"></span>
+        <table class="works_table sow_boxes_table">
+    
+                <tbody><tr class="">
+                    <td class="b" style="width: 25%"><label for="sow_box_80025">Disrepair</label></td>
+                    <td class="b" style="width: 25%"><label class="normal" for="sow_box_80025">DR</label></td>
+                    <td class="b" style="width: 25%"><label class="normal" for="sow_box_80025">35 Days</label></td>
+                    <td class="b b_last b_no_padding cbox" style="width: 25%"><input type="checkbox" data-days="35" class="sow_box" id="sow_box_80025" name="scope_of_works_ids[]" value="80025"></td>
+                </tr>
+            
+                <tr class="row_alt">
+                    <td class="b" style="width: 25%"><label for="sow_box_84559">Disrepair - Tomlin</label></td>
+                    <td class="b" style="width: 25%"><label class="normal" for="sow_box_84559">DRT</label></td>
+                    <td class="b" style="width: 25%"><label class="normal" for="sow_box_84559">35 Days</label></td>
+                    <td class="b b_last b_no_padding cbox" style="width: 25%"><input type="checkbox" data-days="35" class="sow_box" id="sow_box_84559" name="scope_of_works_ids[]" value="84559"></td>
+                </tr>
+            
+                <tr class="">
+                    <td class="b" style="width: 25%"><label for="sow_box_77631">Emergency Repair</label></td>
+                    <td class="b" style="width: 25%"><label class="normal" for="sow_box_77631">ER</label></td>
+                    <td class="b" style="width: 25%"><label class="normal" for="sow_box_77631">24 Hours</label></td>
+                    <td class="b b_last b_no_padding cbox" style="width: 25%"><input type="checkbox" data-days="24" class="sow_box" id="sow_box_77631" name="scope_of_works_ids[]" value="77631"></td>
+                </tr>
+            
+                <tr class="row_alt">
+                    <td class="b" style="width: 25%"><label for="sow_box_77634">Ext. Works ( or Over £2k)</label></td>
+                    <td class="b" style="width: 25%"><label class="normal" for="sow_box_77634">EW</label></td>
+                    <td class="b" style="width: 25%"><label class="normal" for="sow_box_77634">65 Days</label></td>
+                    <td class="b b_last b_no_padding cbox" style="width: 25%"><input type="checkbox" data-days="65" class="sow_box" id="sow_box_77634" name="scope_of_works_ids[]" value="77634"></td>
+                </tr>
+            
+                <tr class="">
+                    <td class="b" style="width: 25%"><label for="sow_box_77633">Routine Repairs</label></td>
+                    <td class="b" style="width: 25%"><label class="normal" for="sow_box_77633">RR</label></td>
+                    <td class="b" style="width: 25%"><label class="normal" for="sow_box_77633">35 Days</label></td>
+                    <td class="b b_last b_no_padding cbox" style="width: 25%"><input type="checkbox" data-days="35" class="sow_box" id="sow_box_77633" name="scope_of_works_ids[]" value="77633"></td>
+                </tr>
+            
+                <tr class="row_alt">
+                    <td class="b b_last_row" style="width: 25%"><label for="sow_box_77632">Urgent Repair</label></td>
+                    <td class="b b_last_row" style="width: 25%"><label class="normal" for="sow_box_77632">UR</label></td>
+                    <td class="b b_last_row" style="width: 25%"><label class="normal" for="sow_box_77632">5 Days</label></td>
+                    <td class="b b_last b_no_padding cbox b_last_row" style="width: 25%"><input type="checkbox" data-days="5" class="sow_box" id="sow_box_77632" name="scope_of_works_ids[]" value="77632"></td>
+                </tr>
+            
+        </tbody></table>
+        </div>
+
+
+    <h3 class="pw_h3_left">Description of the Works</h3>
+    <div class="clear_height"></div>
+    <textarea id="description_of_works" name="description_of_works" style="width: 100%; overflow: hidden; overflow-wrap: break-word; resize: horizontal; height: 35.7778px;"></textarea>
+
+    <div id="order_information" style="">
+
+        <h3 class="pw_h3_left">Order Information</h3>
+        <div class="clear_height"></div>
+        <table class="works_table">
+            <tbody><tr class="row">
+                <td class="b b_property_title_column"><label for="client_order_reference">Client Order Reference:</label></td>
+                <td class="b b_last b_no_padding"><input type="text" name="client_order_reference" id="client_order_reference" value="" placeholder="Client Order Reference" class="input"></td>
+            </tr>
+            <tr class="row_alt">
+                <td class="b b_last_row"><label for="issued_by_name">Issued By:</label></td>
+                <td class="b b_last b_no_padding"><input type="text" name="issued_by_name" id="issued_by_name" value="" placeholder="Issued By" class="input"></td>
+            </tr>
+
+            <tr>
+                <td class="b"><label for="date_received">Date Received By Us</label></td>
+                <td class="b b_last b_last_row b_no_padding">
+                    <input type="text" name="date_received" id="date_received" value="26/06/2026" placeholder="DD/MM/YYYY" class="datepicker hasDatepicker" autocomplete="off">
+                    <select name="date_received_hour" id="date_received_hour" style="width: auto">
+                                                        <option value="00">00</option>
+                                                        <option value="01">01</option>
+                                                        <option value="02">02</option>
+                                                        <option value="03">03</option>
+                                                        <option value="04">04</option>
+                                                        <option value="05">05</option>
+                                                        <option value="06">06</option>
+                                                        <option value="07">07</option>
+                                                        <option value="08">08</option>
+                                                        <option value="09">09</option>
+                                                        <option value="10">10</option>
+                                                        <option value="11">11</option>
+                                                        <option value="12">12</option>
+                                                        <option value="13">13</option>
+                                                        <option value="14">14</option>
+                                                        <option value="15">15</option>
+                                                        <option value="16">16</option>
+                                                        <option value="17">17</option>
+                                                        <option value="18">18</option>
+                                                        <option value="19">19</option>
+                                                        <option value="20">20</option>
+                                                        <option value="21">21</option>
+                                                        <option value="22">22</option>
+                                                        <option value="23" selected="selected">23</option>
+                                                </select>
+                    <select name="date_received_minute" id="date_received_minute" style="width: auto">
+                                                        <option value="00">00</option>
+                                                        <option value="01">01</option>
+                                                        <option value="02">02</option>
+                                                        <option value="03">03</option>
+                                                        <option value="04">04</option>
+                                                        <option value="05">05</option>
+                                                        <option value="06">06</option>
+                                                        <option value="07">07</option>
+                                                        <option value="08">08</option>
+                                                        <option value="09">09</option>
+                                                        <option value="10">10</option>
+                                                        <option value="11">11</option>
+                                                        <option value="12">12</option>
+                                                        <option value="13">13</option>
+                                                        <option value="14">14</option>
+                                                        <option value="15">15</option>
+                                                        <option value="16">16</option>
+                                                        <option value="17">17</option>
+                                                        <option value="18">18</option>
+                                                        <option value="19">19</option>
+                                                        <option value="20">20</option>
+                                                        <option value="21">21</option>
+                                                        <option value="22">22</option>
+                                                        <option value="23">23</option>
+                                                        <option value="24">24</option>
+                                                        <option value="25">25</option>
+                                                        <option value="26">26</option>
+                                                        <option value="27">27</option>
+                                                        <option value="28">28</option>
+                                                        <option value="29" selected="selected">29</option>
+                                                        <option value="30">30</option>
+                                                        <option value="31">31</option>
+                                                        <option value="32">32</option>
+                                                        <option value="33">33</option>
+                                                        <option value="34">34</option>
+                                                        <option value="35">35</option>
+                                                        <option value="36">36</option>
+                                                        <option value="37">37</option>
+                                                        <option value="38">38</option>
+                                                        <option value="39">39</option>
+                                                        <option value="40">40</option>
+                                                        <option value="41">41</option>
+                                                        <option value="42">42</option>
+                                                        <option value="43">43</option>
+                                                        <option value="44">44</option>
+                                                        <option value="45">45</option>
+                                                        <option value="46">46</option>
+                                                        <option value="47">47</option>
+                                                        <option value="48">48</option>
+                                                        <option value="49">49</option>
+                                                        <option value="50">50</option>
+                                                        <option value="51">51</option>
+                                                        <option value="52">52</option>
+                                                        <option value="53">53</option>
+                                                        <option value="54">54</option>
+                                                        <option value="55">55</option>
+                                                        <option value="56">56</option>
+                                                        <option value="57">57</option>
+                                                        <option value="58">58</option>
+                                                        <option value="59">59</option>
+                                                </select>
+                </td>
+            </tr>
+
+        </tbody></table>
+
+    </div>
+
+
+<div id="xx_pw_property_card">
+<!-- Standard fields -->
+    <div class="xx_pw_pc_col_inner">
+    <h3 class="pw_h3_left">Property Details</h3>
+    <div class="clear_height"></div>
+
+    <table class="works_table">
+        <tbody><tr class="row">
+            <td class="b b_property_title_column"><label for="property_ref">UPRN</label></td>
+            <td class="b b_last b_no_padding"><input type="text" id="property_ref" name="property_ref" value="" class="input"></td>
+        </tr>
+        <tr class="row_alt">
+            <td class="b b_property_title_column"><label for="property_ref_alt">UPRN Alternative</label></td>
+            <td class="b b_last b_no_padding"><input type="text" id="alt_property_ref" name="alt_property_ref" value="" class="input"></td>
+        </tr>
+        <tr class="row">
+            <td class="b b_property_title_column"><label for="resident_type">Resident Type</label></td>
+            <td class="b b_last b_no_padding">
+                <select name="resident_type" id="resident_type" class="input">
+                    <option value="">-</option>
+                                                <option value="leaseholder">Leaseholder</option>
+                                                <option value="tenant">Tenant</option>
+                                                <option value="other">Other</option>
+                                        </select>
+            </td>
+        </tr>
+        <tr class="row_alt">
+            <td class="b b_property_title_column"><label for="occupancy_type">Occupancy</label></td>
+            <td class="b b_last b_no_padding">
+                <select name="occupancy_type" id="occupancy_type" class="input">
+                    <option value="">-</option>
+                                                <option value="occupied">Occupied</option>
+                                                <option value="void">Void</option>
+                                        </select>
+            </td>
+        </tr>
+        <tr class="row">
+            <td class="b b_property_title_column"><label for="n_bedrooms">No. of Bedrooms</label></td>
+            <td class="b b_last b_no_padding">
+                <select name="n_bedrooms" id="n_bedrooms" class="input">
+                    <option value="">-</option>
+                                                <option value="0">Studio/Bedsit</option>
+                                                <option value="1">1 bedroom</option>
+                                                <option value="2">2 bedroom</option>
+                                                <option value="3">3 bedroom</option>
+                                                <option value="4">4 bedroom</option>
+                                                <option value="5">5 bedroom</option>
+                                                <option value="6">6 bedroom</option>
+                                                <option value="7">7+ bedroom</option>
+                                        </select>
+            </td>
+        </tr>
+        <tr class="row_alt">
+            <td class="b b_property_title_column"><label for="n_bedrooms">Type of Property</label></td>
+            <td class="b b_last b_no_padding">
+                <select name="property_type" id="property_type" class="input">
+                    <option value="">-</option>
+                                                <option value="Block Communal area">Block Communal area</option>
+                                                <option value="Block Garage Compound">Block Garage Compound</option>
+                                                <option value="Bungalow">Bungalow</option>
+                                                <option value="Community Care Flat">Community Care Flat</option>
+                                                <option value="Clone (Non Major Works)">Clone (Non Major Works)</option>
+                                                <option value="Communal Building">Communal Building</option>
+                                                <option value="Block Communal room">Block Communal room</option>
+                                                <option value="Dormer Bungalow">Dormer Bungalow</option>
+                                                <option value="Flat above shop block">Flat above shop block</option>
+                                                <option value="Flat">Flat</option>
+                                                <option value="Garage">Garage</option>
+                                                <option value="Block Road File (Gen)">Block Road File (Gen)</option>
+                                                <option value="Block Garage Block">Block Garage Block</option>
+                                                <option value="Housing Office">Housing Office</option>
+                                                <option value="House">House</option>
+                                                <option value="Maisonette">Maisonette</option>
+                                                <option value="Major Works Leasehold Clone">Major Works Leasehold Clone</option>
+                                                <option value="Office">Office</option>
+                                                <option value="Other">Other</option>
+                                                <option value="Parking Space">Parking Space</option>
+                                                <option value="Playground">Playground</option>
+                                                <option value="Pumping Station">Pumping Station</option>
+                                                <option value="Room">Room</option>
+                                                <option value="Service Charge Estate Group">Service Charge Estate Group</option>
+                                                <option value="Shed">Shed</option>
+                                                <option value="Shop/Workshop">Shop/Workshop</option>
+                                                <option value="Sundry land and Buildings">Sundry land and Buildings</option>
+                                                <option value="Underground Car park">Underground Car park</option>
+                                                <option value="Public Convenience">Public Convenience</option>
+                                        </select>
+            </td>
+        </tr>
+                        <tr class="row">
+                <td class="b b_property_title_column"><label for="vulnerability_id">Vulnerability</label></td>
+                <td class="b b_last b_no_padding">
+                    <select name="vulnerability_id" id="vulnerability_id" class="input" style="width: auto">
+                        <option value="">-</option>
+                                                        <option value="654">PD									: Physical Disabilities</option>
+                                                        <option value="662">DAV									: Domestic Abuse Victims</option>
+                                                        <option value="670">CH									: Crime Hotspots</option>
+                                                        <option value="669">OC									: Overcrowding</option>
+                                                        <option value="668">UC									: Unsanitary Conditions</option>
+                                                        <option value="667">SN									: Self-neglect</option>
+                                                        <option value="666">SA									: Substance abuse</option>
+                                                        <option value="665">H									: Hoarding</option>
+                                                        <option value="661">HR									: Homelessness Risk</option>
+                                                        <option value="660">CWSN									: Children with special needs</option>
+                                                        <option value="659">OP									: Older People (75+ years)</option>
+                                                        <option value="658">CI									: Chronic Illnesses</option>
+                                                        <option value="657">DA									: Dementia/Alzheimer's</option>
+                                                        <option value="656">LD									: Learning Disabilities</option>
+                                                        <option value="655">MH									: Mental Health Conditions</option>
+                                                        <option value="699">AWSN									: Adult with special needs</option>
+                                                        <option value="700">SD									: Sensory Disabilities</option>
+                                                </select>
+
+                    &nbsp;<input type="checkbox" name="apply_vulnerability_to_all_works" id="apply_vulnerability_to_all_works" value="1"> <label for="apply_vulnerability_to_all_works">Apply to
+                        all works instructions for this property</label>
+                </td>
+            </tr>
+                    <tr class="row_alt">
+            <td class="b b_property_title_column"><label for="zone_name">Zone - Your Classification</label></td>
+            <td class="b b_last b_no_padding">
+                <input type="text" id="zone_name" name="zone_name" value="" class="input ui-autocomplete-input" autocomplete="off">
+                <input type="hidden" id="zone_id" name="zone_id" value="">
+            </td>
+        </tr>
+                                <tr class="row">
+            <td class="b b_property_title_column"><label for="client_estate_reference">Client Estate Reference</label></td>
+            <td class="b b_last b_no_padding"><input type="text" id="client_estate_reference" name="client_estate_reference" value="" class="input"></td>
+        </tr>
+        <tr class="row_alt">
+            <td class="b b_property_title_column"><label for="client_property_status">Client Property Status</label></td>
+            <td class="b b_last b_no_padding">
+                <select name="client_property_status" id="client_property_status" class="input">
+                    <option value="">-</option>
+                                                <option value="Not in Management">Not in Management</option>
+                                                <option value="Void Unavailable for Let">Void Unavailable for Let</option>
+                                                <option value="Void Available for Let">Void Available for Let</option>
+                                                <option value="Under Offer">Under Offer</option>
+                                                <option value="Let">Let</option>
+                                        </select>
+                
+            </td>
+        </tr>
+        <tr class="row">
+            <td class="b b_property_title_column"><label for="year_built">Year Of Build</label></td>
+            <td class="b b_last b_no_padding">
+                <select name="year_built" id="year_built">
+                    <option value="">-</option>
+                                                <option value="1800">1800</option>
+                                                <option value="1801">1801</option>
+                                                <option value="1802">1802</option>
+                                                <option value="1803">1803</option>
+                                                <option value="1804">1804</option>
+                                                <option value="1805">1805</option>
+                                                <option value="1806">1806</option>
+                                                <option value="1807">1807</option>
+                                                <option value="1808">1808</option>
+                                                <option value="1809">1809</option>
+                                                <option value="1810">1810</option>
+                                                <option value="1811">1811</option>
+                                                <option value="1812">1812</option>
+                                                <option value="1813">1813</option>
+                                                <option value="1814">1814</option>
+                                                <option value="1815">1815</option>
+                                                <option value="1816">1816</option>
+                                                <option value="1817">1817</option>
+                                                <option value="1818">1818</option>
+                                                <option value="1819">1819</option>
+                                                <option value="1820">1820</option>
+                                                <option value="1821">1821</option>
+                                                <option value="1822">1822</option>
+                                                <option value="1823">1823</option>
+                                                <option value="1824">1824</option>
+                                                <option value="1825">1825</option>
+                                                <option value="1826">1826</option>
+                                                <option value="1827">1827</option>
+                                                <option value="1828">1828</option>
+                                                <option value="1829">1829</option>
+                                                <option value="1830">1830</option>
+                                                <option value="1831">1831</option>
+                                                <option value="1832">1832</option>
+                                                <option value="1833">1833</option>
+                                                <option value="1834">1834</option>
+                                                <option value="1835">1835</option>
+                                                <option value="1836">1836</option>
+                                                <option value="1837">1837</option>
+                                                <option value="1838">1838</option>
+                                                <option value="1839">1839</option>
+                                                <option value="1840">1840</option>
+                                                <option value="1841">1841</option>
+                                                <option value="1842">1842</option>
+                                                <option value="1843">1843</option>
+                                                <option value="1844">1844</option>
+                                                <option value="1845">1845</option>
+                                                <option value="1846">1846</option>
+                                                <option value="1847">1847</option>
+                                                <option value="1848">1848</option>
+                                                <option value="1849">1849</option>
+                                                <option value="1850">1850</option>
+                                                <option value="1851">1851</option>
+                                                <option value="1852">1852</option>
+                                                <option value="1853">1853</option>
+                                                <option value="1854">1854</option>
+                                                <option value="1855">1855</option>
+                                                <option value="1856">1856</option>
+                                                <option value="1857">1857</option>
+                                                <option value="1858">1858</option>
+                                                <option value="1859">1859</option>
+                                                <option value="1860">1860</option>
+                                                <option value="1861">1861</option>
+                                                <option value="1862">1862</option>
+                                                <option value="1863">1863</option>
+                                                <option value="1864">1864</option>
+                                                <option value="1865">1865</option>
+                                                <option value="1866">1866</option>
+                                                <option value="1867">1867</option>
+                                                <option value="1868">1868</option>
+                                                <option value="1869">1869</option>
+                                                <option value="1870">1870</option>
+                                                <option value="1871">1871</option>
+                                                <option value="1872">1872</option>
+                                                <option value="1873">1873</option>
+                                                <option value="1874">1874</option>
+                                                <option value="1875">1875</option>
+                                                <option value="1876">1876</option>
+                                                <option value="1877">1877</option>
+                                                <option value="1878">1878</option>
+                                                <option value="1879">1879</option>
+                                                <option value="1880">1880</option>
+                                                <option value="1881">1881</option>
+                                                <option value="1882">1882</option>
+                                                <option value="1883">1883</option>
+                                                <option value="1884">1884</option>
+                                                <option value="1885">1885</option>
+                                                <option value="1886">1886</option>
+                                                <option value="1887">1887</option>
+                                                <option value="1888">1888</option>
+                                                <option value="1889">1889</option>
+                                                <option value="1890">1890</option>
+                                                <option value="1891">1891</option>
+                                                <option value="1892">1892</option>
+                                                <option value="1893">1893</option>
+                                                <option value="1894">1894</option>
+                                                <option value="1895">1895</option>
+                                                <option value="1896">1896</option>
+                                                <option value="1897">1897</option>
+                                                <option value="1898">1898</option>
+                                                <option value="1899">1899</option>
+                                                <option value="1900">1900</option>
+                                                <option value="1901">1901</option>
+                                                <option value="1902">1902</option>
+                                                <option value="1903">1903</option>
+                                                <option value="1904">1904</option>
+                                                <option value="1905">1905</option>
+                                                <option value="1906">1906</option>
+                                                <option value="1907">1907</option>
+                                                <option value="1908">1908</option>
+                                                <option value="1909">1909</option>
+                                                <option value="1910">1910</option>
+                                                <option value="1911">1911</option>
+                                                <option value="1912">1912</option>
+                                                <option value="1913">1913</option>
+                                                <option value="1914">1914</option>
+                                                <option value="1915">1915</option>
+                                                <option value="1916">1916</option>
+                                                <option value="1917">1917</option>
+                                                <option value="1918">1918</option>
+                                                <option value="1919">1919</option>
+                                                <option value="1920">1920</option>
+                                                <option value="1921">1921</option>
+                                                <option value="1922">1922</option>
+                                                <option value="1923">1923</option>
+                                                <option value="1924">1924</option>
+                                                <option value="1925">1925</option>
+                                                <option value="1926">1926</option>
+                                                <option value="1927">1927</option>
+                                                <option value="1928">1928</option>
+                                                <option value="1929">1929</option>
+                                                <option value="1930">1930</option>
+                                                <option value="1931">1931</option>
+                                                <option value="1932">1932</option>
+                                                <option value="1933">1933</option>
+                                                <option value="1934">1934</option>
+                                                <option value="1935">1935</option>
+                                                <option value="1936">1936</option>
+                                                <option value="1937">1937</option>
+                                                <option value="1938">1938</option>
+                                                <option value="1939">1939</option>
+                                                <option value="1940">1940</option>
+                                                <option value="1941">1941</option>
+                                                <option value="1942">1942</option>
+                                                <option value="1943">1943</option>
+                                                <option value="1944">1944</option>
+                                                <option value="1945">1945</option>
+                                                <option value="1946">1946</option>
+                                                <option value="1947">1947</option>
+                                                <option value="1948">1948</option>
+                                                <option value="1949">1949</option>
+                                                <option value="1950">1950</option>
+                                                <option value="1951">1951</option>
+                                                <option value="1952">1952</option>
+                                                <option value="1953">1953</option>
+                                                <option value="1954">1954</option>
+                                                <option value="1955">1955</option>
+                                                <option value="1956">1956</option>
+                                                <option value="1957">1957</option>
+                                                <option value="1958">1958</option>
+                                                <option value="1959">1959</option>
+                                                <option value="1960">1960</option>
+                                                <option value="1961">1961</option>
+                                                <option value="1962">1962</option>
+                                                <option value="1963">1963</option>
+                                                <option value="1964">1964</option>
+                                                <option value="1965">1965</option>
+                                                <option value="1966">1966</option>
+                                                <option value="1967">1967</option>
+                                                <option value="1968">1968</option>
+                                                <option value="1969">1969</option>
+                                                <option value="1970">1970</option>
+                                                <option value="1971">1971</option>
+                                                <option value="1972">1972</option>
+                                                <option value="1973">1973</option>
+                                                <option value="1974">1974</option>
+                                                <option value="1975">1975</option>
+                                                <option value="1976">1976</option>
+                                                <option value="1977">1977</option>
+                                                <option value="1978">1978</option>
+                                                <option value="1979">1979</option>
+                                                <option value="1980">1980</option>
+                                                <option value="1981">1981</option>
+                                                <option value="1982">1982</option>
+                                                <option value="1983">1983</option>
+                                                <option value="1984">1984</option>
+                                                <option value="1985">1985</option>
+                                                <option value="1986">1986</option>
+                                                <option value="1987">1987</option>
+                                                <option value="1988">1988</option>
+                                                <option value="1989">1989</option>
+                                                <option value="1990">1990</option>
+                                                <option value="1991">1991</option>
+                                                <option value="1992">1992</option>
+                                                <option value="1993">1993</option>
+                                                <option value="1994">1994</option>
+                                                <option value="1995">1995</option>
+                                                <option value="1996">1996</option>
+                                                <option value="1997">1997</option>
+                                                <option value="1998">1998</option>
+                                                <option value="1999">1999</option>
+                                                <option value="2000">2000</option>
+                                                <option value="2001">2001</option>
+                                                <option value="2002">2002</option>
+                                                <option value="2003">2003</option>
+                                                <option value="2004">2004</option>
+                                                <option value="2005">2005</option>
+                                                <option value="2006">2006</option>
+                                                <option value="2007">2007</option>
+                                                <option value="2008">2008</option>
+                                                <option value="2009">2009</option>
+                                                <option value="2010">2010</option>
+                                                <option value="2011">2011</option>
+                                                <option value="2012">2012</option>
+                                                <option value="2013">2013</option>
+                                                <option value="2014">2014</option>
+                                                <option value="2015">2015</option>
+                                                <option value="2016">2016</option>
+                                                <option value="2017">2017</option>
+                                                <option value="2018">2018</option>
+                                                <option value="2019">2019</option>
+                                                <option value="2020">2020</option>
+                                                <option value="2021">2021</option>
+                                                <option value="2022">2022</option>
+                                                <option value="2023">2023</option>
+                                                <option value="2024">2024</option>
+                                                <option value="2025">2025</option>
+                                                <option value="2026">2026</option>
+                                        </select>
+            </td>
+        </tr>
+    </tbody></table>
+</div>
+<div class="clear_height"></div>
+
+    <div class="xx_pw_pc_col_inner">
+    <h3 class="pw_h3_left">Address</h3>
+    <div class="clear_height"></div>
+
+    <table class="works_table">
+                    <tbody><tr class="row">
+            <td class="b b_property_title_column"><label for="address_1">Address Line 1</label></td>
+            <td class="b b_last b_no_padding"><input type="text" id="address_1" name="address_1" value="" class="input"></td>
+        </tr>
+        <tr class="row_alt">
+            <td class="b b_property_title_column"><label for="address_2">Address Line 2</label></td>
+            <td class="b b_last b_no_padding"><input type="text" id="address_2" name="address_2" value="" class="input"></td>
+        </tr>
+        <tr class="row">
+            <td class="b b_property_title_column"><label for="address_3">Address Line 3</label></td>
+            <td class="b b_last b_no_padding"><input type="text" id="address_3" name="address_3" value="" class="input"></td>
+        </tr>
+        <tr class="row_alt">
+            <td class="b b_property_title_column"><label for="address_4">Address Line 4</label></td>
+            <td class="b b_last b_no_padding"><input type="text" id="address_4" name="address_4" value="" class="input"></td>
+        </tr>
+        <tr class="row">
+            <td class="b b_property_title_column"><label for="town">Town</label></td>
+            <td class="b b_last b_no_padding"><input type="text" id="town" name="town" value="" class="input"></td>
+        </tr>
+        <tr class="row_alt">
+            <td class="b b_property_title_column"><label for="county">County</label></td>
+            <td class="b b_last b_no_padding"><input type="text" id="county" name="county" value="" class="input"></td>
+        </tr>
+        <tr class="row">
+            <td class="b b_property_title_column b_last_row"><label for="postcode">Postcode</label></td>
+            <td class="b b_last_row b_last b_no_padding"><input type="text" id="postcode" name="postcode" value="" class="input"></td>
+        </tr>
+        <tr class="row_alt">
+            <td class="b b_property_title_column b_last_row"><label for="default_invoice_address_main">Set as default invoice address</label></td>
+            <td class="b b_last_row b_last b_no_padding"><input type="checkbox" id="default_invoice_address_main" name="default_invoice_address" value="main"></td>
+        </tr>
+    </tbody></table>
+</div>
+<div class="clear_height"></div>
+
+    <div class="xx_pw_pc_col_inner">
+    <h3 class="pw_h3_left">Resident Details</h3>
+    <div class="clear_height"></div>
+                <table class="works_table">
+            <tbody><tr class="row">
+                <td class="b b_property_title_column"><label for="resident_title">Resident Title</label></td>
+                <td class="b b_last b_no_padding">
+                    <select name="resident_title" id="resident_title">
+                        <option value="">-</option>
+                                                        <option value="Mr &amp; Mrs">Mr &amp; Mrs</option>
+                                                        <option value="Mr &amp; Mr">Mr &amp; Mr</option>
+                                                        <option value="Mrs &amp; Mrs">Mrs &amp; Mrs</option>
+                                                        <option value="Ms &amp; Ms">Ms &amp; Ms</option>
+                                                        <option value="Miss &amp; Miss">Miss &amp; Miss</option>
+                                                        <option value="Mr">Mr</option>
+                                                        <option value="Mrs">Mrs</option>
+                                                        <option value="Ms">Ms</option>
+                                                        <option value="Miss">Miss</option>
+                                                        <option value="Mx">Mx</option>
+                                                        <option value="Dr">Dr</option>
+                                                        <option value="Rev">Rev</option>
+                                                        <option value="Lord">Lord</option>
+                                                        <option value="Sir">Sir</option>
+                                                </select>
+                </td>
+            </tr>
+            <tr class="row_alt">
+                <td class="b b_property_title_column"><label for="resident_f_name">Resident First Name</label></td>
+                <td class="b b_last b_no_padding"><input type="text" id="resident_f_name" name="resident_f_name" value="" class="input"></td>
+            </tr>
+            <tr class="row">
+                <td class="b b_property_title_column"><label for="resident_l_name">Resident Surname</label></td>
+                <td class="b b_last b_no_padding"><input type="text" id="resident_l_name" name="resident_l_name" value="" class="input"></td>
+            </tr>
+            <tr class="row_alt">
+                <td class="b b_property_title_column"><label for="resident_name">Full Name</label></td>
+                <td class="b b_last b_no_padding"><input type="text" id="resident_name" name="resident_name" value="" class="input" disabled="disabled">
+                </td>
+            </tr>
+            <tr class="row">
+                <td class="b b_property_title_column"><label for="resident_mobile">Resident Mobile</label></td>
+                <td class="b b_last b_no_padding"><input type="text" id="resident_mobile" name="resident_mobile" value="" class="input"></td>
+            </tr>
+            <tr class="row_alt">
+                <td class="b b_property_title_column"><label for="resident_tel">Resident Telephone</label></td>
+                <td class="b b_last b_no_padding"><input type="text" id="resident_tel" name="resident_tel" value="" class="input"></td>
+            </tr>
+            <tr class="row">
+                <td class="b b_property_title_column b_last_row"><label for="resident_email">Resident Email</label></td>
+                <td class="b b_last_row b_last b_no_padding"><input type="text" id="resident_email" name="resident_email" value="" class="input"></td>
+            </tr>
+        </tbody></table>
+        </div>
+<div class="clear_height"></div>
+
+    <div class="xx_pw_pc_col_inner">
+    <h3 class="pw_h3_left">Alternative Address</h3>
+    <div class="clear_height"></div>
+
+    <table class="works_table">
+        <tbody><tr class="row">
+            <td class="b b_property_title_column"><label for="alt_address_1">Address Line 1</label></td>
+            <td class="b b_last b_no_padding"><input type="text" id="alt_address_1" name="alt_address_1" value="" class="input"></td>
+        </tr>
+        <tr class="row_alt">
+            <td class="b b_property_title_column"><label for="alt_address_2">Address Line 2</label></td>
+            <td class="b b_last b_no_padding"><input type="text" id="alt_address_2" name="alt_address_2" value="" class="input"></td>
+        </tr>
+        <tr class="row">
+            <td class="b b_property_title_column"><label for="alt_address_3">Address Line 3</label></td>
+            <td class="b b_last b_no_padding"><input type="text" id="alt_address_3" name="alt_address_3" value="" class="input"></td>
+        </tr>
+        <tr class="row_alt">
+            <td class="b b_property_title_column"><label for="alt_address_4">Address Line 4</label></td>
+            <td class="b b_last b_no_padding"><input type="text" id="alt_address_4" name="alt_address_4" value="" class="input"></td>
+        </tr>
+        <tr class="row">
+            <td class="b b_property_title_column"><label for="alt_town">Town</label></td>
+            <td class="b b_last b_no_padding"><input type="text" id="alt_town" name="alt_town" value="" class="input"></td>
+        </tr>
+        <tr class="row_alt">
+            <td class="b b_property_title_column"><label for="alt_county">County</label></td>
+            <td class="b b_last b_no_padding"><input type="text" id="alt_county" name="alt_county" value="" class="input"></td>
+        </tr>
+        <tr class="row">
+            <td class="b b_last_row b_property_title_column"><label for="alt_postcode">Postcode</label></td>
+            <td class="b b_last_row b_last b_no_padding"><input type="text" id="alt_postcode" name="alt_postcode" value="" class="input"></td>
+        </tr>
+        <tr class="row_alt">
+            <td class="b b_last_row b_property_title_column"><label for="alt_country">Country</label></td>
+            <td class="b b_last_row b_last b_no_padding"><input type="text" id="alt_country" name="alt_country" value="" class="input"></td>
+        </tr>
+        <tr class="row">
+            <td class="b b_property_title_column b_last_row"><label for="default_invoice_address_alt">Set as default invoice address</label></td>
+            <td class="b b_last_row b_last b_no_padding"><input type="checkbox" id="default_invoice_address_alt" name="default_invoice_address" value="alternative"></td>
+        </tr>
+    </tbody></table>
+</div>
+
+<!-- UDFs -->
+<div class="clear_height"></div>
+</div>
+<script nonce="">
+
+$('#zone_name').keydown(function () {
+    $('#zone_id').val("");
+});
+
+$('#zone_name').autocomplete({
+    minLength: 1,
+    maxResults: 100,
+    'source': function (request, response) {
+        $.post("/api/planned_works/autocomplete_zones.php", {
+            zone_name: request.term,
+            database_id: 3210			}, function (data) {
+            response(data);
+        }, 'json');
+    },
+    'focus': function () {
+        return false;
+    },
+    'select': function (event, ui) {
+        event.preventDefault();
+
+        $(this).val(ui.item.label);
+        $('#zone_id').val(ui.item.value);
+
+        return false;
+    }
+});
+
+$("input[name='default_invoice_address']").on('click', function () {
+    $("input[name='default_invoice_address']").each(function () {
+        $(this).prop('checked', false);
+    });
+    $(this).prop('checked', true);
+});
+</script>
+
+<input type="hidden" name="contract_id" id="contract_id" value="321129">
+<input type="hidden" name="property_id" id="property_id" value="">
+</form>

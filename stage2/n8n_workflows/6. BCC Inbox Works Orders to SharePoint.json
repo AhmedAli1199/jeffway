@@ -1,0 +1,1512 @@
+{
+  "nodes": [
+    {
+      "parameters": {
+        "url": "=https://graph.microsoft.com/v1.0/users/{{ $json.mailbox }}/mailFolders/{{ $json.inbox_id }}/childFolders?$top=100&$select=id,displayName",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "oAuth2Api",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          }
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -1488,
+        -5504
+      ],
+      "id": "83ad2d42-a688-46fa-bbfd-6d0e057cd89d",
+      "name": "List Inbox Children",
+      "credentials": {
+        "oAuth2Api": {
+          "id": "nNC3eYQ9UeulKHjg",
+          "name": "Jeffway-M365-GraphAPI"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const mailbox = 'BCCorders@jeffway.co.uk';\nconst resp = $input.first().json || {};\nconst status = resp.statusCode ?? 200;\nconst body = resp.body ?? resp;\nconst folders = (status >= 200 && status < 300) ? (body.value || []) : [];\nconst inbox = folders.find(f => /^inbox$/i.test(String(f.displayName || '').trim()));\nif (!inbox) throw new Error('Inbox folder not found on BCCorders@jeffway.co.uk');\nreturn [{ json: { mailbox, inbox_id: inbox.id } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1728,
+        -5504
+      ],
+      "id": "c7b05787-0660-4749-b373-380356f2ebce",
+      "name": "Get Inbox Id2"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://graph.microsoft.com/v1.0/users/BCCorders@jeffway.co.uk/messages/{{ $('Loop Email1').item.json.email_id || $('Loop Email1').item.json.id }}/copy",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "oAuth2Api",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"destinationId\": \"{{ $('Loop Email1').item.json.outlook_folder_id }}\"\n}",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          }
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2960,
+        -5552
+      ],
+      "id": "063fd2ea-4e21-4547-a901-462d77c5de40",
+      "name": "Copy Message to Folder1",
+      "credentials": {
+        "oAuth2Api": {
+          "id": "nNC3eYQ9UeulKHjg",
+          "name": "Jeffway-M365-GraphAPI"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "should-copy",
+              "leftValue": "={{ $('Loop Email1').item.json.skip_mailbox_copy !== true && !!$('Loop Email1').item.json.outlook_folder_id }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        2736,
+        -5472
+      ],
+      "id": "dbee5337-d122-40c8-9c97-8bb372184f36",
+      "name": "IF Should Copy Mailbox1"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "needs-sp",
+              "leftValue": "={{ $json.needs_sharepoint_upload === true }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        192,
+        -5408
+      ],
+      "id": "33f9188e-1689-4b43-95a7-95150b2c5bd8",
+      "name": "IF Needs SharePoint Upload1"
+    },
+    {
+      "parameters": {
+        "jsCode": "const mailbox = 'BCCorders@jeffway.co.uk';\nconst mbResp = $('List Mailbox Folders2').first().json || {};\nconst mbStatus = mbResp.statusCode ?? 200;\nconst mbBody = mbResp.body ?? mbResp;\nconst topFolders = (mbStatus >= 200 && mbStatus < 300) ? (mbBody.value || []) : [];\nconst inbox = topFolders.find(f => /^inbox$/i.test(String(f.displayName || '').trim()));\n\nconst resp = $input.first().json || {};\nconst status = resp.statusCode ?? 200;\nconst body = resp.body ?? resp;\nconst children = (status >= 200 && status < 300) ? (body.value || []) : [];\n\nfunction norm(s) { return String(s || '').trim().toLowerCase(); }\n\nconst ALIASES = {\n  'RR- South': ['RR- South', 'RR-South'],\n  'RR- North': ['RR- North', 'RR-North'],\n  'D&M': ['D&M', 'D & M']\n};\n\nconst folder_by_category = {};\nconst missing = [];\n\nfor (const [key, names] of Object.entries(ALIASES)) {\n  const match = children.find(c => names.some(n => norm(c.displayName) === norm(n)));\n  if (match) {\n    folder_by_category[key] = {\n      id: match.id,\n      path: `Inbox/${match.displayName}`,\n      displayName: match.displayName\n    };\n  } else {\n    missing.push(key);\n  }\n}\n\nreturn [{\n  json: {\n    mailbox,\n    inbox_id: inbox?.id || null,\n    folder_by_category,\n    missing_folders: missing,\n    inbox_child_names: children.map(c => c.displayName)\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1248,
+        -5504
+      ],
+      "id": "bb287439-f31c-4bd7-92dd-1b0b815fd7b6",
+      "name": "Resolve Regional Inbox Folders1"
+    },
+    {
+      "parameters": {
+        "url": "=https://graph.microsoft.com/v1.0/users/BCCorders@jeffway.co.uk/mailFolders?$top=100&$select=id,displayName",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "oAuth2Api",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          }
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -1968,
+        -5504
+      ],
+      "id": "020a609c-6eeb-4a88-bba4-e5c8e3232aee",
+      "name": "List Mailbox Folders2",
+      "credentials": {
+        "oAuth2Api": {
+          "id": "nNC3eYQ9UeulKHjg",
+          "name": "Jeffway-M365-GraphAPI"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "url": "=https://graph.microsoft.com/v1.0/sites/{{ $json.id }}/lists/BCC/drive",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "oAuth2Api",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -1728,
+        -5728
+      ],
+      "id": "b2c92d1b-71c5-4f3c-863e-5f51f985b50e",
+      "name": "Get BCC library drive4",
+      "credentials": {
+        "oAuth2Api": {
+          "id": "nNC3eYQ9UeulKHjg",
+          "name": "Jeffway-M365-GraphAPI"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "url": "https://graph.microsoft.com/v1.0/sites/jeffway.sharepoint.com:/bccvoids",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "oAuth2Api",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -1968,
+        -5728
+      ],
+      "id": "a8c790cf-560c-463f-a64a-95e4e6a30557",
+      "name": "Get bccvoids site4",
+      "credentials": {
+        "oAuth2Api": {
+          "id": "nNC3eYQ9UeulKHjg",
+          "name": "Jeffway-M365-GraphAPI"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "17WI7AM3bdtdwbMnBj4Ldcb7PVBv9iMOhoNxnqvdau3A",
+          "mode": "list",
+          "cachedResultName": "Reactive-Works-Instructions-Template"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 2080783995,
+          "mode": "list",
+          "cachedResultName": "Work Order Form ",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/17WI7AM3bdtdwbMnBj4Ldcb7PVBv9iMOhoNxnqvdau3A/edit#gid=2080783995"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "CORF": "={{ $json.CORF }}",
+            "Region": "={{ $json.Region }}",
+            "Subject": "={{ $json.Subject }}",
+            "File Name": "={{ $json['File Name'] }}",
+            "SharePoint Path": "={{ $json['SharePoint Path'] }}",
+            ".msg on easybop": "={{ $json['.msg on easybop'] }}",
+            "Uploaded At": "={{ $json['Uploaded At'] }}",
+            "Email ID": "={{ $json['Email ID'] }}",
+            "_corf_found": "={{ $json._corf_found }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "CORF",
+              "displayName": "CORF",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Region",
+              "displayName": "Region",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Subject",
+              "displayName": "Subject",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "File Name",
+              "displayName": "File Name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "SharePoint Path",
+              "displayName": "SharePoint Path",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": ".msg on easybop",
+              "displayName": ".msg on easybop",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Uploaded At",
+              "displayName": "Uploaded At",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Email ID",
+              "displayName": "Email ID",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "_corf_found",
+              "displayName": "_corf_found",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {
+          "cellFormat": "USER_ENTERED"
+        }
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        2512,
+        -5472
+      ],
+      "id": "4c2ec638-7542-44e5-9119-8cab7337acd8",
+      "name": "Append to Work Order Form1",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "0bvpVa8frZ7qSwzx",
+          "name": "hamza-sheets"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "\nfunction normCorf(v) {\n  const raw = String(v ?? '').trim();\n  if (!raw) return '';\n  const t = raw.toLowerCase().replace(/\\s+/g, '');\n  const slash = t.match(/^(\\d+)\\/(\\d+)$/);\n  if (slash) return parseInt(slash[1], 10) + '/' + parseInt(slash[2], 10);\n  const under = t.match(/^(\\d+)_(\\d+)$/);\n  if (under) return parseInt(under[1], 10) + '/' + parseInt(under[2], 10);\n  return t;\n}\nfunction corfFromSubject(subject) {\n  const t = String(subject || '');\n  let m = t.match(/WO\\s+Ref[:.\\s]+(\\d+)[_\\s\\/\\\\-]+(\\d+)/i);\n  if (m) return normCorf(parseInt(m[1], 10) + '/' + parseInt(m[2], 10));\n  m = t.match(/(\\d{4,6})[_\\s\\/\\\\-]+(\\d+)/);\n  if (m) return normCorf(parseInt(m[1], 10) + '/' + parseInt(m[2], 10));\n  return '';\n}\nfunction corfKnown(corfKey, trackedCorfs, appendedCorfs) {\n  if (!corfKey) return false;\n  if (trackedCorfs.has(corfKey)) return true;\n  if (appendedCorfs && appendedCorfs[corfKey]) return true;\n  return false;\n}\n\nconst row = $json;\nconst sp = String(row.sharepoint_path || '');\nconst cat = String(row.matched_category || '').trim();\nconst isSouth = sp.includes('RR-South/inbox') || cat === 'RR- South';\nif (!isSouth) return [];\n\nconst subject = row.subject || '';\nconst corfKey = normCorf(row.corf || row.client_order_reference || corfFromSubject(subject));\nif (!corfKey) return [];\n\nconst sd = $getWorkflowStaticData('global');\nif (!sd.appendedCorfs) sd.appendedCorfs = {};\nif (sd.appendedCorfs[corfKey]) return [];\n\nconst trackerRows = $('Load Work Order Form Tracker').all().map(i => i.json);\nfor (const tr of trackerRows) {\n  if (normCorf(tr.CORF ?? tr.corf ?? '') === corfKey) return [];\n}\n\nsd.appendedCorfs[corfKey] = true;\n\nfunction ukNow() {\n  return new Date().toLocaleString('en-GB', { timeZone: 'Europe/London' }).replace(',', '');\n}\n\nreturn {\n  json: {\n    CORF: corfKey,\n    Region: row.matched_category || '',\n    Subject: subject,\n    'File Name': row.msg_file_name || '',\n    'SharePoint Path': row.sharepoint_path || '',\n    '.msg on easybop': 'FALSE',\n    'Uploaded At': ukNow(),\n    'Email ID': row.email_id || '',\n    _corf_found: true\n  }\n};\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2288,
+        -5472
+      ],
+      "id": "f1e811a2-9764-4387-aa65-f8b4c2660040",
+      "name": "Prepare Work Order Form Row1"
+    },
+    {
+      "parameters": {
+        "amount": 1
+      },
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        3184,
+        -5472
+      ],
+      "id": "814725e6-81b9-44c8-96b2-dfd7e5425ce4",
+      "name": "Wait 2s1",
+      "webhookId": "8ce25223-6faf-4640-a513-f17100c7d76c",
+      "disabled": true
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "backfill-sheet",
+              "leftValue": "={{ $json.skip_reason }}",
+              "rightValue": "sharepoint_exists",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        2064,
+        -5648
+      ],
+      "id": "0e9a18f8-1fb4-406b-bce1-d38353d7df6c",
+      "name": "IF Backfill Sheet1"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const row = $('Check File Exists1').item.json;\nfunction normCorf(v) {\n  const raw = String(v ?? '').trim();\n  if (!raw) return '';\n  const t = raw.toLowerCase().replace(/\\s+/g, '');\n  const slash = t.match(/^(\\d+)\\/(\\d+)$/);\n  if (slash) return parseInt(slash[1], 10) + '/' + parseInt(slash[2], 10);\n  const under = t.match(/^(\\d+)_(\\d+)$/);\n  if (under) return parseInt(under[1], 10) + '/' + parseInt(under[2], 10);\n  return t;\n}\nfunction corfFromSubject(subject) {\n  const t = String(subject || '');\n  let m = t.match(/WO\\s+Ref[:.\\s]+(\\d+)[_\\s\\/\\\\-]+(\\d+)/i);\n  if (m) return normCorf(parseInt(m[1], 10) + '/' + parseInt(m[2], 10));\n  m = t.match(/(\\d{4,6})[_\\s\\/\\\\-]+(\\d+)/);\n  if (m) return normCorf(parseInt(m[1], 10) + '/' + parseInt(m[2], 10));\n  return '';\n}\nconst corf = normCorf(row.corf || row.client_order_reference || corfFromSubject(row.subject));\nreturn {\n  json: {\n    email_id: row.email_id,\n    subject: row.subject,\n    matched_category: row.matched_category,\n    sharepoint_path: row.sharepoint_path,\n    msg_file_name: row.msg_file_name,\n    corf,\n    uploaded: false,\n    skipped_duplicate: true,\n    skip_reason: row.skipped_tracker ? 'tracker_sheet' : 'sharepoint_exists',\n    existing_sharepoint_size: row.existing_sharepoint_size,\n    processed_at: new Date().toISOString()\n  }\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1840,
+        -5648
+      ],
+      "id": "94a31c3a-8c8f-41b5-b033-adc3ba05175e",
+      "name": "Mark Skipped Duplicate1"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const row = $('Check File Exists1').item.json;\nreturn {\n  json: {\n    email_id: row.email_id,\n    subject: row.subject,\n    matched_category: row.matched_category,\n    sharepoint_path: row.sharepoint_path,\n    msg_file_name: row.msg_file_name,\n    uploaded: true,\n    skipped_duplicate: false,\n    replaced_empty_file: row.is_empty_on_sharepoint === true,\n    msg_bytes: row.msg_bytes,\n    source: row.source,\n    processed_at: new Date().toISOString()\n  }\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2064,
+        -5424
+      ],
+      "id": "b91a9218-bc59-4c97-b50e-1aadfca5104a",
+      "name": "Mark Uploaded1"
+    },
+    {
+      "parameters": {
+        "method": "PUT",
+        "url": "=https://graph.microsoft.com/v1.0/drives/{{ $json.drive_id }}/root:/{{ $json.sharepoint_path }}/{{ $json.msg_file_name }}:/content",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "oAuth2Api",
+        "sendBody": true,
+        "contentType": "binaryData",
+        "inputDataFieldName": "msg",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1840,
+        -5424
+      ],
+      "id": "0e6f004e-c052-4b83-9123-8df6179cd645",
+      "name": "Upload MSG to SharePoint1",
+      "credentials": {
+        "oAuth2Api": {
+          "id": "nNC3eYQ9UeulKHjg",
+          "name": "Jeffway-M365-GraphAPI"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const row = $json;\nreturn {\n  json: {\n    email_id: row.email_id,\n    subject: row.subject,\n    matched_category: row.matched_category,\n    sharepoint_path: row.sharepoint_path,\n    msg_file_name: row.msg_file_name,\n    uploaded: false,\n    skipped_no_binary: true,\n    msg_bytes: row.msg_bytes || 0,\n    source: row.source,\n    warning: 'Mailbox export returned 0 bytes — nothing uploaded to SharePoint',\n    processed_at: new Date().toISOString()\n  }\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2512,
+        -5264
+      ],
+      "id": "cbc792d1-90d3-4b76-a8ae-72570c8e71df",
+      "name": "Mark Skipped No Binary1"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "has-binary",
+              "leftValue": "={{ $json.has_binary === true }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1616,
+        -5328
+      ],
+      "id": "97fc855d-2936-4aaf-bfe4-6977c5328d0b",
+      "name": "IF Has Binary1"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "exists",
+              "leftValue": "={{ $json.skip_upload === true }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1392,
+        -5456
+      ],
+      "id": "4cc73fc5-a3bb-4b9d-b375-e12476c4588e",
+      "name": "IF Skip Upload1"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "\nfunction normCorf(v) {\n  const raw = String(v ?? '').trim();\n  if (!raw) return '';\n  const t = raw.toLowerCase().replace(/\\s+/g, '');\n  const slash = t.match(/^(\\d+)\\/(\\d+)$/);\n  if (slash) return parseInt(slash[1], 10) + '/' + parseInt(slash[2], 10);\n  const under = t.match(/^(\\d+)_(\\d+)$/);\n  if (under) return parseInt(under[1], 10) + '/' + parseInt(under[2], 10);\n  return t;\n}\nfunction corfFromSubject(subject) {\n  const t = String(subject || '');\n  let m = t.match(/WO\\s+Ref[:.\\s]+(\\d+)[_\\s\\/\\\\-]+(\\d+)/i);\n  if (m) return normCorf(parseInt(m[1], 10) + '/' + parseInt(m[2], 10));\n  m = t.match(/(\\d{4,6})[_\\s\\/\\\\-]+(\\d+)/);\n  if (m) return normCorf(parseInt(m[1], 10) + '/' + parseInt(m[2], 10));\n  return '';\n}\nfunction corfKnown(corfKey, trackedCorfs, appendedCorfs) {\n  if (!corfKey) return false;\n  if (trackedCorfs.has(corfKey)) return true;\n  if (appendedCorfs && appendedCorfs[corfKey]) return true;\n  return false;\n}\n\nfunction binaryItem() {\n  try { return $('Binary From Attachment1').item; } catch (e) {}\n  try { return $('Binary From MIME Export1').item; } catch (e) {}\n  return null;\n}\n\nconst sd = $getWorkflowStaticData('global');\nif (!sd.appendedCorfs) sd.appendedCorfs = {};\n\nconst trackerRows = $('Load Work Order Form Tracker').all().map(i => i.json);\nconst trackedCorfs = new Set();\nfor (const row of trackerRows) {\n  const c = normCorf(row.CORF ?? row.corf ?? '');\n  if (c) trackedCorfs.add(c);\n}\n\nconst src = binaryItem();\nconst prep = (src && src.json) || {};\nconst prepBinary = (src && src.binary) || {};\nconst listResp = $json;\nconst status = listResp.statusCode ?? 200;\nconst body = listResp.body ?? listResp;\nconst existing = (status >= 200 && status < 300 && body.value) ? body.value : [];\nconst fileName = prep.msg_file_name;\nconst match = existing.find(v => String(v.name).toLowerCase() === String(fileName).toLowerCase());\nconst exists = !!match;\nconst existingSize = match?.size ?? null;\nconst isEmptyOnSharePoint = exists && (existingSize === 0 || existingSize === null);\nconst emailId = String(prep.email_id || prep.id || '');\nconst corf = normCorf(prep.corf || prep.client_order_reference || corfFromSubject(prep.subject));\nconst inTracker = corfKnown(corf, trackedCorfs, sd.appendedCorfs);\n\nreturn {\n  json: {\n    ...prep,\n    email_id: emailId,\n    corf,\n    client_order_reference: corf,\n    file_exists: exists,\n    existing_sharepoint_size: existingSize,\n    is_empty_on_sharepoint: isEmptyOnSharePoint,\n    skipped_tracker: inTracker,\n    skip_upload: inTracker || (exists && !isEmptyOnSharePoint),\n    should_upload: prep.has_binary && !inTracker && (!exists || isEmptyOnSharePoint),\n    target_folder_ok: status >= 200 && status < 300,\n    target_folder_status: status\n  },\n  binary: prepBinary\n};\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1152,
+        -5568
+      ],
+      "id": "685f7a2f-1631-4904-b177-82aa720ad1bc",
+      "name": "Check File Exists1"
+    },
+    {
+      "parameters": {
+        "url": "=https://graph.microsoft.com/v1.0/drives/{{ $json.drive_id }}/root:/{{ $json.sharepoint_path }}:/children?$top=500&$select=name,size",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "oAuth2Api",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          }
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        912,
+        -5568
+      ],
+      "id": "2dac3385-48e6-455b-a488-44a2aed104c7",
+      "name": "List Target Folder1",
+      "credentials": {
+        "oAuth2Api": {
+          "id": "nNC3eYQ9UeulKHjg",
+          "name": "Jeffway-M365-GraphAPI"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "function byteLength(b) {\n  if (!b) return 0;\n  if (typeof b.fileSize === 'number' && b.fileSize > 0) return b.fileSize;\n  if (typeof b.data !== 'string' || !b.data) return 0;\n  const pad = (b.data.match(/=+$/) || [''])[0].length;\n  return Math.floor((b.data.length * 3) / 4) - pad;\n}\n\nconst email = $('Pick MSG Source1').item.json;\nconst fileName = email.msg_file_name;\nconst item = $input.item;\nconst bin = item.binary?.msg;\nconst msgBytes = byteLength(bin);\n\nif (bin) {\n  bin.fileName = fileName;\n  bin.mimeType = 'application/vnd.ms-outlook';\n}\n\nreturn {\n  json: {\n    drive_id: email.drive_id,\n    sharepoint_path: email.sharepoint_path,\n    msg_file_name: fileName,\n    email_id: email.id,\n    subject: email.subject,\n    matched_category: email.matched_category,\n    source: 'mime_export_$value',\n    msg_bytes: msgBytes,\n    has_binary: msgBytes > 0\n  },\n  binary: item.binary\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        672,
+        -5488
+      ],
+      "id": "67e802b7-88df-4fc1-95a0-988db687352e",
+      "name": "Binary From MIME Export1"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "function byteLength(b) {\n  if (!b) return 0;\n  if (typeof b.fileSize === 'number' && b.fileSize > 0) return b.fileSize;\n  if (typeof b.data !== 'string' || !b.data) return 0;\n  const pad = (b.data.match(/=+$/) || [''])[0].length;\n  return Math.floor((b.data.length * 3) / 4) - pad;\n}\n\nconst email = $('Pick MSG Source1').item.json;\nconst fileName = email.msg_attachment_name || email.msg_file_name;\nconst item = $input.item;\nconst bin = item.binary?.msg;\nconst msgBytes = byteLength(bin);\n\nif (bin) {\n  bin.fileName = fileName;\n  bin.mimeType = 'application/vnd.ms-outlook';\n}\n\nreturn {\n  json: {\n    drive_id: email.drive_id,\n    sharepoint_path: email.sharepoint_path,\n    msg_file_name: fileName,\n    email_id: email.id,\n    subject: email.subject,\n    matched_category: email.matched_category,\n    source: 'attachment_$value',\n    msg_bytes: msgBytes,\n    has_binary: msgBytes > 0\n  },\n  binary: item.binary\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        672,
+        -5648
+      ],
+      "id": "a4c2e1c5-d5c6-4761-9652-88c55a441a1c",
+      "name": "Binary From Attachment1"
+    },
+    {
+      "parameters": {
+        "url": "={{ $('Pick MSG Source1').item.json.mime_export_url }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "oAuth2Api",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true,
+              "responseFormat": "file",
+              "outputPropertyName": "msg"
+            }
+          }
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        432,
+        -5488
+      ],
+      "id": "4ee395de-a25c-4302-b2dc-e073374608f4",
+      "name": "Export Message MIME1",
+      "credentials": {
+        "oAuth2Api": {
+          "id": "nNC3eYQ9UeulKHjg",
+          "name": "Jeffway-M365-GraphAPI"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "url": "={{ $('Pick MSG Source1').item.json.attachment_download_url }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "oAuth2Api",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true,
+              "responseFormat": "file",
+              "outputPropertyName": "msg"
+            }
+          }
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        432,
+        -5648
+      ],
+      "id": "41ed2e19-4665-47ed-b810-f8f51f784660",
+      "name": "Download Attachment $value1",
+      "credentials": {
+        "oAuth2Api": {
+          "id": "nNC3eYQ9UeulKHjg",
+          "name": "Jeffway-M365-GraphAPI"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "use-attach",
+              "leftValue": "={{ $json.has_msg_attachment === true }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        192,
+        -5568
+      ],
+      "id": "9100ce2d-f050-46ed-af6e-3dad62352574",
+      "name": "IF Has MSG Attachment1"
+    },
+    {
+      "parameters": {
+        "jsCode": "const email = $('Loop Email1').item.json;\nconst attachments = ($json.value || []).filter(a => String(a.name || '').toLowerCase().endsWith('.msg'));\nconst hasMsgAttachment = attachments.length > 0;\nconst chosen = hasMsgAttachment ? attachments[0] : null;\n\nreturn {\n  json: {\n    ...email,\n    has_msg_attachment: hasMsgAttachment,\n    msg_attachment_id: chosen?.id || null,\n    msg_attachment_name: chosen?.name || email.msg_file_name,\n    use_mime_export: !hasMsgAttachment,\n    attachment_download_url: chosen\n      ? `https://graph.microsoft.com/v1.0/users/BCCorders@jeffway.co.uk/messages/${email.id}/attachments/${chosen.id}/$value`\n      : null,\n    mime_export_url: `https://graph.microsoft.com/v1.0/users/BCCorders@jeffway.co.uk/messages/${email.id}/$value`\n  }\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -48,
+        -5568
+      ],
+      "id": "700318cb-9333-4d21-883d-9739d7e3a57c",
+      "name": "Pick MSG Source1"
+    },
+    {
+      "parameters": {
+        "url": "=https://graph.microsoft.com/v1.0/users/BCCorders@jeffway.co.uk/messages/{{ $json.id }}/attachments?$select=id,name,contentType,size",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "oAuth2Api",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -288,
+        -5568
+      ],
+      "id": "e8ea2147-4545-49c4-beac-71d0f51c14db",
+      "name": "Fetch Attachments1",
+      "credentials": {
+        "oAuth2Api": {
+          "id": "nNC3eYQ9UeulKHjg",
+          "name": "Jeffway-M365-GraphAPI"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "options": {
+          "reset": false
+        }
+      },
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        -528,
+        -5568
+      ],
+      "id": "677a65d3-69f3-4eee-bd01-9900200b2d32",
+      "name": "Loop Email1"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "has-regional",
+              "leftValue": "={{ $json.skip_upload === true }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -784,
+        -5920
+      ],
+      "id": "524bc96f-a8a2-4b5b-924a-ba4260174647",
+      "name": "IF Has Regional Messages1"
+    },
+    {
+      "parameters": {
+        "jsCode": "\nfunction normCorf(v) {\n  const raw = String(v ?? '').trim();\n  if (!raw) return '';\n  const t = raw.toLowerCase().replace(/\\s+/g, '');\n  const slash = t.match(/^(\\d+)\\/(\\d+)$/);\n  if (slash) return parseInt(slash[1], 10) + '/' + parseInt(slash[2], 10);\n  const under = t.match(/^(\\d+)_(\\d+)$/);\n  if (under) return parseInt(under[1], 10) + '/' + parseInt(under[2], 10);\n  return t;\n}\nfunction corfFromSubject(subject) {\n  const t = String(subject || '');\n  let m = t.match(/WO\\s+Ref[:.\\s]+(\\d+)[_\\s\\/\\\\-]+(\\d+)/i);\n  if (m) return normCorf(parseInt(m[1], 10) + '/' + parseInt(m[2], 10));\n  m = t.match(/(\\d{4,6})[_\\s\\/\\\\-]+(\\d+)/);\n  if (m) return normCorf(parseInt(m[1], 10) + '/' + parseInt(m[2], 10));\n  return '';\n}\nfunction corfKnown(corfKey, trackedCorfs, appendedCorfs) {\n  if (!corfKey) return false;\n  if (trackedCorfs.has(corfKey)) return true;\n  if (appendedCorfs && appendedCorfs[corfKey]) return true;\n  return false;\n}\n\nconst driveId = $('Get BCC library drive4').first().json.id;\nconst trackerRows = $('Load Work Order Form Tracker').all().map(i => i.json);\nconst regional = (() => {\n  try {\n    return $('Resolve Regional Inbox Folders1').first().json.folder_by_category || {};\n  } catch (e) {\n    return {};\n  }\n})();\n\nconst sd = $getWorkflowStaticData('global');\nsd.appendedCorfs = {};\n\nconst trackedCorfs = new Set();\nfor (const row of trackerRows) {\n  const c = normCorf(row.CORF ?? row.corf ?? '');\n  if (c) trackedCorfs.add(c);\n}\n\nconst seenInBatch = new Set();\n\nconst SP_BASE = 'RR Job imports and JIS/Orders';\nconst SP_BY_REGION = {\n  'RR- South': `${SP_BASE}/RR-South/inbox`,\n  'RR- North': `${SP_BASE}/RR-North/inbox`,\n  'D&M': `${SP_BASE}/D&M`\n};\n\nconst CAT_EXACT = {\n  'RR- South': 'RR- South',\n  'RR- North': 'RR- North',\n  'D&M': 'D&M',\n  'D & M': 'D&M'\n};\n\nfunction matchedCategory(categories) {\n  if (!Array.isArray(categories)) return null;\n  for (const raw of categories) {\n    const c = String(raw).trim();\n    if (CAT_EXACT[c]) return CAT_EXACT[c];\n  }\n  for (const raw of categories) {\n    const c = String(raw).trim();\n    const lower = c.toLowerCase();\n    if (lower.includes('south') && lower.includes('rr')) return 'RR- South';\n    if (lower.includes('north')) return 'RR- North';\n    if (lower.includes('d&m') || lower.includes('d & m')) return 'D&M';\n  }\n  return null;\n}\n\nfunction mapCategoryToSharePoint(categories) {\n  const cat = matchedCategory(categories);\n  return cat ? (SP_BY_REGION[cat] || null) : null;\n}\n\nfunction mapCategoryToOutlook(categories) {\n  const cat = matchedCategory(categories);\n  if (!cat) return null;\n  return regional[cat] || null;\n}\n\nfunction safeFileName(subject, received, id) {\n  const date = String(received || '').slice(0, 10).replace(/-/g, '');\n  const subj = String(subject || 'message')\n    .replace(/[<>:\"/\\\\|?*]/g, '_')\n    .replace(/\\s+/g, ' ')\n    .trim()\n    .slice(0, 80);\n  const shortId = String(id || '').slice(-8);\n  return `${date || 'nodate'}_${subj || 'message'}_${shortId}.msg`.replace(/\\s/g, '_');\n}\n\nfunction buildRow(msg) {\n  const id = msg.id;\n  const sharepoint_path = mapCategoryToSharePoint(msg.categories);\n  const outlook = mapCategoryToOutlook(msg.categories);\n  const regionCat = matchedCategory(msg.categories);\n  const corf = corfFromSubject(msg.subject);\n\n  if (!sharepoint_path && !outlook) return null;\n  if (corfKnown(corf, trackedCorfs, sd.appendedCorfs)) return null;\n  if (corf && seenInBatch.has(corf)) return null;\n  if (corf) seenInBatch.add(corf);\n\n  const sourceAlreadyInTarget = !!(outlook?.id && msg.parentFolderId && msg.parentFolderId === outlook.id);\n\n  return {\n    ...msg,\n    email_id: id,\n    internet_message_id: msg.internetMessageId || null,\n    drive_id: driveId,\n    sharepoint_path: sharepoint_path || null,\n    needs_sharepoint_upload: !!sharepoint_path,\n    outlook_folder_id: outlook?.id || null,\n    outlook_folder_path: outlook?.path || null,\n    matched_category: regionCat,\n    corf,\n    client_order_reference: corf,\n    msg_file_name: safeFileName(msg.subject, msg.receivedDateTime, msg.id),\n    skip_mailbox_copy: !outlook?.id || sourceAlreadyInTarget,\n    skip_upload: false,\n    mailbox_action: 'copy'\n  };\n}\n\nconst out = [];\nfor (const item of $input.all()) {\n  const msg = item.json || {};\n  if (!msg.id) continue;\n  const row = buildRow(msg);\n  if (row) out.push({ json: row });\n}\n\nif (!out.length) {\n  return [{ json: { skip_upload: true, _no_regional_messages: true } }];\n}\nreturn out;\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -992,
+        -5920
+      ],
+      "id": "6756530a-6e69-4fc9-be64-96c375f26824",
+      "name": "Map Category to Folder1"
+    },
+    {
+      "parameters": {
+        "fieldToSplitOut": "value",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.itemLists",
+      "typeVersion": 3,
+      "position": [
+        -768,
+        -5728
+      ],
+      "id": "74dccac1-aedb-4375-9438-24ddff6c6211",
+      "name": "Split Messages1"
+    },
+    {
+      "parameters": {
+        "jsCode": "const seen = new Set();\nconst merged = [];\nconst byCategory = [];\nconst expandItems = $('Expand Category Queries1').all();\nconst fetchItems = $input.all();\n\nfor (let idx = 0; idx < fetchItems.length; idx++) {\n  const req = expandItems[idx]?.json || {};\n  const body = fetchItems[idx].json || {};\n  const vals = body.value || [];\n  byCategory.push({ category: req.category, count: vals.length, error: body.error || null });\n  for (const m of vals) {\n    if (!m?.id || seen.has(m.id)) continue;\n    seen.add(m.id);\n    merged.push(m);\n  }\n}\n\nmerged.sort((a, b) => String(b.receivedDateTime || '').localeCompare(String(a.receivedDateTime || '')));\n\nreturn [{\n  json: {\n    value: merged,\n    count: merged.length,\n    fetch_by_category: byCategory\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1008,
+        -5728
+      ],
+      "id": "b190fcc8-7d3f-4e35-8cd9-4aaf3eafb288",
+      "name": "Merge Category Messages1"
+    },
+    {
+      "parameters": {
+        "url": "=https://graph.microsoft.com/v1.0/users/BCCorders@jeffway.co.uk/messages?$top=50&$select=id,subject,receivedDateTime,bodyPreview,from,hasAttachments,categories,parentFolderId,internetMessageId&$filter={{ $json.filter }}&$orderby=receivedDateTime+desc&$count=true",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "oAuth2Api",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "ConsistencyLevel",
+              "value": "eventual"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          }
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -1248,
+        -5728
+      ],
+      "id": "0c9066b8-4379-4a30-9fb0-8ca12c331fd8",
+      "name": "Fetch Messages by Category1",
+      "credentials": {
+        "oAuth2Api": {
+          "id": "nNC3eYQ9UeulKHjg",
+          "name": "Jeffway-M365-GraphAPI"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "return [\n  { json: { category: 'RR- South', filter: \"categories/any(a:a+eq+'RR-+South')\" } },\n  { json: { category: 'RR- North', filter: \"categories/any(a:a+eq+'RR-+North')\" } },\n  { json: { category: 'D&M', filter: \"categories/any(a:a+eq+'D%26M')\" } },\n  { json: { category: 'D & M', filter: \"categories/any(a:a+eq+'D+%26+M')\" } }\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1472,
+        -5904
+      ],
+      "id": "4c7b2fb5-2153-422a-bca9-de1442ed5bd9",
+      "name": "Expand Category Queries1"
+    },
+    {
+      "parameters": {
+        "jsCode": "return [{ json: { mailbox: 'BCCorders@jeffway.co.uk' } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -2208,
+        -5728
+      ],
+      "id": "0ebb77d5-533e-4d64-872b-c930b6231af6",
+      "name": "Prepare Inbox Poll1"
+    },
+    {
+      "parameters": {
+        "content": "# BCC inbox → SharePoint + Outlook regional folders\n\n**Init (sequential):** SharePoint drive → Google Sheet tracker → Outlook folder IDs → fetch mail.\n\n**Search:** category `RR- South`, `RR- North`, `D&M`.\n\n**SharePoint:**\n- `Orders/RR-South/inbox`\n- `Orders/RR-North/inbox`\n- `Orders/D&M`\n\n**Outlook:** **copies** to `Inbox/RR- South`, `Inbox/RR-North`, `Inbox/D&M`.\n\n**Skip upload:** Email ID in sheet, or `.msg` on SharePoint. **Sheet backfill** when SP has file but sheet missing row.",
+        "height": 420,
+        "width": 520
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -3072,
+        -5888
+      ],
+      "id": "a119c0ec-8c99-43b9-b80c-b3f6b7c1b4d4",
+      "name": "Readme8"
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "17WI7AM3bdtdwbMnBj4Ldcb7PVBv9iMOhoNxnqvdau3A",
+          "mode": "list",
+          "cachedResultName": "Reactive-Works-Instructions-Template"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 2080783995,
+          "mode": "list",
+          "cachedResultName": "Work Order Form ",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/17WI7AM3bdtdwbMnBj4Ldcb7PVBv9iMOhoNxnqvdau3A/edit#gid=2080783995"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        -1488,
+        -5728
+      ],
+      "id": "246a3915-c433-46ea-ab59-5291c1bc0508",
+      "name": "Load Work Order Form Tracker",
+      "alwaysOutputData": true,
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "0bvpVa8frZ7qSwzx",
+          "name": "hamza-sheets"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "rr-south",
+              "leftValue": "={{ $json.matched_category }}",
+              "rightValue": "RR- South",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        2288,
+        -5648
+      ],
+      "id": "4b8f7477-0d68-4701-b445-a2c77cd0424c",
+      "name": "IF RR-South for Sheet"
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "10,40 9-19 * * 1-5"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.3,
+      "position": [
+        -2432,
+        -5728
+      ],
+      "id": "f60de2ba-c42a-454e-938b-2de51f11a023",
+      "name": "Schedule Trigger8",
+      "notesInFlow": true,
+      "note": "Mon–Fri 09:00–19:00 Europe/London, every hour (cron: 0 9-19 * * 1-5)"
+    }
+  ],
+  "connections": {
+    "List Inbox Children": {
+      "main": [
+        [
+          {
+            "node": "Resolve Regional Inbox Folders1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Inbox Id2": {
+      "main": [
+        [
+          {
+            "node": "List Inbox Children",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Copy Message to Folder1": {
+      "main": [
+        [
+          {
+            "node": "Wait 2s1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF Should Copy Mailbox1": {
+      "main": [
+        [
+          {
+            "node": "Copy Message to Folder1",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Wait 2s1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF Needs SharePoint Upload1": {
+      "main": [
+        [
+          {
+            "node": "IF Has MSG Attachment1",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "IF Should Copy Mailbox1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Resolve Regional Inbox Folders1": {
+      "main": [
+        [
+          {
+            "node": "Expand Category Queries1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "List Mailbox Folders2": {
+      "main": [
+        [
+          {
+            "node": "Get Inbox Id2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get BCC library drive4": {
+      "main": [
+        [
+          {
+            "node": "Load Work Order Form Tracker",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get bccvoids site4": {
+      "main": [
+        [
+          {
+            "node": "Get BCC library drive4",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Append to Work Order Form1": {
+      "main": [
+        [
+          {
+            "node": "IF Should Copy Mailbox1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Work Order Form Row1": {
+      "main": [
+        [
+          {
+            "node": "Append to Work Order Form1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait 2s1": {
+      "main": [
+        [
+          {
+            "node": "Loop Email1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF Backfill Sheet1": {
+      "main": [
+        [
+          {
+            "node": "IF RR-South for Sheet",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "IF Should Copy Mailbox1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mark Skipped Duplicate1": {
+      "main": [
+        [
+          {
+            "node": "IF Backfill Sheet1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mark Uploaded1": {
+      "main": [
+        [
+          {
+            "node": "IF RR-South for Sheet",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Upload MSG to SharePoint1": {
+      "main": [
+        [
+          {
+            "node": "Mark Uploaded1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mark Skipped No Binary1": {
+      "main": [
+        [
+          {
+            "node": "IF Should Copy Mailbox1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF Has Binary1": {
+      "main": [
+        [
+          {
+            "node": "Upload MSG to SharePoint1",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Mark Skipped No Binary1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF Skip Upload1": {
+      "main": [
+        [
+          {
+            "node": "Mark Skipped Duplicate1",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "IF Has Binary1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check File Exists1": {
+      "main": [
+        [
+          {
+            "node": "IF Skip Upload1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "List Target Folder1": {
+      "main": [
+        [
+          {
+            "node": "Check File Exists1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Binary From MIME Export1": {
+      "main": [
+        [
+          {
+            "node": "List Target Folder1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Binary From Attachment1": {
+      "main": [
+        [
+          {
+            "node": "List Target Folder1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Export Message MIME1": {
+      "main": [
+        [
+          {
+            "node": "Binary From MIME Export1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Download Attachment $value1": {
+      "main": [
+        [
+          {
+            "node": "Binary From Attachment1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF Has MSG Attachment1": {
+      "main": [
+        [
+          {
+            "node": "Download Attachment $value1",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Export Message MIME1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Pick MSG Source1": {
+      "main": [
+        [
+          {
+            "node": "IF Needs SharePoint Upload1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Attachments1": {
+      "main": [
+        [
+          {
+            "node": "Pick MSG Source1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Loop Email1": {
+      "main": [
+        [],
+        [
+          {
+            "node": "Fetch Attachments1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF Has Regional Messages1": {
+      "main": [
+        [],
+        [
+          {
+            "node": "Loop Email1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Map Category to Folder1": {
+      "main": [
+        [
+          {
+            "node": "IF Has Regional Messages1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Split Messages1": {
+      "main": [
+        [
+          {
+            "node": "Map Category to Folder1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge Category Messages1": {
+      "main": [
+        [
+          {
+            "node": "Split Messages1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Messages by Category1": {
+      "main": [
+        [
+          {
+            "node": "Merge Category Messages1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Expand Category Queries1": {
+      "main": [
+        [
+          {
+            "node": "Fetch Messages by Category1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Inbox Poll1": {
+      "main": [
+        [
+          {
+            "node": "Get bccvoids site4",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load Work Order Form Tracker": {
+      "main": [
+        [
+          {
+            "node": "List Mailbox Folders2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF RR-South for Sheet": {
+      "main": [
+        [
+          {
+            "node": "Prepare Work Order Form Row1",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "IF Should Copy Mailbox1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Schedule Trigger8": {
+      "main": [
+        [
+          {
+            "node": "Prepare Inbox Poll1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "meta": {
+    "instanceId": "a5cd22a95d5313a977e9ac21c3a833db76b18ca78fb8cb2cf7013465d69f17f8"
+  }
+}

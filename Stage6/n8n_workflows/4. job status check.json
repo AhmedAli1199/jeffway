@@ -1,0 +1,674 @@
+{
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## Stage 6 \u2014 Job Status Check (Phase 1)\n\nReads **OJS BOQ & SMV** + **Operative Job Sheet**, groups by SmartForm Name (job).\n\n**Production skip:**\n- **Skip entirely** \u2014 Completed date + Ready To Hand over = Yes + inputs unchanged\n- **Code only** \u2014 Completed date, code blockers (Q2.2/Q3.1), or unchanged WIP (jeopardy refreshed hourly)\n- **AI** \u2014 No Completed date, no blockers, inputs changed (BOQ vs Q2.1 scope check)\n\n**Job Status:**\n1. **completed** \u2014 `Completed` date set\n2. **completed** \u2014 **BCC Tracker Status** = Complete (notes if completed date missing)\n3. **completed** \u2014 AI confirms scope complete (no EasyBOP date)\n4. **incomplete** \u2014 otherwise\n\n**Jeopardy (incomplete + Appointment Date):**\n1. **next_appointment_needed** \u2014 next appt blank or past\n2. **manager_review** \u2014 time > 105% SMV\n\nLoop batch 5: AI jobs only \u2192 Parse \u2192 loop; done \u2192 Flush \u2192 sheet.",
+        "height": 592,
+        "width": 620
+      },
+      "id": "561a4e70-d10b-4daf-85ec-657c39607d8b",
+      "name": "Note \u2014 Job Status Check1",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        4416,
+        -48
+      ]
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "hours"
+            }
+          ]
+        }
+      },
+      "id": "1713f945-a260-49bd-87c7-baa183ea623f",
+      "name": "Schedule every hour2",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        4464,
+        704
+      ]
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "1mkklLpvi8klaN4Zo4D_cBrb95PGQ4NbUvtTAvLI4CII",
+          "mode": "list",
+          "cachedResultName": "stage 6",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1mkklLpvi8klaN4Zo4D_cBrb95PGQ4NbUvtTAvLI4CII/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list",
+          "cachedResultName": "Operative Job Sheet",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1mkklLpvi8klaN4Zo4D_cBrb95PGQ4NbUvtTAvLI4CII/edit#gid=0"
+        },
+        "options": {}
+      },
+      "id": "9f194ab7-44ce-491a-ab3a-8babdf33e898",
+      "name": "Read Operative Job Sheet7",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        4688,
+        704
+      ],
+      "alwaysOutputData": true,
+      "executeOnce": true,
+      "notesInFlow": true,
+      "note": "executeOnce + read \u2014 one n8n item per sheet row",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "0bvpVa8frZ7qSwzx",
+          "name": "hamza-sheets"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "1mkklLpvi8klaN4Zo4D_cBrb95PGQ4NbUvtTAvLI4CII",
+          "mode": "list",
+          "cachedResultName": "stage 6",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1mkklLpvi8klaN4Zo4D_cBrb95PGQ4NbUvtTAvLI4CII/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 2010323410,
+          "mode": "list",
+          "cachedResultName": "OJS BOQ & SMV",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1mkklLpvi8klaN4Zo4D_cBrb95PGQ4NbUvtTAvLI4CII/edit#gid=2010323410"
+        },
+        "options": {}
+      },
+      "id": "61b77b4e-391c-4969-a0e3-bb1a9178e0da",
+      "name": "Read OJS BOQ & SMV2",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        4912,
+        704
+      ],
+      "alwaysOutputData": true,
+      "executeOnce": true,
+      "notesInFlow": true,
+      "note": "All BOQ/SOR lines for job comparison",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "0bvpVa8frZ7qSwzx",
+          "name": "hamza-sheets"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// \u2500\u2500 Build job packages (Phase 1: code-only + selective AI) \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n// Reads ALL rows from upstream Read nodes.\n// Skips AI for: completed date, code blockers, frozen handover jobs.\n// AI only for ambiguous jobs (no Completed date, no blockers, inputs changed).\n\nfunction norm(v) { return String(v !== null && v !== undefined ? v : '').trim(); }\nfunction normKey(s) { return norm(s).toUpperCase(); }\n\nfunction colVal(row, prefix) {\n  const keys = Object.keys(row || {});\n  const exact = keys.find(function (k) { return k === prefix; });\n  if (exact != null && norm(row[exact])) return norm(row[exact]);\n  const p = String(prefix || '').toLowerCase();\n  for (let i = 0; i < keys.length; i++) {\n    const k = keys[i];\n    if (k.toLowerCase().indexOf(p) === 0 && norm(row[k])) return norm(row[k]);\n  }\n  return '';\n}\n\nfunction isReadyToHandover(row) {\n  const keys = Object.keys(row || {});\n  for (let i = 0; i < keys.length; i++) {\n    const k = keys[i];\n    if (/^ready to hand/i.test(k)) {\n      const v = norm(row[k]).toLowerCase();\n      if (v === 'yes' || v === 'y' || v === 'true') return true;\n    }\n  }\n  return false;\n}\n\nfunction parseDateCreated(s) {\n  const t = norm(s);\n  if (!t) return '';\n  if (/^\\d{4}-\\d{2}-\\d{2}/.test(t)) return t.slice(0, 10);\n  const m = t.match(/^(\\d{1,2})[\\/\\-](\\d{1,2})[\\/\\-](\\d{2,4})/);\n  if (!m) return t;\n  let y = m[3];\n  if (y.length === 2) y = '20' + y;\n  const pad = function (n) { return n.length < 2 ? '0' + n : n; };\n  return y + '-' + pad(m[2]) + '-' + pad(m[1]);\n}\n\nfunction parseApptDate(s) {\n  const t = norm(s);\n  if (!t) return '';\n  if (/^\\d{4}-\\d{2}-\\d{2}/.test(t)) return t.slice(0, 10);\n  const m = t.match(/^(\\d{1,2})[\\/\\-](\\d{1,2})[\\/\\-](\\d{2,4})/);\n  if (!m) return '';\n  let a = parseInt(m[1], 10), b = parseInt(m[2], 10), y = m[3];\n  if (y.length === 2) y = '20' + y;\n  y = parseInt(y, 10);\n  let mo, day;\n  if (a > 12) { day = a; mo = b; }\n  else if (b > 12) { mo = a; day = b; }\n  else { mo = a; day = b; }\n  const pad = function (n) { return n < 10 ? '0' + n : String(n); };\n  return y + '-' + pad(mo) + '-' + pad(day);\n}\n\nfunction isHeader(row) {\n  return /^smartform name$/i.test(norm(row['SmartForm Name'] || row.smart_form_name));\n}\n\nfunction parseHours(raw) {\n  const s = norm(raw);\n  if (!s) return 0;\n  const m = s.match(/(\\d+(?:\\.\\d+)?)/);\n  return m ? parseFloat(m[1]) : 0;\n}\n\nfunction parseMinutes(raw) {\n  const n = parseFloat(String(raw !== null && raw !== undefined ? raw : '').replace(/[^0-9.]/g, ''));\n  return Number.isFinite(n) ? n : null;\n}\n\nfunction isQ22No(val) {\n  const s = norm(val).toLowerCase();\n  if (!s) return false;\n  return s === 'no' || s === 'n' || /^no\\b/.test(s) || s === 'false' || /not answered/i.test(s) || /partial/i.test(s);\n}\n\nfunction isBccTrackerComplete(val) {\n  const s = norm(val).toLowerCase();\n  if (!s) return false;\n  return s === 'complete' || s === 'completed' || s.startsWith('complete');\n}\n\nfunction isQ22Yes(val) {\n  const s = norm(val).toLowerCase();\n  if (!s) return false;\n  return s === 'yes' || s === 'y' || /^yes\\b/.test(s) || s === 'true';\n}\n\nfunction hasOutstandingNotes(val) {\n  const s = norm(val).toLowerCase();\n  if (!s) return false;\n  const cues = [\n    'need to return', 'return to', 'outstanding', 'not complete', 'incomplete',\n    'need time', 'follow up', 'follow-up', 'revisit', 'to be done', 'still need',\n    'extra coat', 'second coat', '2 coats', 'two coats', 'awaiting', 'will return', 'come back',\n    'as an extra', 'coat to dry', 'each coat', 'stain block', 'pluss', 'plus coat', 'drying time'\n  ];\n  for (let i = 0; i < cues.length; i++) {\n    if (s.indexOf(cues[i]) >= 0) return true;\n  }\n  return false;\n}\n\nfunction computeCompletionBlockers(visits) {\n  const blockers = [];\n  if (!visits.length) return blockers;\n\n  const chrono = visits.slice().sort(function (a, b) {\n    return parseDateCreated(a.date_created).localeCompare(parseDateCreated(b.date_created));\n  });\n  const latest = chrono[chrono.length - 1] || {};\n\n  if (isQ22No(latest.q22_complete)) {\n    blockers.push('Latest visit Q2.2: operative did not complete work in full (' + norm(latest.q22_complete) + ')');\n  } else if (!isQ22Yes(latest.q22_complete)) {\n    blockers.push('Latest visit Q2.2 is not Yes \u2014 work in full not confirmed (' + (norm(latest.q22_complete) || 'blank') + ')');\n  }\n\n  if (hasOutstandingNotes(latest.q31_notes)) {\n    blockers.push('Latest visit Q3.1 notes indicate outstanding work: ' + latest.q31_notes.slice(0, 160));\n  }\n\n  let openQ22No = false;\n  for (let i = 0; i < chrono.length; i++) {\n    if (isQ22No(chrono[i].q22_complete)) openQ22No = true;\n    else if (isQ22Yes(chrono[i].q22_complete)) openQ22No = false;\n  }\n  if (openQ22No && !blockers.some(function (b) { return b.indexOf('Q2.2') >= 0; })) {\n    blockers.push('A visit recorded Q2.2 No without a later Yes');\n  }\n\n  for (let i = 0; i < chrono.length; i++) {\n    const v = chrono[i];\n    if (hasOutstandingNotes(v.q31_notes)) {\n      blockers.push('Q3.1 notes indicate outstanding work: ' + v.q31_notes.slice(0, 160));\n      break;\n    }\n  }\n  if (!blockers.some(function (b) { return b.indexOf('Q3.1') >= 0; })) {\n    for (let i = 0; i < chrono.length; i++) {\n      const v = chrono[i];\n      if (norm(v.q25_why_not)) {\n        blockers.push('Q2.5 reason not complete: ' + v.q25_why_not.slice(0, 160));\n        break;\n      }\n      if (hasOutstandingNotes(v.q28_outstanding)) {\n        blockers.push('Q2.8 outstanding works: ' + v.q28_outstanding.slice(0, 160));\n        break;\n      }\n    }\n  }\n\n  return blockers;\n}\n\nfunction jobKeyFromRow(row) {\n  const sfn = norm(row['SmartForm Name'] || row.smart_form_name);\n  if (sfn) return normKey(sfn);\n  const corf = norm(row.CORF || row.corf);\n  return corf ? 'CORF:' + corf : '';\n}\n\nfunction isRealBoqRow(r) {\n  const rt = norm(r['Row Type'] || r.Row_Type || r.row_type);\n  if (rt === 'sor_line') return true;\n  const sor = norm(r['SOR Code'] || r.sor_code);\n  return sor && !/^(no_sor_lines|fetch_error)$/i.test(sor);\n}\n\nfunction computeJeopardy(job) {\n  if (job.job_status === 'completed') {\n    return { in_jeopardy: false, jeopardy_type: '', jeopardy_reason: '' };\n  }\n  const apptDate = norm(job.appointment_date);\n  if (!apptDate) {\n    return { in_jeopardy: false, jeopardy_type: '', jeopardy_reason: '' };\n  }\n  const today = new Date().toISOString().slice(0, 10);\n  const nextApptRaw = norm(job.next_appointment_date);\n  const nextApptBlank = !nextApptRaw;\n  const nextApptIso = nextApptRaw ? parseApptDate(nextApptRaw) : '';\n  const nextApptPast = !nextApptBlank && nextApptIso && nextApptIso < today;\n  if (nextApptBlank || nextApptPast) {\n    const reason = nextApptBlank\n      ? 'No next appointment date booked \u2014 job requires a new appointment'\n      : 'Next appointment date (' + nextApptRaw + ') is in the past \u2014 requires action';\n    return { in_jeopardy: true, jeopardy_type: 'next_appointment_needed', jeopardy_reason: reason };\n  }\n  const spent = Number(job.time_spent_hours) || 0;\n  const allowed = job.smv_allowed_hours != null && job.smv_allowed_hours !== ''\n    ? Number(job.smv_allowed_hours)\n    : (job.smv_allowed_minutes != null && job.smv_allowed_minutes !== ''\n      ? Number(job.smv_allowed_minutes) / 60\n      : null);\n  if (allowed && allowed > 0 && spent > allowed * 1.05) {\n    return {\n      in_jeopardy: true,\n      jeopardy_type: 'manager_review',\n      jeopardy_reason: 'Time spent exceeds SMV allowance (' + spent + 'h vs ' + allowed + 'h)',\n    };\n  }\n  return { in_jeopardy: false, jeopardy_type: '', jeopardy_reason: '' };\n}\n\nfunction inputFingerprint(job) {\n  const parts = [\n    job.completed_date || '',\n    job.bcc_tracker_status || '',\n    (job.completion_blockers || []).join('|'),\n    String(job.visit_count || 0),\n    String(job.time_spent_hours || 0),\n    job.appointment_date || '',\n    job.next_appointment_date || '',\n    job.latest_q22 || '',\n    job.latest_q31 || '',\n    String(job.boq_line_count || 0),\n    (job.boq_descriptions_text || '').slice(0, 400),\n    (job.all_q21_text || '').slice(0, 400),\n  ];\n  return parts.join('::');\n}\n\nfunction computeCodeOnlyStatus(job) {\n  const completedDate = norm(job.completed_date);\n  const blockers = job.completion_blockers || [];\n  const forceIncomplete = blockers.length > 0;\n  const sheetStatus = norm(job.sheet_job_status).toLowerCase();\n  const sheetNotes = norm(job.sheet_status_notes);\n\n  if (completedDate) {\n    return {\n      job_status: 'completed',\n      job_status_reason: 'Works completed date: ' + completedDate,\n      job_status_confidence: 'high',\n      uncovered_items: '',\n      time_assessment_notes: '',\n      ojs_scope_complete: false,\n    };\n  }\n  if (isBccTrackerComplete(job.bcc_tracker_status)) {\n    const bccLabel = norm(job.bcc_tracker_status) || 'Complete';\n    return {\n      job_status: 'completed',\n      job_status_reason: 'BCC Tracker Status: ' + bccLabel + ' (completed date not set yet)',\n      job_status_confidence: 'high',\n      uncovered_items: '',\n      time_assessment_notes: '',\n      ojs_scope_complete: false,\n    };\n  }\n  if (forceIncomplete) {\n    return {\n      job_status: 'incomplete',\n      job_status_reason: blockers.join('; '),\n      job_status_confidence: 'high',\n      uncovered_items: '',\n      time_assessment_notes: '',\n      ojs_scope_complete: false,\n    };\n  }\n  if (sheetStatus === 'completed' && /ojs scope/i.test(sheetNotes)) {\n    return {\n      job_status: 'completed',\n      job_status_reason: sheetNotes || 'OJS scope appears complete (no EasyBOP completed date yet)',\n      job_status_confidence: 'medium',\n      uncovered_items: '',\n      time_assessment_notes: '',\n      ojs_scope_complete: true,\n    };\n  }\n  return {\n    job_status: 'incomplete',\n    job_status_reason: 'No completed date \u2014 job is WIP',\n    job_status_confidence: 'medium',\n    uncovered_items: '',\n    time_assessment_notes: '',\n    ojs_scope_complete: false,\n  };\n}\n\nfunction buildCodeResult(job) {\n  const codeStatus = computeCodeOnlyStatus(job);\n  const merged = Object.assign({}, job, codeStatus);\n  const jeopardy = computeJeopardy(merged);\n  merged.in_jeopardy = jeopardy.in_jeopardy;\n  merged.jeopardy_reason = jeopardy.jeopardy_reason;\n  merged._jeopardy = jeopardy;\n  merged.processed_via = 'code_only';\n  return merged;\n}\n\n// Pull ALL rows directly from Read nodes\nconst ojsItems = $('Read Operative Job Sheet7').all();\nconst boqItems = $('Read OJS BOQ & SMV2').all();\nconst ojsRows = ojsItems.map(function(i) { return i.json || {}; });\nconst boqRows = boqItems.map(function(i) { return i.json || {}; });\n\nconst jobs = new Map();\n\nfunction ensureJob(key, sample) {\n  if (!jobs.has(key)) {\n    jobs.set(key, {\n      job_key: key,\n      smart_form_name: norm(sample['SmartForm Name'] || sample.smart_form_name),\n      corf: norm(sample.CORF || sample.corf),\n      boq_lines: [],\n      visits: [],\n      ready_to_handover: false,\n      sheet_job_status: '',\n      sheet_status_notes: '',\n      sheet_input_hash: '',\n      sheet_checked_at: '',\n      bcc_tracker_status: '',\n    });\n  }\n  return jobs.get(key);\n}\n\nfor (const row of boqRows) {\n  if (isHeader(row)) continue;\n  const key = jobKeyFromRow(row);\n  if (!key || !isRealBoqRow(row)) continue;\n  const job = ensureJob(key, row);\n  job.boq_lines.push({\n    sor_code: norm(row['SOR Code'] || row.sor_code),\n    description: norm(row.Description || row.description),\n    line_minutes: parseMinutes(row['Line Minutes'] || row.line_minutes),\n    smv_raw: norm(row['SMV Raw'] || row.smv_raw),\n    qty: row.Qty || row.qty,\n  });\n  const jm = parseMinutes(row['Job Estimated Minutes'] || row.job_estimated_minutes);\n  const jh = parseMinutes(row['Job Estimated Hours'] || row.job_estimated_hours);\n  if (jm !== null) job.smv_allowed_minutes = jm;\n  if (jh !== null) job.smv_allowed_hours = jh;\n}\n\nfor (const row of ojsRows) {\n  if (isHeader(row)) continue;\n  const name = norm(row['SmartForm Name'] || row.smart_form_name);\n  if (!name) continue;\n  const key = jobKeyFromRow(row);\n  if (!key) continue;\n  const job = ensureJob(key, row);\n  if (isReadyToHandover(row)) job.ready_to_handover = true;\n  if (!job.sheet_job_status && norm(row['Job Status'])) job.sheet_job_status = norm(row['Job Status']);\n  if (!job.sheet_status_notes && norm(row['Job Status Notes'])) job.sheet_status_notes = norm(row['Job Status Notes']);\n  if (!job.sheet_input_hash && norm(row['Job Status Input Hash'])) job.sheet_input_hash = norm(row['Job Status Input Hash']);\n  if (!job.sheet_checked_at && norm(row['Job Status Checked At'])) job.sheet_checked_at = norm(row['Job Status Checked At']);\n  const hrs = parseHours(colVal(row, 'Q2.1 Daily Jobs Table Price/Hours'));\n  const op = norm(row['Created By'] || row.created_by) || 'Unknown';\n  job.visits.push({\n    row_number: row.row_number,\n    date_created: norm(row['Date Created'] || row.date_created),\n    created_by: op,\n    visit_hours: hrs,\n    q21_description: colVal(row, 'Q2.1 Daily Jobs Table'),\n    q22_complete: colVal(row, 'Q2.2'),\n    q31_notes: colVal(row, 'Q3.1'),\n    q25_why_not: colVal(row, 'Q2.5'),\n    q28_outstanding: colVal(row, 'Q2.8'),\n    appointment_date: norm(row['Appointment Date'] || row.appointment_date || ''),\n    next_appointment_date: norm(row['Next appointment date'] || row.next_appointment_date || ''),\n    completed_date: norm(row['Completed'] || row.completed || ''),\n    bcc_tracker_status: colVal(row, 'BCC Tracker Status'),\n    status: norm(row.Status),\n  });\n}\n\nfor (const job of jobs.values()) {\n  let totalLineMins = 0;\n  for (const bl of job.boq_lines) {\n    if (bl.line_minutes !== null) totalLineMins += bl.line_minutes;\n  }\n  if ((job.smv_allowed_minutes === null || job.smv_allowed_minutes === undefined) && totalLineMins > 0) {\n    job.smv_allowed_minutes = totalLineMins;\n    job.smv_allowed_hours = Math.round((totalLineMins / 60) * 100) / 100;\n  } else if (job.smv_allowed_minutes !== null && job.smv_allowed_minutes !== undefined && (job.smv_allowed_hours === null || job.smv_allowed_hours === undefined)) {\n    job.smv_allowed_hours = Math.round((job.smv_allowed_minutes / 60) * 100) / 100;\n  }\n\n  const byOp = {};\n  let totalHrs = 0;\n  for (const v of job.visits) {\n    totalHrs += v.visit_hours;\n    byOp[v.created_by] = (byOp[v.created_by] || 0) + v.visit_hours;\n  }\n  job.time_spent_hours = Math.round(totalHrs * 100) / 100;\n  job.operative_breakdown = Object.keys(byOp).map(function (name) {\n    return name + ': ' + byOp[name] + 'h';\n  }).join('; ');\n\n  const allowed = job.smv_allowed_hours || (job.smv_allowed_minutes ? job.smv_allowed_minutes / 60 : null);\n  if (allowed === null || allowed === 0) {\n    job.time_vs_smv_prelim = 'SMV unknown';\n  } else if (totalHrs <= allowed * 1.25) {\n    job.time_vs_smv_prelim = totalHrs < allowed * 0.5 ? 'Under SMV' : 'Within allowance';\n  } else {\n    job.time_vs_smv_prelim = 'Over SMV';\n  }\n  job.visit_count = job.visits.length;\n  job.boq_line_count = job.boq_lines.length;\n  job.all_q22_text = job.visits.map(function (v) {\n    return (v.date_created ? v.date_created + ': ' : '') + (v.q22_complete || '(blank)');\n  }).join('\\n');\n  job.all_q31_text = job.visits.map(function (v) {\n    return (v.date_created ? v.date_created + ': ' : '') + (v.q31_notes || '(blank)');\n  }).filter(function (s) { return s.indexOf('(blank)') < 0; }).join('\\n---\\n');\n  job.all_q25_text = job.visits.map(function (v) { return v.q25_why_not; }).filter(Boolean).join('\\n---\\n');\n  job.all_q28_text = job.visits.map(function (v) { return v.q28_outstanding; }).filter(Boolean).join('\\n---\\n');\n  const chronoVisits = job.visits.slice().sort(function (a, b) {\n    return parseDateCreated(a.date_created).localeCompare(parseDateCreated(b.date_created));\n  });\n  const latestVisit = chronoVisits[chronoVisits.length - 1] || {};\n  job.latest_q22 = norm(latestVisit.q22_complete);\n  job.latest_q31 = norm(latestVisit.q31_notes);\n  job.completion_blockers = computeCompletionBlockers(job.visits);\n  job.force_incomplete = job.completion_blockers.length > 0;\n  job.q22_confirms_complete = isQ22Yes(job.latest_q22);\n  let jCompletedDate = '';\n  let jNextApptDate = '';\n  let jApptDate = '';\n  for (let vi = 0; vi < job.visits.length; vi++) {\n    const vv = job.visits[vi];\n    if (vv.completed_date) jCompletedDate = vv.completed_date;\n    if (vv.next_appointment_date) jNextApptDate = vv.next_appointment_date;\n    if (vv.appointment_date && !jApptDate) jApptDate = vv.appointment_date;\n  }\n  job.completed_date = jCompletedDate;\n  let jBccTracker = '';\n  for (let vi2 = 0; vi2 < job.visits.length; vi2++) {\n    const bt = norm(job.visits[vi2].bcc_tracker_status);\n    if (bt) jBccTracker = bt;\n  }\n  job.bcc_tracker_status = jBccTracker;\n  job.next_appointment_date = jNextApptDate;\n  job.appointment_date = jApptDate;\n  job.boq_descriptions_text = job.boq_lines.map(function (l) { return l.description; }).filter(Boolean).join('\\n');\n  job.boq_sor_codes_text = job.boq_lines.map(function (l) { return l.sor_code; }).filter(Boolean).join(', ');\n  job.all_q21_text = job.visits.map(function (v) { return v.q21_description; }).filter(Boolean).join('\\n---\\n');\n  job.input_fingerprint = inputFingerprint(job);\n}\n\nconst sd = $getWorkflowStaticData('global');\nsd._jobPackagesByKey = {};\nsd._jobStatusResultsByKey = {};\n\nconst aiOut = [];\nlet skippedCount = 0;\nlet codeOnlyCount = 0;\n\nfor (const job of jobs.values()) {\n  if (!job.visits.length) continue;\n\n  const fp = job.input_fingerprint;\n  const sheetHash = norm(job.sheet_input_hash);\n  const sheetChecked = !!norm(job.sheet_checked_at);\n  const hasCompletedDate = !!norm(job.completed_date);\n  const hasBlockers = job.force_incomplete;\n  const bccTrackerComplete = isBccTrackerComplete(job.bcc_tracker_status);\n  job.skip_job = hasCompletedDate && job.ready_to_handover && fp === sheetHash && sheetChecked;\n  job.needs_ai = !job.skip_job && !hasCompletedDate && !hasBlockers && !bccTrackerComplete\n    && (fp !== sheetHash || !sheetChecked);\n\n  sd._jobPackagesByKey[job.job_key] = job;\n\n  if (job.skip_job) {\n    skippedCount++;\n    continue;\n  }\n\n  const codeResult = buildCodeResult(job);\n  sd._jobStatusResultsByKey[job.job_key] = codeResult;\n  codeOnlyCount++;\n\n  if (job.needs_ai) {\n    aiOut.push({ json: job });\n  }\n}\n\nsd._buildStats = {\n  total_jobs: Object.keys(sd._jobPackagesByKey).length,\n  skipped_count: skippedCount,\n  code_only_count: codeOnlyCount,\n  ai_count: aiOut.length,\n};\n\nsd._jobStatusRun = {\n  expected: aiOut.length,\n  results: [],\n};\n\nif (!Object.keys(sd._jobPackagesByKey).length) {\n  return [{ json: {\n    _diagnostic: true,\n    message: 'No jobs with visit rows found',\n    ojs_rows_read: ojsRows.length,\n    boq_rows_read: boqRows.length,\n  }}];\n}\n\n// No AI jobs \u2014 loop exits immediately; code-only results already in static data\nif (aiOut.length === 0) {\n  return [];\n}\n\nreturn aiOut;\n"
+      },
+      "id": "647b59c2-b20a-4e07-bdb3-726f5cb2aeec",
+      "name": "Build job packages1",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        5136,
+        704
+      ],
+      "notesInFlow": true,
+      "note": "Phase 1: code-only + selective AI. Skips frozen handover jobs."
+    },
+    {
+      "parameters": {
+        "modelId": {
+          "__rl": true,
+          "value": "gpt-4.1-mini",
+          "mode": "list",
+          "cachedResultName": "GPT-4.1-MINI"
+        },
+        "responses": {
+          "values": [
+            {
+              "role": "system",
+              "content": "You assess whether a BCC Response Repairs JOB (overall property scope) is COMPLETED or INCOMPLETE.\n\nUse THREE layers of evidence (all matter). When they conflict, trust operative answers over Q2.1 wording:\n\n1) Q2.2 \"Were you able to complete your work in full?\" \u2014 per visit, newest last.\n   - Latest visit No \u2192 INCOMPLETE (even if Q2.1 lists tasks done).\n   - Latest visit not explicitly Yes \u2192 INCOMPLETE.\n   - Q2.2 Yes on a visit means THAT VISIT only \u2014 it does NOT prove the whole job/BOQ is finished.\n\n2) Q3.1 / Q2.5 / Q2.8 \u2014 return visits, extra coats pending, drying time, stain block still to do, outstanding work \u2192 INCOMPLETE.\n   Example: \"Need to return to stain block as an extra, plus 2 coats, need time for each coat to dry\" \u2192 INCOMPLETE.\n\n3) BOQ vs Q2.1 \u2014 lenient practical match for scope coverage ONLY when Q2.2/Q3.1 do not block completion.\n\nCOMPLETED only when ALL are true:\n- Latest Q2.2 is explicitly Yes\n- No Q3.1/Q2.5/Q2.8 signals of return or outstanding work on any visit\n- BOQ scope appears addressed in Q2.1 across visits\n\nIf PRE-CHECK BLOCKERS are listed (not \"none\"), you MUST return job_status incomplete.\n\nAlso comment on time: compare time_spent_hours vs smv_allowed_hours (lenient \u2014 over by up to 25% is still acceptable).\n\nWhen EasyBOP has no works completed date, your job_status answer is used on the sheet if scope appears fully delivered in OJS.\n\nReturn ONLY valid JSON matching the schema. No markdown."
+            },
+            {
+              "content": "=JOB:\nSmartForm Name: {{ $json.smart_form_name }}\nCORF / job ref: {{ $json.corf }}\nVisits: {{ $json.visit_count }}\nBOQ SOR lines: {{ $json.boq_line_count }}\n\nBOQ DESCRIPTIONS (scope to deliver):\n{{ $json.boq_descriptions_text || '(none)' }}\n\nSOR CODES:\n{{ $json.boq_sor_codes_text || '(none)' }}\n\nALL Q2.1 DAILY JOBS (what work was logged):\n{{ $json.all_q21_text || '(empty)' }}\n\nQ2.2 COMPLETE IN FULL? (per visit, newest last):\n{{ $json.all_q22_text || '(empty)' }}\n\nQ3.1 NOTES (return visits / outstanding work):\n{{ $json.all_q31_text || '(none)' }}\n\nQ2.5 WHY NOT COMPLETE:\n{{ $json.all_q25_text || '(none)' }}\n\nQ2.8 OUTSTANDING WORKS:\n{{ $json.all_q28_text || '(none)' }}\n\nPRE-CHECK BLOCKERS (code flags \u2014 if any, job must be incomplete):\n{{ ($json.completion_blockers || []).join('; ') || 'none' }}\n\nTIME (pre-calculated):\n- Total hours logged (Q2.1 Price/Hours): {{ $json.time_spent_hours }}\n- Operative breakdown: {{ $json.operative_breakdown }}\n- SMV allowed hours: {{ $json.smv_allowed_hours ?? 'unknown' }}\n- SMV allowed minutes: {{ $json.smv_allowed_minutes ?? 'unknown' }}\n- Preliminary time vs SMV: {{ $json.time_vs_smv_prelim }}"
+            }
+          ]
+        },
+        "builtInTools": {},
+        "options": {
+          "textFormat": {
+            "textOptions": {
+              "type": "json_schema",
+              "schema": "{\"type\":\"object\",\"additionalProperties\":false,\"required\":[\"job_status\",\"completion_confidence\",\"completion_reason\",\"uncovered_boq_items\",\"time_assessment\"],\"properties\":{\"job_status\":{\"type\":\"string\",\"enum\":[\"completed\",\"incomplete\"]},\"completion_confidence\":{\"type\":\"string\",\"enum\":[\"high\",\"medium\",\"low\"]},\"completion_reason\":{\"type\":\"string\"},\"uncovered_boq_items\":{\"type\":\"string\"},\"time_assessment\":{\"type\":\"string\"}}}"
+            }
+          }
+        }
+      },
+      "id": "97bae3e9-5a5d-4f1e-9548-3b8cd3d0817d",
+      "name": "AI Assess Job Completion1",
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "typeVersion": 2.1,
+      "position": [
+        5584,
+        592
+      ],
+      "credentials": {
+        "openAiApi": {
+          "id": "aBG3b1KH705oNjYs",
+          "name": "jeffway open ai"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "\nfunction parseApptDate(s) {\n  const t = String(s || '').trim();\n  if (!t) return '';\n  if (/^\\d{4}-\\d{2}-\\d{2}/.test(t)) return t.slice(0, 10);\n  const m = t.match(/^(\\d{1,2})[\\/\\-](\\d{1,2})[\\/\\-](\\d{2,4})/);\n  if (!m) return '';\n  let a = parseInt(m[1], 10), b = parseInt(m[2], 10), y = m[3];\n  if (y.length === 2) y = '20' + y;\n  y = parseInt(y, 10);\n  let mo, day;\n  if (a > 12) { day = a; mo = b; }\n  else if (b > 12) { mo = a; day = b; }\n  else { mo = a; day = b; }\n  const pad = function (n) { return n < 10 ? '0' + n : String(n); };\n  return y + '-' + pad(mo) + '-' + pad(day);\n}\n\nfunction computeJeopardy(job) {\n  if (job.job_status === 'completed') {\n    return { in_jeopardy: false, jeopardy_type: '', jeopardy_reason: '' };\n  }\n  // Only flag jeopardy once job has been started (Appointment Date set)\n  const apptDate = String(job.appointment_date || '').trim();\n  if (!apptDate) {\n    return { in_jeopardy: false, jeopardy_type: '', jeopardy_reason: '' };\n  }\n  const today = new Date().toISOString().slice(0, 10);\n  const nextApptRaw = String(job.next_appointment_date || '').trim();\n  const nextApptBlank = !nextApptRaw;\n  const nextApptIso = nextApptRaw ? parseApptDate(nextApptRaw) : '';\n  const nextApptPast = !nextApptBlank && nextApptIso && nextApptIso < today;\n  // Jeopardy type 1: Next Appointment Needed\n  if (nextApptBlank || nextApptPast) {\n    const reason = nextApptBlank\n      ? 'No next appointment date booked \u2014 job requires a new appointment'\n      : 'Next appointment date (' + nextApptRaw + ') is in the past \u2014 requires action';\n    return { in_jeopardy: true, jeopardy_type: 'next_appointment_needed', jeopardy_reason: reason };\n  }\n  // Jeopardy type 2: Manager Review (time over SMV)\n  const spent = Number(job.time_spent_hours) || 0;\n  const allowed = job.smv_allowed_hours != null && job.smv_allowed_hours !== ''\n    ? Number(job.smv_allowed_hours)\n    : (job.smv_allowed_minutes != null && job.smv_allowed_minutes !== ''\n      ? Number(job.smv_allowed_minutes) / 60\n      : null);\n  if (allowed && allowed > 0 && spent > allowed * 1.05) {\n    return {\n      in_jeopardy: true,\n      jeopardy_type: 'manager_review',\n      jeopardy_reason: 'Time spent exceeds SMV allowance (' + spent + 'h vs ' + allowed + 'h)',\n    };\n  }\n  return { in_jeopardy: false, jeopardy_type: '', jeopardy_reason: '' };\n}\n\nconst LOOP_NAMES = ['Loop Over Items1', 'Loop Over Items'];\n\nfunction parseAi(raw) {\n  const aiContent = raw.output && raw.output[0] && raw.output[0].content && raw.output[0].content[0]\n    ? raw.output[0].content[0].text\n    : (raw.message && raw.message.content ? raw.message.content : raw);\n  if (typeof aiContent === 'string') {\n    try { return JSON.parse(aiContent); } catch (e) { return {}; }\n  }\n  if (aiContent && typeof aiContent === 'object') return aiContent;\n  return {};\n}\n\nfunction getJobPkg(item, index) {\n  const sd = $getWorkflowStaticData('global');\n  const byKey = sd._jobPackagesByKey || {};\n  let loopItems = [];\n  for (let n = 0; n < LOOP_NAMES.length; n++) {\n    try { loopItems = $(LOOP_NAMES[n]).all(); break; } catch (e) {}\n  }\n  if (typeof index === 'number' && loopItems[index] && loopItems[index].json && loopItems[index].json.job_key) {\n    return loopItems[index].json;\n  }\n  const p = item.pairedItem;\n  let idx = null;\n  if (Array.isArray(p)) {\n    const first = p.find(function (x) { return x && typeof x.item === 'number'; });\n    idx = first ? first.item : null;\n  } else if (p && typeof p.item === 'number') {\n    idx = p.item;\n  }\n  if (idx !== null && loopItems[idx] && loopItems[idx].json && loopItems[idx].json.job_key) {\n    return loopItems[idx].json;\n  }\n  try {\n    const loopItem = $('Loop Over Items1').item;\n    if (loopItem && loopItem.json && loopItem.json.job_key) return loopItem.json;\n  } catch (e) {}\n  const keys = Object.keys(byKey);\n  if (keys.length === 1) return byKey[keys[0]];\n  return {};\n}\n\nfunction isBccTrackerComplete(val) {\n  const s = String(val !== null && val !== undefined ? val : '').trim().toLowerCase();\n  if (!s) return false;\n  return s === 'complete' || s === 'completed' || s.startsWith('complete');\n}\n\nfunction isQ22Yes(val) {\n  const s = String(val !== null && val !== undefined ? val : '').trim().toLowerCase();\n  if (!s) return false;\n  return s === 'yes' || s === 'y' || /^yes\\b/.test(s) || s === 'true';\n}\n\nconst sd = $getWorkflowStaticData('global');\nif (!sd._jobStatusRun) sd._jobStatusRun = { expected: 0, results: [] };\nif (!sd._jobStatusResultsByKey) sd._jobStatusResultsByKey = {};\n\nfor (let i = 0; i < $input.all().length; i++) {\n  const item = $input.all()[i];\n  const pkg = getJobPkg(item, i);\n  if (pkg.job_key && sd._jobPackagesByKey && sd._jobPackagesByKey[pkg.job_key]) {\n    Object.assign(pkg, sd._jobPackagesByKey[pkg.job_key]);\n  }\n  const ai = parseAi(item.json || {});\n  // Primary status from EasyBOP Completed date column\n  const completedDate = String(pkg.completed_date || '').trim();\n  const blockers = pkg.completion_blockers || [];\n  const forceIncomplete = blockers.length > 0 || !!pkg.force_incomplete;\n  const aiStatus = String(ai.job_status || '').trim().toLowerCase();\n  const aiConf = String(ai.completion_confidence || '').trim().toLowerCase();\n  const aiScopeComplete = aiStatus === 'completed' && aiConf !== 'low';\n  let jobStatus = 'incomplete';\n  let statusReason = '';\n  let statusConfidence = 'high';\n  if (completedDate) {\n    jobStatus = 'completed';\n    statusReason = 'Works completed date: ' + completedDate;\n  } else if (!forceIncomplete && isBccTrackerComplete(pkg.bcc_tracker_status)) {\n    const bccLabel = String(pkg.bcc_tracker_status || 'Complete').trim() || 'Complete';\n    jobStatus = 'completed';\n    statusReason = 'BCC Tracker Status: ' + bccLabel + ' (completed date not set yet)';\n    statusConfidence = 'high';\n  } else if (!forceIncomplete && aiScopeComplete) {\n    jobStatus = 'completed';\n    statusReason = 'OJS scope appears complete (no EasyBOP completed date yet): ' + (ai.completion_reason || '');\n    statusConfidence = aiConf || 'medium';\n  } else {\n    jobStatus = 'incomplete';\n    statusReason = forceIncomplete\n      ? blockers.join('; ')\n      : (ai.completion_reason || 'No completed date \u2014 job is WIP');\n    statusConfidence = forceIncomplete ? 'high' : (aiConf || 'medium');\n  }\n  const merged = Object.assign({}, pkg, {\n    job_status: jobStatus,\n    job_status_confidence: statusConfidence,\n    job_status_reason: statusReason,\n    time_assessment_notes: ai.time_assessment || '',\n    uncovered_items: ai.uncovered_boq_items || '',\n    ojs_scope_complete: jobStatus === 'completed' && !completedDate,\n  });\n\n  const jeopardy = computeJeopardy(merged);\n  merged.in_jeopardy = jeopardy.in_jeopardy;\n  merged.jeopardy_reason = jeopardy.jeopardy_reason;\n  merged._jeopardy = jeopardy;\n  merged.processed_via = 'ai';\n  merged.processed_via = 'ai';\n  if (merged.job_key) {\n    sd._jobStatusResultsByKey[merged.job_key] = merged;\n  }\n}\n\nsd._jobStatusRun.results = Object.values(sd._jobStatusResultsByKey);\nconst run = sd._jobStatusRun;\n\nreturn [{\n  json: {\n    _loop_continue: true,\n    batch_processed: $input.all().length,\n    total_processed: run.results.length,\n    total_expected: run.expected,\n  },\n}];"
+      },
+      "id": "aca111a9-ccd5-4bf1-82ad-feabf97da405",
+      "name": "Parse AI response1",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        5936,
+        592
+      ],
+      "notesInFlow": true,
+      "note": "AI results overwrite code-only placeholders; marks processed_via=ai"
+    },
+    {
+      "parameters": {
+        "jsCode": "// \u2500\u2500 Flush row updates (Phase 1) \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n// Updates rows for processed jobs only (skips frozen handover jobs).\n// Writes Job Status Input Hash for fingerprint tracking.\n\nfunction norm(v) { return String(v !== null && v !== undefined ? v : '').trim(); }\nfunction normKey(s) { return norm(s).toUpperCase(); }\n\nfunction jobKeyFromRow(row) {\n  const sfn = String(row['SmartForm Name'] || row.smart_form_name || '').trim();\n  if (sfn) return normKey(sfn);\n  const corf = String(row.CORF || row.corf || '').trim();\n  return corf ? 'CORF:' + corf : '';\n}\n\nfunction isHeader(row) {\n  return /^smartform name$/i.test(String(row['SmartForm Name'] || row.smart_form_name || '').trim());\n}\n\nfunction parseVisitHours(row) {\n  const h = String(row['Q2.1 Daily Jobs Table Price/Hours'] || '').trim();\n  const m = h.match(/(\\d+(?:\\.\\d+)?)/);\n  return m ? parseFloat(m[1]) : 0;\n}\n\nfunction parseApptDate(s) {\n  const t = String(s || '').trim();\n  if (!t) return '';\n  if (/^\\d{4}-\\d{2}-\\d{2}/.test(t)) return t.slice(0, 10);\n  const m = t.match(/^(\\d{1,2})[\\/\\-](\\d{1,2})[\\/\\-](\\d{2,4})/);\n  if (!m) return '';\n  let a = parseInt(m[1], 10), b = parseInt(m[2], 10), y = m[3];\n  if (y.length === 2) y = '20' + y;\n  y = parseInt(y, 10);\n  let mo, day;\n  if (a > 12) { day = a; mo = b; }\n  else if (b > 12) { mo = a; day = b; }\n  else { mo = a; day = b; }\n  const pad = function (n) { return n < 10 ? '0' + n : String(n); };\n  return y + '-' + pad(mo) + '-' + pad(day);\n}\n\nfunction computeJeopardy(job) {\n  if (job.job_status === 'completed') {\n    return { in_jeopardy: false, jeopardy_type: '', jeopardy_reason: '' };\n  }\n  const apptDate = String(job.appointment_date || '').trim();\n  if (!apptDate) {\n    return { in_jeopardy: false, jeopardy_type: '', jeopardy_reason: '' };\n  }\n  const today = new Date().toISOString().slice(0, 10);\n  const nextApptRaw = String(job.next_appointment_date || '').trim();\n  const nextApptBlank = !nextApptRaw;\n  const nextApptIso = nextApptRaw ? parseApptDate(nextApptRaw) : '';\n  const nextApptPast = !nextApptBlank && nextApptIso && nextApptIso < today;\n  if (nextApptBlank || nextApptPast) {\n    const reason = nextApptBlank\n      ? 'No next appointment date booked \u2014 job requires a new appointment'\n      : 'Next appointment date (' + nextApptRaw + ') is in the past \u2014 requires action';\n    return { in_jeopardy: true, jeopardy_type: 'next_appointment_needed', jeopardy_reason: reason };\n  }\n  const spent = Number(job.time_spent_hours) || 0;\n  const allowed = job.smv_allowed_hours != null && job.smv_allowed_hours !== ''\n    ? Number(job.smv_allowed_hours)\n    : (job.smv_allowed_minutes != null && job.smv_allowed_minutes !== ''\n      ? Number(job.smv_allowed_minutes) / 60\n      : null);\n  if (allowed && allowed > 0 && spent > allowed * 1.05) {\n    return {\n      in_jeopardy: true,\n      jeopardy_type: 'manager_review',\n      jeopardy_reason: 'Time spent exceeds SMV allowance (' + spent + 'h vs ' + allowed + 'h)',\n    };\n  }\n  return { in_jeopardy: false, jeopardy_type: '', jeopardy_reason: '' };\n}\n\nconst ojsItems = $('Read Operative Job Sheet7').all();\nconst ojsRows = ojsItems.map(function(i) { return i.json || {}; });\n\nconst sd = $getWorkflowStaticData('global');\nconst byKey = sd._jobStatusResultsByKey || {};\nconst results = Object.values(byKey);\nconst buildStats = sd._buildStats || {};\nconst expected = (sd._jobStatusRun && sd._jobStatusRun.expected) || 0;\n\nlet completed = 0;\nlet incomplete = 0;\nlet jeopardyCount = 0;\nlet aiProcessed = 0;\nlet codeProcessed = 0;\nfor (let i = 0; i < results.length; i++) {\n  const j = computeJeopardy(results[i]);\n  results[i]._jeopardy = j;\n  if (results[i].job_status === 'completed') completed++;\n  else incomplete++;\n  if (j.in_jeopardy) jeopardyCount++;\n  if (results[i].processed_via === 'ai') aiProcessed++;\n  else codeProcessed++;\n}\n\nsd._jobStatusSummary = {\n  jobs_assessed: results.length,\n  completed_count: completed,\n  incomplete_count: incomplete,\n  jeopardy_count: jeopardyCount,\n  expected_ai_count: expected,\n  skipped_count: buildStats.skipped_count || 0,\n  ai_processed_count: aiProcessed,\n  code_only_count: codeProcessed,\n  total_jobs: buildStats.total_jobs || results.length,\n};\n\nconst jobResults = {};\nfor (let i = 0; i < results.length; i++) {\n  if (results[i].job_key) jobResults[results[i].job_key] = results[i];\n}\n\nconst checkedAt = new Date().toISOString();\nconst updates = [];\nfor (const row of ojsRows) {\n  if (isHeader(row)) continue;\n  const rn = row.row_number;\n  if (rn === null || rn === undefined || rn === '') continue;\n  const job = jobResults[jobKeyFromRow(row)];\n  if (!job) continue;\n  const notes = [job.job_status_reason, job.uncovered_items].filter(Boolean).join(' | ');\n  const jeopardy = job._jeopardy || computeJeopardy(job);\n  updates.push({\n    json: {\n      row_number: rn,\n      'Job Status': job.job_status,\n      'Job Status Notes': notes,\n      'Job Status Confidence': job.job_status_confidence || '',\n      'Job Time Spent Hours': job.time_spent_hours,\n      'Visit Hours': parseVisitHours(row),\n      'Operative Time Breakdown': job.operative_breakdown || '',\n      'Job SMV Allowed Hours': job.smv_allowed_hours !== null && job.smv_allowed_hours !== undefined ? job.smv_allowed_hours : '',\n      'Job SMV Allowed Minutes': job.smv_allowed_minutes !== null && job.smv_allowed_minutes !== undefined ? job.smv_allowed_minutes : '',\n      'Time vs SMV': job.time_assessment_notes || job.time_vs_smv_prelim || '',\n      'In Jeopardy': jeopardy.in_jeopardy ? 'Yes' : 'No',\n      'Jeopardy Type': jeopardy.jeopardy_type || '',\n      'Jeopardy Reason': jeopardy.jeopardy_reason || '',\n      'Job Status Checked At': checkedAt,\n      'Job Status Input Hash': job.input_fingerprint || '',\n    },\n  });\n}\n\nsd._jobStatusRun = { expected: 0, results: [] };\nsd._jobStatusResultsByKey = {};\nsd._jobPackagesByKey = {};\nsd._buildStats = {};\n\nreturn updates;\n"
+      },
+      "id": "defce7e9-0fd6-413f-8f08-df3688a9338b",
+      "name": "Flush row updates1",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        5648,
+        800
+      ],
+      "executeOnce": true,
+      "notesInFlow": true,
+      "note": "Processed jobs only; writes Job Status Input Hash."
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "documentId": {
+          "__rl": true,
+          "value": "1mkklLpvi8klaN4Zo4D_cBrb95PGQ4NbUvtTAvLI4CII",
+          "mode": "list",
+          "cachedResultName": "stage 6",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1mkklLpvi8klaN4Zo4D_cBrb95PGQ4NbUvtTAvLI4CII/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list",
+          "cachedResultName": "Operative Job Sheet",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1mkklLpvi8klaN4Zo4D_cBrb95PGQ4NbUvtTAvLI4CII/edit#gid=0"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": [
+            "row_number"
+          ],
+          "schema": [
+            {
+              "id": "smart_form_x_id",
+              "displayName": "smart_form_x_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "SmartForm Name",
+              "displayName": "SmartForm Name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Date Created",
+              "displayName": "Date Created",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "SmartForm Template Name",
+              "displayName": "SmartForm Template Name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Status",
+              "displayName": "Status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Completed Date",
+              "displayName": "Completed Date",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Completed Time",
+              "displayName": "Completed Time",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Created By",
+              "displayName": "Created By",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Module",
+              "displayName": "Module",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "CORF",
+              "displayName": "CORF",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Job Header",
+              "displayName": "Job Header",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "pdf_url",
+              "displayName": "pdf_url",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "extracted_at",
+              "displayName": "extracted_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Q1.1 Address",
+              "displayName": "Q1.1 Address",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Q1.2 Date",
+              "displayName": "Q1.2 Date",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Q1.3 Job details",
+              "displayName": "Q1.3 Job details",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Q1.4 Have you read and understood the asbestos report for the property or checked the status with a Manager or Supervisor before",
+              "displayName": "Q1.4 Have you read and understood the asbestos report for the property or checked the status with a Manager or Supervisor before",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Q2.1 Daily Jobs Table",
+              "displayName": "Q2.1 Daily Jobs Table",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Q2.1 Daily Jobs Table Price/Hours",
+              "displayName": "Q2.1 Daily Jobs Table Price/Hours",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Q2.2 Were you able to complete your work in full?",
+              "displayName": "Q2.2 Were you able to complete your work in full?",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Q2.4 Did you complete any additonal work or variations?",
+              "displayName": "Q2.4 Did you complete any additonal work or variations?",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Q3.1 Notes, if applicable",
+              "displayName": "Q3.1 Notes, if applicable",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Q4.1 Employee Name",
+              "displayName": "Q4.1 Employee Name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Q2.3 Please provide photos of completed work",
+              "displayName": "Q2.3 Please provide photos of completed work",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Q2.5 Please explain why you could not complete your job",
+              "displayName": "Q2.5 Please explain why you could not complete your job",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Q2.8 Please provide details of any outstanding works you are aware of for this property",
+              "displayName": "Q2.8 Please provide details of any outstanding works you are aware of for this property",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Q2.7 Please provide some detail on the variations? Task, QTY, Location. e.g. skimmed extra 3 sqm in lounge.",
+              "displayName": "Q2.7 Please provide some detail on the variations? Task, QTY, Location. e.g. skimmed extra 3 sqm in lounge.",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Q4.2 Employee Signature",
+              "displayName": "Q4.2 Employee Signature",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Q2.6 Please provide photos of variations",
+              "displayName": "Q2.6 Please provide photos of variations",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "BOQ_Checked",
+              "displayName": "BOQ_Checked",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Reason",
+              "displayName": "Reason",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "row_number",
+              "displayName": "row_number",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true,
+              "readOnly": true,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "id": "e5e831f0-93b7-4c39-81e9-422b0547539d",
+      "name": "Update Operative Job Sheet1",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        5936,
+        800
+      ],
+      "notesInFlow": true,
+      "note": "autoMapInputData \u2014 Job Status + time columns created if missing. Always runs.",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "0bvpVa8frZ7qSwzx",
+          "name": "hamza-sheets"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const sd = $getWorkflowStaticData('global');\nconst summary = sd._jobStatusSummary || {};\n\nlet rowsUpdated = 0;\ntry {\n  rowsUpdated = $('Update Operative Job Sheet1').all().length;\n} catch (e) {\n  try { rowsUpdated = $('Update Operative Job Sheet1').all().length; } catch (e2) {}\n}\n\nreturn [{\n  json: {\n    message: 'Job status check complete',\n    total_jobs: summary.total_jobs || 0,\n    jobs_assessed: summary.jobs_assessed || 0,\n    skipped_count: summary.skipped_count || 0,\n    ai_jobs_queued: summary.expected_ai_count || 0,\n    ai_processed_count: summary.ai_processed_count || 0,\n    code_only_count: summary.code_only_count || 0,\n    completed_count: summary.completed_count || 0,\n    incomplete_count: summary.incomplete_count || 0,\n    jeopardy_count: summary.jeopardy_count || 0,\n    rows_updated: rowsUpdated,\n    finished_at: new Date().toISOString(),\n  },\n}];"
+      },
+      "id": "8e078e08-df32-4698-ac4c-6ac10bc138cd",
+      "name": "Summarize run4",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        6160,
+        800
+      ],
+      "executeOnce": true
+    },
+    {
+      "parameters": {
+        "batchSize": 10,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        5360,
+        704
+      ],
+      "id": "fefd7866-ce69-4d46-a252-0a1bd0c0761a",
+      "name": "Loop Over Items1"
+    }
+  ],
+  "connections": {
+    "Schedule every hour2": {
+      "main": [
+        []
+      ]
+    },
+    "Read Operative Job Sheet7": {
+      "main": [
+        [
+          {
+            "node": "Read OJS BOQ & SMV2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read OJS BOQ & SMV2": {
+      "main": [
+        [
+          {
+            "node": "Build job packages1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build job packages1": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Assess Job Completion1": {
+      "main": [
+        [
+          {
+            "node": "Parse AI response1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse AI response1": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Flush row updates1": {
+      "main": [
+        [
+          {
+            "node": "Update Operative Job Sheet1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Operative Job Sheet1": {
+      "main": [
+        [
+          {
+            "node": "Summarize run4",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Loop Over Items1": {
+      "main": [
+        [
+          {
+            "node": "Flush row updates1",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "AI Assess Job Completion1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "a5cd22a95d5313a977e9ac21c3a833db76b18ca78fb8cb2cf7013465d69f17f8"
+  }
+}

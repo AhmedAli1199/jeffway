@@ -1,0 +1,490 @@
+{
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## Stage 1 \u2014 Works List Export\n\nKeeps **Works List Export** tab synced with all work instructions on EasyBOP.\n\n`POST /download-works-list-export-stage6/file` \u2192 Export on z_works index.\n\nRow 1 headers kept \u2014 data rows cleared each run before append.\nEmpty cells skipped (not written as `\"\"`).",
+        "height": 260,
+        "width": 560
+      },
+      "id": "2128950a-43a3-43b9-9d58-4ea0b1e50e59",
+      "name": "Note \u2014 works list export stage",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1760,
+        -4016
+      ]
+    },
+    {
+      "parameters": {
+        "triggerTimes": {
+          "item": [
+            {
+              "mode": "custom",
+              "cronExpression": "0 */2 * * *"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.cron",
+      "typeVersion": 1,
+      "position": [
+        1776,
+        -3664
+      ],
+      "id": "d8973c13-3778-4554-a119-4dd33eaa7b4d",
+      "name": "Schedule every 2h (works list)1"
+    },
+    {
+      "parameters": {
+        "operation": "clear",
+        "documentId": {
+          "__rl": true,
+          "value": "1ddliNGpjMaMsHh5V_0nROqBDsgJx7-_tq6wMMAC5qrg",
+          "mode": "list",
+          "cachedResultName": "Stage 1 ",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1ddliNGpjMaMsHh5V_0nROqBDsgJx7-_tq6wMMAC5qrg/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list",
+          "cachedResultName": "Works List Export",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1ddliNGpjMaMsHh5V_0nROqBDsgJx7-_tq6wMMAC5qrg/edit#gid=0"
+        }
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        2064,
+        -3664
+      ],
+      "id": "ebe4e00c-bc6b-404e-8f09-a548ccd34974",
+      "name": "Clear data rows (keep headers)1",
+      "executeOnce": true,
+      "notesInFlow": true,
+      "note": "Keeps row 1 column headers; clears data from row 2 down",
+      "alwaysOutputData": true,
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "0bvpVa8frZ7qSwzx",
+          "name": "hamza-sheets"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://173.212.233.153:8000/download-works-list-export-stage6/file",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "{\n  \"contract_id\": \"321129\"\n}",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "file"
+            }
+          },
+          "timeout": 300000
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2368,
+        -3664
+      ],
+      "id": "2ee1944b-e1f1-4bcc-9bdb-fa9808b43faf",
+      "name": "POST download-works-list-export-stage",
+      "notesInFlow": true,
+      "note": "z_works/index.php \u2192 #btn_export_list"
+    },
+    {
+      "parameters": {
+        "fileFormat": "xlsx",
+        "options": {
+          "headerRow": true
+        }
+      },
+      "type": "n8n-nodes-base.spreadsheetFile",
+      "typeVersion": 2,
+      "position": [
+        2672,
+        -3664
+      ],
+      "id": "e264ee8a-1169-4c77-8069-2608513adf6d",
+      "name": "Read xlsx rows (works list)1"
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "1ddliNGpjMaMsHh5V_0nROqBDsgJx7-_tq6wMMAC5qrg",
+          "mode": "list",
+          "cachedResultName": "Stage 1 ",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1ddliNGpjMaMsHh5V_0nROqBDsgJx7-_tq6wMMAC5qrg/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list",
+          "cachedResultName": "Works List Export",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1ddliNGpjMaMsHh5V_0nROqBDsgJx7-_tq6wMMAC5qrg/edit#gid=0"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {
+            "Received Date and Time": "={{ String($json['Received Date and Time'] ?? '').trim() === '' ? undefined : $json['Received Date and Time'] }}",
+            "Description of Work": "={{ String($json['Description of Work'] ?? '').trim() === '' ? undefined : $json['Description of Work'] }}",
+            "Appointment Date": "={{ String($json['Appointment Date'] ?? '').trim() === '' ? undefined : $json['Appointment Date'] }}",
+            "Next appointment date": "={{ String($json['Next appointment date'] ?? '').trim() === '' ? undefined : $json['Next appointment date'] }}",
+            "Completed": "={{ String($json.Completed ?? '').trim() === '' ? undefined : $json.Completed }}",
+            "Type of Work": "={{ String($json['Type of Work'] ?? '').trim() === '' ? undefined : $json['Type of Work'] }}",
+            "Property Reference": "={{ String($json['Property Reference'] ?? '').trim() === '' ? undefined : $json['Property Reference'] }}",
+            "Address": "={{ String($json.Address ?? '').trim() === '' ? undefined : $json.Address }}",
+            "Client Order Reference": "={{ String($json['Client Order Reference'] ?? '').trim() === '' ? undefined : $json['Client Order Reference'] }}",
+            "Works Status": "={{ String($json['Works Status'] ?? '').trim() === '' ? undefined : $json['Works Status'] }}",
+            "Financial Status": "={{ String($json['Financial Status'] ?? '').trim() === '' ? undefined : $json['Financial Status'] }}",
+            "Our Works Instruction Number": "={{ String($json['Our Works Instruction Number'] ?? '').trim() === '' ? undefined : $json['Our Works Instruction Number'] }}",
+            "Started": "={{ String($json.Started ?? '').trim() === '' ? undefined : $json.Started }}",
+            "Time Allowed": "={{ String($json['Time Allowed'] ?? '').trim() === '' ? undefined : $json['Time Allowed'] }}",
+            "Cancelled Reason": "={{ String($json['Cancelled Reason'] ?? '').trim() === '' ? undefined : $json['Cancelled Reason'] }}",
+            "Cancelled Date": "={{ String($json['Cancelled Date'] ?? '').trim() === '' ? undefined : $json['Cancelled Date'] }}",
+            "Recorded By": "={{ String($json['Recorded By'] ?? '').trim() === '' ? undefined : $json['Recorded By'] }}",
+            "Latest Completion Date": "={{ String($json['Latest Completion Date'] ?? '').trim() === '' ? undefined : $json['Latest Completion Date'] }}",
+            "In Time": "={{ String($json['In Time'] ?? '').trim() === '' ? undefined : $json['In Time'] }}",
+            "Handover date": "={{ $json['Handover date'] }}",
+            "Ready to handover": "={{ String($json['Ready to handover'] ?? '').trim() === '' ? undefined : $json['Ready to handover'] }}",
+            "Internal Notes": "={{ String($json['Internal Notes'] ?? '').trim() === '' ? undefined : $json['Internal Notes'] }}",
+            "Job Value": "={{ String($json['Job Value'] ?? '').trim() === '' ? undefined : $json['Job Value'] }}",
+            "QS Reviewed": "={{ $json['QS Reviewed'] }}",
+            "BCC Tracker Status": "={{ $json['BCC Tracker Status'] }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "Received Date and Time",
+              "displayName": "Received Date and Time",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Description of Work",
+              "displayName": "Description of Work",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Appointment Date",
+              "displayName": "Appointment Date",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Next appointment date",
+              "displayName": "Next appointment date",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Completed",
+              "displayName": "Completed",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Internal Notes",
+              "displayName": "Internal Notes",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Type of Work",
+              "displayName": "Type of Work",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Property Reference",
+              "displayName": "Property Reference",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Address",
+              "displayName": "Address",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Client Order Reference",
+              "displayName": "Client Order Reference",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Works Status",
+              "displayName": "Works Status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Financial Status",
+              "displayName": "Financial Status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Our Works Instruction Number",
+              "displayName": "Our Works Instruction Number",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Time Allowed",
+              "displayName": "Time Allowed",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Recorded By",
+              "displayName": "Recorded By",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Latest Completion Date",
+              "displayName": "Latest Completion Date",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Job Value",
+              "displayName": "Job Value",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Handover date",
+              "displayName": "Handover date",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Started",
+              "displayName": "Started",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "In Time",
+              "displayName": "In Time",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Cancelled Reason",
+              "displayName": "Cancelled Reason",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Cancelled Date",
+              "displayName": "Cancelled Date",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Ready to handover",
+              "displayName": "Ready to handover",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "QS Reviewed",
+              "displayName": "QS Reviewed",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "BCC Tracker Status",
+              "displayName": "BCC Tracker Status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Handover Processed",
+              "displayName": "Handover Processed",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {
+          "useAppend": true
+        }
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        2976,
+        -3664
+      ],
+      "id": "281a6573-38df-4f81-a35c-ced3b943e817",
+      "name": "Append rows to Works List Export",
+      "notesInFlow": true,
+      "note": "Empty cells \u2192 undefined (skipped, not written as \"\")",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "0bvpVa8frZ7qSwzx",
+          "name": "hamza-sheets"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Schedule every 2h (works list)1": {
+      "main": [
+        [
+          {
+            "node": "Clear data rows (keep headers)1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Clear data rows (keep headers)1": {
+      "main": [
+        [
+          {
+            "node": "POST download-works-list-export-stage",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "POST download-works-list-export-stage": {
+      "main": [
+        [
+          {
+            "node": "Read xlsx rows (works list)1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read xlsx rows (works list)1": {
+      "main": [
+        [
+          {
+            "node": "Append rows to Works List Export",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "a5cd22a95d5313a977e9ac21c3a833db76b18ca78fb8cb2cf7013465d69f17f8"
+  },
+  "name": "Stage 1 \u2014 Works List Export"
+}

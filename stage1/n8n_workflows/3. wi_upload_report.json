@@ -1,0 +1,300 @@
+{
+  "nodes": [
+    {
+      "parameters": {
+        "triggerTimes": {
+          "item": [
+            {
+              "mode": "custom",
+              "cronExpression": "15 */2 * * *"
+            }
+          ]
+        }
+      },
+      "id": "41be73c0-8161-4adc-9da2-d294ee3e97f6",
+      "name": "Schedule Trigger",
+      "type": "n8n-nodes-base.cron",
+      "typeVersion": 1,
+      "position": [
+        2320,
+        -464
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst rows = $input.all().map(i => i.json || {});\n\nfunction isTrue(v) {\n  if (v === null || v === undefined) return false;\n  const s = String(v).trim().toLowerCase();\n  return s === 'true' || s === 'yes' || s === '1';\n}\n\nconst unreported = rows.filter(r => {\n  const created = isTrue(r['WI Created on EasyBOP']);\n  const reported = isTrue(r['Upload Reported']);\n  return created && !reported;\n});\n\nif (unreported.length === 0) {\n  return [{ json: { has_unreported: false } }];\n}\n\nreturn [{\n  json: {\n    has_unreported: true,\n    rows: unreported,\n    count: unreported.length\n  }\n}];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2720,
+        -368
+      ],
+      "id": "0f6e75e8-947b-4f5f-a379-c1757a24d215",
+      "name": "Filter Unreported"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "has",
+              "leftValue": "={{ $json.has_unreported }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        2928,
+        -368
+      ],
+      "id": "101421ce-cfb9-4734-b61a-bcd9c70c4267",
+      "name": "IF Has Unreported"
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst rows = $input.first().json.rows;\n\nlet tableRows = '';\nfor (const r of rows) {\n  const corf = r['Client Order Reference'] || r['Client Order Ref'] || r['Client Order Ref.'] || 'Unknown';\n  \n  const addr1 = r['Address 1'] || '';\n  const addr2 = r['Address 2'] || '';\n  const addr3 = r['Address 3'] || '';\n  const addr4 = r['Address 4'] || '';\n  const parts = [addr1, addr2, addr3, addr4].filter(x => String(x).trim() !== '');\n  \n  let addr = parts.join(', ');\n  if (!addr) {\n     addr = r['Q1.1 Address'] || r['Address'] || r['Works Instruction Address'] || 'Unknown Address';\n  }\n  \n  tableRows += `<tr><td style=\"padding: 10px; border-bottom: 1px solid #eee;\">${corf}</td><td style=\"padding: 10px; border-bottom: 1px solid #eee;\">${addr}</td></tr>`;\n}\n\nconst logo = 'https://jeffway.co.uk/wp-content/uploads/2025/05/jeffway-group-1.svg';\nconst reportDate = new Date().toLocaleString('en-GB', { timeZone: 'Europe/London' }).replace(',', '');\n\nconst html = [\n  '<!DOCTYPE html><html><head><meta charset=\"UTF-8\"></head>',\n  '<body style=\"margin:0;padding:0;font-family:Arial,sans-serif;background:#f4f4f4;\">',\n  '<table width=\"100%\" style=\"background:#f4f4f4;padding:20px;\"><tr><td align=\"center\">',\n  '<table width=\"640\" style=\"background:#fff;border-radius:8px;border-spacing:0;overflow:hidden;\">',\n  '<tr><td style=\"background:#000;padding:20px;text-align:center;\"><img src=\"' + logo + '\" style=\"max-width:160px;\" alt=\"Jeffway\"></td></tr>',\n  '<tr><td style=\"padding:24px;\"><h2 style=\"margin:0;\">Stage 1 — Work Instructions Uploaded</h2>',\n  '<p style=\"color:#555;\">Generated: <strong>' + reportDate + '</strong> (Europe/London)</p>',\n  '<p style=\"color:#444;font-size:14px;\"><strong>' + rows.length + '</strong> new work instructions were successfully created on EasyBOP during the last run.</p>',\n  '<table style=\"width:100%; border-collapse:collapse; margin-top:20px; font-size:14px; text-align:left;\">',\n  '<thead><tr><th style=\"padding:10px; border-bottom:2px solid #ccc;\">Client Order Ref</th><th style=\"padding:10px; border-bottom:2px solid #ccc;\">Address</th></tr></thead>',\n  '<tbody>' + tableRows + '</tbody></table>',\n  '</td></tr>',\n  '<tr><td style=\"background:#f9f9f9;padding:16px;text-align:center;font-size:12px;color:#777;\">Jeffway Group · Automated Stage 1 Report</td></tr>',\n  '</table></td></tr></table></body></html>'\n].join('');\n\nreturn [{\n  json: {\n    subject: `[Stage 1] Work Instructions Uploaded (${rows.length})`,\n    html: html,\n    rows_to_mark: rows\n  }\n}];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3120,
+        -464
+      ],
+      "id": "691239b4-105b-4514-9dfb-d94af58bc69c",
+      "name": "Prepare Report Email"
+    },
+    {
+      "parameters": {
+        "sendTo": "hamza@eynvision.com",
+        "subject": "={{ $json.subject }}",
+        "message": "={{ $json.html }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [
+        3328,
+        -464
+      ],
+      "id": "cd807507-7a6f-4e4c-96b7-8efdba561ccd",
+      "name": "Send Report Email",
+      "webhookId": "2bacf81f-9c95-446b-9c6a-6f2d83fa3de0",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "jKGiGpe3yubA7VJL",
+          "name": "Cybix Husnain Email"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst rows = $('Prepare Report Email').first().json.rows_to_mark;\nreturn rows.map(r => ({\n  json: {\n    'Client Order Reference': r['Client Order Reference'] || r['Client Order Ref'] || r['Client Order Ref.'],\n    'Upload Reported': 'TRUE',\n    'row_number': r.row_number || r.__rowNumber\n  }\n}));\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3520,
+        -464
+      ],
+      "id": "25a0bae1-24ba-4076-b2f1-a4fbc2464af9",
+      "name": "Prepare Row Marks"
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "documentId": {
+          "__rl": true,
+          "value": "1ddliNGpjMaMsHh5V_0nROqBDsgJx7-_tq6wMMAC5qrg",
+          "mode": "list",
+          "cachedResultName": "Stage 1 ",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1ddliNGpjMaMsHh5V_0nROqBDsgJx7-_tq6wMMAC5qrg/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Work Inst Import",
+          "mode": "name",
+          "cachedResultName": "Work Inst Import"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Upload Reported": "TRUE",
+            "row_number": "={{ $json.row_number }}"
+          },
+          "matchingColumns": [
+            "row_number"
+          ],
+          "schema": [
+            {
+              "id": "Upload Reported",
+              "displayName": "Upload Reported",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "row_number",
+              "displayName": "row_number",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true,
+              "readOnly": true
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        3728,
+        -464
+      ],
+      "id": "16690072-4372-4f02-95a9-7dec44539ba7",
+      "name": "Mark As Reported",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "0bvpVa8frZ7qSwzx",
+          "name": "hamza-sheets"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "1ddliNGpjMaMsHh5V_0nROqBDsgJx7-_tq6wMMAC5qrg",
+          "mode": "list",
+          "cachedResultName": "Stage 1 ",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1ddliNGpjMaMsHh5V_0nROqBDsgJx7-_tq6wMMAC5qrg/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Work Inst Import",
+          "mode": "name",
+          "cachedResultName": "Work Inst Import"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        2528,
+        -368
+      ],
+      "id": "05aa4011-09ae-4ab5-af48-2145833bfcc8",
+      "name": "Read Work Inst Import2",
+      "alwaysOutputData": true,
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "0bvpVa8frZ7qSwzx",
+          "name": "hamza-sheets"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "Read Work Inst Import2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filter Unreported": {
+      "main": [
+        [
+          {
+            "node": "IF Has Unreported",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF Has Unreported": {
+      "main": [
+        [
+          {
+            "node": "Prepare Report Email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Report Email": {
+      "main": [
+        [
+          {
+            "node": "Send Report Email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Report Email": {
+      "main": [
+        [
+          {
+            "node": "Prepare Row Marks",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Row Marks": {
+      "main": [
+        [
+          {
+            "node": "Mark As Reported",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Work Inst Import2": {
+      "main": [
+        [
+          {
+            "node": "Filter Unreported",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "a5cd22a95d5313a977e9ac21c3a833db76b18ca78fb8cb2cf7013465d69f17f8"
+  }
+}

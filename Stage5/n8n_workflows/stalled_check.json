@@ -1,0 +1,269 @@
+{
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## Stage 5 — Stalled Appointment Check\n\nRuns on schedule. **Direct from EasyBOP** (no Google Sheets).\n\n1. **POST** `/stage5/stalled-appointment-check`\n2. Downloads **Scheduling Register** for **each month** in lookback window\n3. Scrapes **OJS register** for the **same months** (month radio filter)\n4. Finds **Appointment Started** with no **Complete** OJS (operative + job + date)\n5. Checks **next-day** booking on same job\n\n**Email includes BOTH:**\n- Returning next day (multi-day OK)\n- Needs review (not scheduled to return)\n\n**Redeploy API** after `Stage5/` changes.",
+        "height": 380,
+        "width": 580
+      },
+      "id": "a9aee6a1-2e82-42fc-8529-3496e607412b",
+      "name": "Note — Stalled check",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -64,
+        -16
+      ]
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "hours",
+              "hoursInterval": 2
+            }
+          ]
+        }
+      },
+      "id": "f3578e27-9d58-48fa-9dd8-a85a2a14668f",
+      "name": "Schedule every 2h",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        144,
+        432
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "ngrok-base",
+              "name": "ngrok_base_url",
+              "value": "http://173.212.233.153:8000",
+              "type": "string"
+            },
+            {
+              "id": "lookback",
+              "name": "lookback_days",
+              "value": 3,
+              "type": "number"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "fb9722ca-90e7-49c5-9ca4-84bb9cb30a82",
+      "name": "Set API params",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        368,
+        432
+      ],
+      "notesInFlow": true,
+      "note": "Update ngrok URL; lookback_days default 14"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ ($('Set API params').first().json.ngrok_base_url || '').replace(/\\/+$/, '') + '/stage5/stalled-appointment-check' }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "ngrok-skip-browser-warning",
+              "value": "true"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { contract_id: '321129', lookback_days: $('Set API params').first().json.lookback_days ?? 14 } }}",
+        "options": {
+          "timeout": 300000
+        }
+      },
+      "id": "cc2faf7c-c83c-4f53-81ef-0bfe4f7c058d",
+      "name": "POST stalled check",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        592,
+        432
+      ],
+      "notesInFlow": true,
+      "note": "Multi-month EasyBOP export + OJS scrape"
+    },
+    {
+      "parameters": {
+        "jsCode": "const r = $input.first().json || {};\nconst summary = r.summary || {};\nconst returning = r.returning_next_day || [];\nconst review = r.needs_review || [];\nconst emailCount = summary.email_count ?? (returning.length + review.length);\n\nreturn [{\n  json: {\n    ok: true,\n    as_of: r.as_of,\n    months_checked: r.months_checked || [],\n    summary,\n    returning_next_day: returning,\n    needs_review: review,\n    email_needed: emailCount > 0,\n    _alert_subject: r.email_subject || ('Stage 5 Stalled Appointments — ' + emailCount + ' item(s)'),\n    _alert_html: r.email_html || '<p>No email HTML returned from API.</p>',\n    finished_at: new Date().toISOString(),\n  },\n}];"
+      },
+      "id": "4232e7e5-84e1-4955-b7f0-61341a1cebdd",
+      "name": "Format results",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        816,
+        432
+      ],
+      "executeOnce": true
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "has-items",
+              "leftValue": "={{ $json.email_needed }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "946e8519-385e-4551-82ea-a233c8e6140b",
+      "name": "IF email needed",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1040,
+        432
+      ]
+    },
+    {
+      "parameters": {
+        "sendTo": "hamza@eynvision.com",
+        "subject": "={{ $json._alert_subject }}",
+        "message": "={{ $json._alert_html }}",
+        "options": {}
+      },
+      "id": "7fbe0863-6bfb-4006-adf9-c71feada1f36",
+      "name": "Send Gmail report",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        1264,
+        352
+      ],
+      "executeOnce": true,
+      "webhookId": "3dd15644-4f6e-48ad-a622-8aaf1438b60a",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "5zI2J63c77B4YZ0i",
+          "name": "hamza-gmail"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const fmt = (function () {\n  try { return $('Format results').first().json || {}; } catch (e) { return {}; }\n})();\nreturn [{\n  json: {\n    message: 'Stalled appointment check complete',\n    as_of: fmt.as_of,\n    months_checked: fmt.months_checked,\n    summary: fmt.summary,\n    email_sent: fmt.email_needed === true,\n    finished_at: new Date().toISOString(),\n  },\n}];"
+      },
+      "id": "3a6b08d7-01c4-41b6-b70b-f3eeb89bfe3c",
+      "name": "Summarize run",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1488,
+        432
+      ],
+      "executeOnce": true
+    }
+  ],
+  "connections": {
+    "Schedule every 2h": {
+      "main": [
+        [
+          {
+            "node": "Set API params",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Set API params": {
+      "main": [
+        [
+          {
+            "node": "POST stalled check",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "POST stalled check": {
+      "main": [
+        [
+          {
+            "node": "Format results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format results": {
+      "main": [
+        [
+          {
+            "node": "IF email needed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF email needed": {
+      "main": [
+        [
+          {
+            "node": "Send Gmail report",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Summarize run",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Gmail report": {
+      "main": [
+        [
+          {
+            "node": "Summarize run",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "meta": {
+    "instanceId": "a5cd22a95d5313a977e9ac21c3a833db76b18ca78fb8cb2cf7013465d69f17f8"
+  }
+}

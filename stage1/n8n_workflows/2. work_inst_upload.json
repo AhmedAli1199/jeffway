@@ -1,0 +1,1900 @@
+{
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "stage1-wi-upload",
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        -448,
+        -1104
+      ],
+      "id": "76eabc48-efc7-4b02-9276-7a05ff29c071",
+      "name": "Webhook",
+      "webhookId": "adfd4af2-f038-46b2-baef-efe79284d973"
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "1ddliNGpjMaMsHh5V_0nROqBDsgJx7-_tq6wMMAC5qrg",
+          "mode": "list",
+          "cachedResultName": "Stage 1 ",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1ddliNGpjMaMsHh5V_0nROqBDsgJx7-_tq6wMMAC5qrg/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Work Inst Import",
+          "mode": "name",
+          "cachedResultName": "Work Inst Import"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        -224,
+        -1104
+      ],
+      "id": "d42e4c7a-f102-42fc-895e-4cdf096c7dc3",
+      "name": "Read Work Inst Import",
+      "alwaysOutputData": true,
+      "executeOnce": true,
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "0bvpVa8frZ7qSwzx",
+          "name": "hamza-sheets"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const TRACK_COL = \"WI Created on EasyBOP\";\nconst api_base_url = \"http://173.212.233.153:8000\";\n// Must read the sheet node by name — $input.all() only sees 1 item here\nconst rows = $('Read Work Inst Import').all().map((i) => i.json || {});\nfunction pickCorf(row) {\n  const v = row['Client Order Reference'] ?? row['Client Order Ref'] ?? row['Client Order Ref.'];\n  const s = String(v ?? '').trim();\n  if (!s || /^client order ref/i.test(s)) return '';\n  return s;\n}\nfunction notYetCreated(row) {\n  const v = row[TRACK_COL];\n  if (v === null || v === undefined) return true;\n  const s = String(v).trim().toLowerCase();\n  if (!s) return true;\n  if (s === 'false' || s === '0' || s === 'no') return true;\n  return false;\n}\nconst pending = rows.filter((r) => pickCorf(r) && notYetCreated(r));\nif (!pending.length) {\n  return [{\n    json: {\n      has_pending_wi: false,\n      pending_count: 0,\n      message: 'No unprocessed rows (all marked or empty)',\n    },\n  }];\n}\n// Single item with ALL pending rows — one API call processes every CORF\nreturn [{\n  json: {\n    has_pending_wi: true,\n    pending_count: pending.length,\n    api_base_url,\n    contract_id: '321129',\n    rows: pending,\n    message: pending.length + ' row(s) to create on EasyBOP',\n  },\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        0,
+        -1104
+      ],
+      "id": "faf79876-dd6a-4c92-8791-4546a086bc0b",
+      "name": "Filter Pending Rows"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "hp",
+              "leftValue": "={{ $json.has_pending_wi }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        224,
+        -1104
+      ],
+      "id": "18c41a20-d752-4af2-bdab-10000a87b7f3",
+      "name": "IF Has Pending WI"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $json.api_base_url + '/create-works-instructions' }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ contract_id: $json.contract_id, rows: $json.rows, max_concurrent: 3 }) }}",
+        "options": {
+          "timeout": 300000
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        448,
+        -1200
+      ],
+      "id": "9fb13043-5001-42e0-863a-d1d5a2f3a755",
+      "name": "POST create works instructions",
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const api = $input.first().json || {};\nfunction markFromResult(r) {\n  return {\n    json: {\n      'Client Order Reference': r.client_order_reference,\n      \"WI Created on EasyBOP\": 'TRUE',\n      _row_number: r.row_number ?? null,\n    },\n  };\n}\nconst results = Array.isArray(api.results) ? api.results : [];\nif (api.error) {\n  const partial = results.filter((r) => r && r.success).map(markFromResult);\n  if (partial.length) return partial;\n  return [{\n    json: {\n      _skip_mark: true,\n      message: String(api.error.message || api.error),\n    },\n  }];\n}\nconst marks = results.filter((r) => r && r.success).map(markFromResult);\nif (!marks.length) {\n  return [{\n    json: {\n      _skip_mark: true,\n      message: api.detail || api.message || 'No works instructions created',\n      created_count: api.created_count || 0,\n      failed_count: api.failed_count || 0,\n    },\n  }];\n}\nreturn marks;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        672,
+        -1200
+      ],
+      "id": "fa299a6f-290c-41fa-ae93-9df4bbfd9954",
+      "name": "Prepare WI Created marks"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "skip",
+              "leftValue": "={{ $json._skip_mark }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "notEquals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        896,
+        -1200
+      ],
+      "id": "cd9c05a8-e74d-45ea-800c-7091cd126a96",
+      "name": "IF Has Created Rows"
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "documentId": {
+          "__rl": true,
+          "value": "1ddliNGpjMaMsHh5V_0nROqBDsgJx7-_tq6wMMAC5qrg",
+          "mode": "list",
+          "cachedResultName": "Stage 1 ",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1ddliNGpjMaMsHh5V_0nROqBDsgJx7-_tq6wMMAC5qrg/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Work Inst Import",
+          "mode": "name",
+          "cachedResultName": "Work Inst Import"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Client Order Reference": "={{ $json['Client Order Reference'] }}",
+            "WI Created on EasyBOP": "TRUE",
+            "row_number": "={{ $json._row_number }}"
+          },
+          "matchingColumns": [
+            "Client Order Reference"
+          ],
+          "schema": [
+            {
+              "id": "Type of Work Code",
+              "displayName": "Type of Work Code",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Description of Works",
+              "displayName": "Description of Works",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Client Order Reference",
+              "displayName": "Client Order Reference",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Issued By",
+              "displayName": "Issued By",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Recorded By",
+              "displayName": "Recorded By",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Date Time Received (DD/MM/YYYY HH:MM)",
+              "displayName": "Date Time Received (DD/MM/YYYY HH:MM)",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "UPRN",
+              "displayName": "UPRN",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "UPRN Alternative",
+              "displayName": "UPRN Alternative",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Resident Type (Leaseholder,Tenant)",
+              "displayName": "Resident Type (Leaseholder,Tenant)",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Occupancy (Occupied,Void)",
+              "displayName": "Occupancy (Occupied,Void)",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "No. of Bedrooms",
+              "displayName": "No. of Bedrooms",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Property Type",
+              "displayName": "Property Type",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Zone",
+              "displayName": "Zone",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Client Estate Reference",
+              "displayName": "Client Estate Reference",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Client Property Status",
+              "displayName": "Client Property Status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Year of Build",
+              "displayName": "Year of Build",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Resident Title",
+              "displayName": "Resident Title",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Resident First Name",
+              "displayName": "Resident First Name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Resident Last Name",
+              "displayName": "Resident Last Name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Resident Tel",
+              "displayName": "Resident Tel",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Resident Mobile",
+              "displayName": "Resident Mobile",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Resident Email",
+              "displayName": "Resident Email",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Address 1",
+              "displayName": "Address 1",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Address 2",
+              "displayName": "Address 2",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Address 3",
+              "displayName": "Address 3",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Address 4",
+              "displayName": "Address 4",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "town",
+              "displayName": "town",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "County",
+              "displayName": "County",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Postcode",
+              "displayName": "Postcode",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Country",
+              "displayName": "Country",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Alternative Address 1",
+              "displayName": "Alternative Address 1",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Alternative Address 2",
+              "displayName": "Alternative Address 2",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Alternative Address 3",
+              "displayName": "Alternative Address 3",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Alternative Address 4",
+              "displayName": "Alternative Address 4",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Alternative Town",
+              "displayName": "Alternative Town",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Alternative County",
+              "displayName": "Alternative County",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Alternative Postcode",
+              "displayName": "Alternative Postcode",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Alternative Country",
+              "displayName": "Alternative Country",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Vulnerability",
+              "displayName": "Vulnerability",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Vulnerability Code",
+              "displayName": "Vulnerability Code",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Vulnerability Description",
+              "displayName": "Vulnerability Description",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Handover date",
+              "displayName": "Handover date",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Next appointment date",
+              "displayName": "Next appointment date",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "BCC Tracker Status",
+              "displayName": "BCC Tracker Status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Surveyor",
+              "displayName": "Surveyor",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Clean Booked",
+              "displayName": "Clean Booked",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "App number",
+              "displayName": "App number",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "WI Created on EasyBOP",
+              "displayName": "WI Created on EasyBOP",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "_row_number",
+              "displayName": "_row_number",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Job Value",
+              "displayName": "Job Value",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "BOQ Uploaded",
+              "displayName": "BOQ Uploaded",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Upload Reported",
+              "displayName": "Upload Reported",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "row_number",
+              "displayName": "row_number",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true,
+              "readOnly": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        1120,
+        -1296
+      ],
+      "id": "f293c4e6-13e1-45fa-9a1b-00d9bf955a62",
+      "name": "Mark WI Created on EasyBOP",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "0bvpVa8frZ7qSwzx",
+          "name": "hamza-sheets"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "st",
+              "name": "status",
+              "value": "WI_CREATED",
+              "type": "string"
+            },
+            {
+              "id": "msg",
+              "name": "message",
+              "value": "={{ 'Created WI ' + ($json['Client Order Reference'] || '') }}",
+              "type": "string"
+            },
+            {
+              "id": "cnt",
+              "name": "created_count",
+              "value": "={{ $('POST create works instructions').first().json.created_count || 0 }}",
+              "type": "number"
+            },
+            {
+              "id": "fail",
+              "name": "failed_count",
+              "value": "={{ $('POST create works instructions').first().json.failed_count || 0 }}",
+              "type": "number"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1344,
+        -1296
+      ],
+      "id": "47facb87-0693-4b92-903b-d20cae7e3bfc",
+      "name": "Create Done"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "st",
+              "name": "status",
+              "value": "CREATE_FAILED",
+              "type": "string"
+            },
+            {
+              "id": "msg",
+              "name": "message",
+              "value": "={{ $json.message || 'Create failed for this row' }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1120,
+        -1104
+      ],
+      "id": "ec601303-a5db-4eed-a508-de26f9a42c70",
+      "name": "Create Failed"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "st",
+              "name": "status",
+              "value": "NO_PENDING",
+              "type": "string"
+            },
+            {
+              "id": "msg",
+              "name": "message",
+              "value": "={{ $json.message }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        448,
+        -1008
+      ],
+      "id": "aab8a596-32c3-419a-b5ad-70553d327d34",
+      "name": "No Pending WI"
+    },
+    {
+      "parameters": {
+        "operation": "clear",
+        "documentId": {
+          "__rl": true,
+          "value": "1ddliNGpjMaMsHh5V_0nROqBDsgJx7-_tq6wMMAC5qrg",
+          "mode": "list",
+          "cachedResultName": "Stage 1 ",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1ddliNGpjMaMsHh5V_0nROqBDsgJx7-_tq6wMMAC5qrg/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list",
+          "cachedResultName": "Works List Export"
+        }
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        1568,
+        -1296
+      ],
+      "id": "1ac94be9-29dd-4d89-9e2c-14ba4d45014b",
+      "name": "Clear data rows (keep headers)",
+      "executeOnce": true,
+      "alwaysOutputData": true,
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "0bvpVa8frZ7qSwzx",
+          "name": "hamza-sheets"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://173.212.233.153:8000/download-works-list-export-stage6/file",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "{\n  \"contract_id\": \"321129\"\n}",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "file"
+            }
+          },
+          "timeout": 300000
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1792,
+        -1296
+      ],
+      "id": "2fbcd130-e99f-4583-81a2-8c38f127a997",
+      "name": "POST download-works-list-export"
+    },
+    {
+      "parameters": {
+        "fileFormat": "xlsx",
+        "options": {
+          "headerRow": true
+        }
+      },
+      "type": "n8n-nodes-base.spreadsheetFile",
+      "typeVersion": 2,
+      "position": [
+        2016,
+        -1296
+      ],
+      "id": "bd2bfb5f-7385-463a-91d9-87b6fb948296",
+      "name": "Read xlsx rows (works list)"
+    },
+    {
+      "parameters": {
+        "content": "## Stage 1 — WI Upload + BOQ\n\n1. Create pending WIs on EasyBOP\n2. Refresh **Works List Export**\n3. Match **BOQ Import** CORF → **Client Order Reference** on export → WI Ref\n4. Upload BOQ to EasyBOP → mark **BOQ Uploaded** on **Work Inst Import** → clear **BOQ Import**\n",
+        "height": 260,
+        "width": 480,
+        "color": 5
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -464,
+        -1552
+      ],
+      "id": "0c4d8b63-18a7-4c51-a369-0dc73ac50a5f",
+      "name": "Setup Note1"
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "1ddliNGpjMaMsHh5V_0nROqBDsgJx7-_tq6wMMAC5qrg",
+          "mode": "list",
+          "cachedResultName": "Stage 1 ",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1ddliNGpjMaMsHh5V_0nROqBDsgJx7-_tq6wMMAC5qrg/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list",
+          "cachedResultName": "Works List Export"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": [],
+          "schema": []
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        2240,
+        -1296
+      ],
+      "id": "53116473-0e5d-49b9-af8e-d203864a49ed",
+      "name": "Append rows to Works List Export1",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "0bvpVa8frZ7qSwzx",
+          "name": "hamza-sheets"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "1ddliNGpjMaMsHh5V_0nROqBDsgJx7-_tq6wMMAC5qrg",
+          "mode": "list",
+          "cachedResultName": "Stage 1 ",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1ddliNGpjMaMsHh5V_0nROqBDsgJx7-_tq6wMMAC5qrg/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "BOQ Import",
+          "mode": "name",
+          "cachedResultName": "BOQ Import"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        2464,
+        -1296
+      ],
+      "id": "123c5db8-f0ef-499c-8293-34d1192e0c7e",
+      "name": "Read BOQ Import",
+      "alwaysOutputData": true,
+      "executeOnce": true,
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "0bvpVa8frZ7qSwzx",
+          "name": "hamza-sheets"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const rows = $('Read BOQ Import').all().map((i) => i.json || {});\nconst has = rows.some((r) => String(r['BOQ Item Ref.'] ?? '').trim());\nreturn [{ json: { has_boq_rows: has, boq_row_count: rows.length } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2688,
+        -1296
+      ],
+      "id": "aeef8864-b850-4993-9f6e-4734cd7bdb52",
+      "name": "Check Has BOQ Rows",
+      "executeOnce": true
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "has",
+              "leftValue": "={{ $json.has_boq_rows }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        2912,
+        -1296
+      ],
+      "id": "3d31ff41-4631-4a3b-866f-f11bbc96567a",
+      "name": "IF Has BOQ Rows"
+    },
+    {
+      "parameters": {
+        "jsCode": "const exportRows = $('Read xlsx rows (works list)').all().map((i) => i.json || {});\nconst WI_COL = 'Works Instruction Ref.';\nconst CORF_COLS = ['CORF', 'corf', 'Client Order Reference'];\n\nfunction normCorf(v) {\n  const raw = String(v ?? '').trim();\n  if (!raw || /^client order ref/i.test(raw)) return '';\n  const t = raw.toLowerCase().replace(/\\s+/g, '');\n  const slash = t.match(/^(\\d+)\\/(\\d+)$/);\n  if (slash) return parseInt(slash[1], 10) + '/' + parseInt(slash[2], 10);\n  const digits = t.replace(/\\D/g, '');\n  if (digits.length >= 4) return String(parseInt(digits, 10));\n  return t;\n}\n\nfunction pickCorf(row) {\n  for (const col of CORF_COLS) {\n    const k = normCorf(row[col]);\n    if (k) return k;\n  }\n  const wi = normCorf(row[WI_COL]);\n  if (wi) {\n    const m = wi.match(/^(\\d+)\\//);\n    if (m && parseInt(m[1], 10) >= 10000) return wi;\n  }\n  return '';\n}\n\nconst corfToWi = {};\nfor (const row of exportRows) {\n  const corf = normCorf(row['Client Order Reference']);\n  const wi = String(row['Our Works Instruction Number'] ?? '').trim();\n  if (corf && wi) corfToWi[corf] = wi;\n}\n\nconst out = [];\nlet skippedNoCorf = 0;\nlet skippedNoMatch = 0;\nlet skippedOk = 0;\n\nfor (const item of $('Read BOQ Import').all()) {\n  const row = item.json || {};\n  const rowNum = row.row_number ?? row.__rowNumber ?? null;\n  if (rowNum == null) continue;\n  const corf = pickCorf(row);\n  if (!corf) { skippedNoCorf++; continue; }\n  const wiRef = corfToWi[corf];\n  if (!wiRef) { skippedNoMatch++; continue; }\n  const cur = String(row[WI_COL] ?? '').trim();\n  if (cur === wiRef) { skippedOk++; continue; }\n  out.push({\n    json: {\n      ...row,\n      [WI_COL]: wiRef,\n      _row_number: rowNum,\n      _corf_matched: corf,\n      _works_instruction_ref_before: cur || null,\n      _works_instruction_ref_after: wiRef,\n    },\n  });\n}\n\nif (!out.length) {\n  return [{\n    json: {\n      _skip_boq_ref_update: true,\n      _message: 'No BOQ rows need Works Instruction Ref update (CORF match)',\n      _skipped_no_corf: skippedNoCorf,\n      _skipped_no_match: skippedNoMatch,\n      _skipped_already_ok: skippedOk,\n    },\n  }];\n}\nreturn out;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3136,
+        -1392
+      ],
+      "id": "53f19ec1-5a28-4667-a55b-078705c4db21",
+      "name": "Match WI Ref by CORF"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "rn",
+              "leftValue": "={{ $json._row_number }}",
+              "rightValue": "",
+              "operator": {
+                "type": "number",
+                "operation": "exists",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        3360,
+        -1392
+      ],
+      "id": "c22f82a2-d2a9-4f94-9571-20f20734de0b",
+      "name": "IF BOQ Ref Updates"
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "documentId": {
+          "__rl": true,
+          "value": "1ddliNGpjMaMsHh5V_0nROqBDsgJx7-_tq6wMMAC5qrg",
+          "mode": "list",
+          "cachedResultName": "Stage 1 ",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1ddliNGpjMaMsHh5V_0nROqBDsgJx7-_tq6wMMAC5qrg/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "BOQ Import",
+          "mode": "name",
+          "cachedResultName": "BOQ Import"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Works Instruction Ref.": "={{ $json['Works Instruction Ref.'] }}",
+            "row_number": "={{ $json._row_number }}"
+          },
+          "matchingColumns": [
+            "row_number"
+          ],
+          "schema": [
+            {
+              "id": "Works Instruction Ref.",
+              "displayName": "Works Instruction Ref.",
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "row_number",
+              "displayName": "row_number",
+              "type": "number",
+              "canBeUsedToMatch": true,
+              "readOnly": true
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        3584,
+        -1456
+      ],
+      "id": "12c20770-f929-4e00-a765-85e8da8a1699",
+      "name": "Update BOQ WI Ref",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "0bvpVa8frZ7qSwzx",
+          "name": "hamza-sheets"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "1ddliNGpjMaMsHh5V_0nROqBDsgJx7-_tq6wMMAC5qrg",
+          "mode": "list",
+          "cachedResultName": "Stage 1 ",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1ddliNGpjMaMsHh5V_0nROqBDsgJx7-_tq6wMMAC5qrg/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "BOQ Import",
+          "mode": "name",
+          "cachedResultName": "BOQ Import"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        3808,
+        -1392
+      ],
+      "id": "02190e07-4cba-4eb2-abad-4dd3b2738fac",
+      "name": "Read BOQ Import for upload",
+      "alwaysOutputData": true,
+      "executeOnce": true,
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "0bvpVa8frZ7qSwzx",
+          "name": "hamza-sheets"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const UPLOAD_COLS = [\n  'Works Instruction Ref.',\n  'Works Instruction Address',\n  'BOQ Item Name',\n  'BOQ Item Section Name',\n  'BOQ Item Ref.',\n  'BOQ Item Short Description',\n  'BOQ Item Unit',\n  'BOQ Item Rate',\n  'Quantity',\n  'Location',\n  'Notes',\n];\n\nfunction looksLikeWiRef(v) {\n  const s = String(v ?? '').trim();\n  if (!s) return false;\n  const m = s.match(/^(\\d+)\\/(\\d+)$/);\n  if (!m) return false;\n  return parseInt(m[1], 10) < 10000;\n}\n\nconst rows = $('Read BOQ Import for upload').all().map((i) => i.json || {});\nconst valid = rows.filter((r) => {\n  const ref = String(r['BOQ Item Ref.'] ?? '').trim();\n  return ref && looksLikeWiRef(r['Works Instruction Ref.']);\n});\n\nif (!valid.length) {\n  return [{ json: { _skip_boq_upload: true, _message: 'No valid BOQ rows to upload' } }];\n}\n\nreturn [{\n  json: {\n    rows: valid.map((r) => {\n      const o = {};\n      for (const c of UPLOAD_COLS) o[c] = r[c] ?? null;\n      return o;\n    }),\n    row_count: valid.length,\n  },\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4032,
+        -1392
+      ],
+      "id": "20a9114f-ae91-4bb4-a790-f99373d01fc8",
+      "name": "Prepare BOQ Upload Rows",
+      "executeOnce": true
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "skip",
+              "leftValue": "={{ $json._skip_boq_upload }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "notEquals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        4256,
+        -1392
+      ],
+      "id": "e83b6b09-550a-4a0e-aabd-1c697b423d2e",
+      "name": "IF BOQ Ready To Upload"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://173.212.233.153:8000/save-boq-rows",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ rows: $json.rows }) }}",
+        "options": {
+          "timeout": 120000
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        4480,
+        -1456
+      ],
+      "id": "24d18a50-db43-4896-ac21-20bb58d925e0",
+      "name": "POST save-boq-rows"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://173.212.233.153:8000/upload-boq-file",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ contract_id: \"321129\", file_path: \"excel_downloads/BOQ-verify.xlsx\" }) }}",
+        "options": {
+          "timeout": 300000
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        4704,
+        -1456
+      ],
+      "id": "8ccd70b5-48d8-450c-94ca-607279ab3600",
+      "name": "POST upload-boq-file"
+    },
+    {
+      "parameters": {
+        "jsCode": "const uploadResp = $input.first().json || {};\nif (uploadResp.error) {\n  return [{\n    json: {\n      _skip_boq_mark: true,\n      message: String(uploadResp.error.message || uploadResp.error),\n    },\n  }];\n}\n\nconst CORF_COLS = ['CORF', 'corf', 'Client Order Reference'];\nconst WI_CORF_COLS = ['Client Order Reference', 'Client Order Ref', 'Client Order Ref.'];\n\nfunction normCorf(v) {\n  const raw = String(v ?? '').trim();\n  if (!raw || /^client order ref/i.test(raw)) return '';\n  const t = raw.toLowerCase().replace(/\\s+/g, '');\n  const slash = t.match(/^(\\d+)\\/(\\d+)$/);\n  if (slash) return parseInt(slash[1], 10) + '/' + parseInt(slash[2], 10);\n  const digits = t.replace(/\\D/g, '');\n  if (digits.length >= 4) return String(parseInt(digits, 10));\n  return t;\n}\n\nfunction pickBoqCorf(row) {\n  for (const col of CORF_COLS) {\n    const k = normCorf(row[col]);\n    if (k) return k;\n  }\n  return '';\n}\n\nfunction pickWiCorf(row) {\n  for (const col of WI_CORF_COLS) {\n    const k = normCorf(row[col]);\n    if (k) return k;\n  }\n  return '';\n}\n\nfunction looksLikeWiRef(v) {\n  const s = String(v ?? '').trim();\n  if (!s) return false;\n  const m = s.match(/^(\\d+)\\/(\\d+)$/);\n  if (!m) return false;\n  return parseInt(m[1], 10) < 10000;\n}\n\nconst boqRows = $('Read BOQ Import for upload').all().map((i) => i.json || {});\nconst uploadedCorfs = new Set();\nfor (const row of boqRows) {\n  const ref = String(row['BOQ Item Ref.'] ?? '').trim();\n  if (!ref || !looksLikeWiRef(row['Works Instruction Ref.'])) continue;\n  const corf = pickBoqCorf(row);\n  if (corf) uploadedCorfs.add(corf);\n}\n\nif (!uploadedCorfs.size) {\n  return [{\n    json: {\n      _skip_boq_mark: true,\n      message: 'No CORFs to mark after BOQ upload',\n    },\n  }];\n}\n\nconst wiRows = $('Read Work Inst Import').all().map((i) => i.json || {});\nconst marks = [];\nfor (const row of wiRows) {\n  const corf = pickWiCorf(row);\n  if (!corf || !uploadedCorfs.has(corf)) continue;\n  marks.push({\n    json: {\n      'Client Order Reference': row['Client Order Reference'] ?? corf,\n      'BOQ Uploaded': 'TRUE',\n      _row_number: row.row_number ?? row._row_number ?? null,\n      _corf: corf,\n    },\n  });\n}\n\nif (!marks.length) {\n  return [{\n    json: {\n      _skip_boq_mark: true,\n      message: 'No matching Work Inst Import rows for uploaded BOQ CORFs',\n    },\n  }];\n}\nreturn marks;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4928,
+        -1456
+      ],
+      "id": "8e10b447-3c97-4620-877d-5b2c6c3727b0",
+      "name": "Prepare BOQ Uploaded marks"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "skip",
+              "leftValue": "={{ $json._skip_boq_mark }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "notEquals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        5152,
+        -1456
+      ],
+      "id": "b2fba30c-babe-4771-97e5-aa482ef348c0",
+      "name": "IF Has BOQ Uploaded marks"
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "documentId": {
+          "__rl": true,
+          "value": "1ddliNGpjMaMsHh5V_0nROqBDsgJx7-_tq6wMMAC5qrg",
+          "mode": "list",
+          "cachedResultName": "Stage 1 ",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1ddliNGpjMaMsHh5V_0nROqBDsgJx7-_tq6wMMAC5qrg/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Work Inst Import",
+          "mode": "name",
+          "cachedResultName": "Work Inst Import"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Client Order Reference": "={{ $json['Client Order Reference'] }}",
+            "BOQ Uploaded": "TRUE",
+            "row_number": "={{ $json._row_number }}"
+          },
+          "matchingColumns": [
+            "Client Order Reference"
+          ],
+          "schema": [
+            {
+              "id": "Client Order Reference",
+              "displayName": "Client Order Reference",
+              "required": false,
+              "defaultMatch": true,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "BOQ Uploaded",
+              "displayName": "BOQ Uploaded",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "row_number",
+              "displayName": "row_number",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true,
+              "readOnly": true
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        5376,
+        -1536
+      ],
+      "id": "a93750f9-51be-4b90-97a0-c684f8035bb2",
+      "name": "Mark BOQ Uploaded",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "0bvpVa8frZ7qSwzx",
+          "name": "hamza-sheets"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "clear",
+        "documentId": {
+          "__rl": true,
+          "value": "1ddliNGpjMaMsHh5V_0nROqBDsgJx7-_tq6wMMAC5qrg",
+          "mode": "list",
+          "cachedResultName": "Stage 1 ",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1ddliNGpjMaMsHh5V_0nROqBDsgJx7-_tq6wMMAC5qrg/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "BOQ Import",
+          "mode": "name",
+          "cachedResultName": "BOQ Import"
+        },
+        "keepFirstRow": true
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        5600,
+        -1456
+      ],
+      "id": "70432a0a-d3c3-4853-93a9-be0619489b9c",
+      "name": "Clear BOQ Import",
+      "executeOnce": true,
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "0bvpVa8frZ7qSwzx",
+          "name": "hamza-sheets"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "st",
+              "name": "status",
+              "value": "BOQ_UPLOADED",
+              "type": "string"
+            },
+            {
+              "id": "msg",
+              "name": "message",
+              "value": "={{ 'Uploaded ' + ($('Prepare BOQ Upload Rows').first().json.row_count || 0) + ' BOQ row(s)' }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        5808,
+        -1392
+      ],
+      "id": "585ba6e5-a9ca-49e8-96e4-d22d762ed416",
+      "name": "BOQ Done"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "st",
+              "name": "status",
+              "value": "NO_BOQ",
+              "type": "string"
+            },
+            {
+              "id": "msg",
+              "name": "message",
+              "value": "No BOQ rows to process",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        3136,
+        -1200
+      ],
+      "id": "749bd7b8-ce75-44a7-977e-72a847457cee",
+      "name": "No BOQ Rows"
+    },
+    {
+      "parameters": {
+        "triggerTimes": {
+          "item": [
+            {
+              "mode": "custom",
+              "cronExpression": "0 */2 * * *"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.cron",
+      "typeVersion": 1,
+      "position": [
+        -448,
+        -912
+      ],
+      "id": "49d120e2-c297-4ded-bd3a-78c037680fcb",
+      "name": "Schedule every 2h (works list)",
+      "disabled": true
+    }
+  ],
+  "connections": {
+    "Read Work Inst Import": {
+      "main": [
+        [
+          {
+            "node": "Filter Pending Rows",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filter Pending Rows": {
+      "main": [
+        [
+          {
+            "node": "IF Has Pending WI",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF Has Pending WI": {
+      "main": [
+        [
+          {
+            "node": "POST create works instructions",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "No Pending WI",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "POST create works instructions": {
+      "main": [
+        [
+          {
+            "node": "Prepare WI Created marks",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare WI Created marks": {
+      "main": [
+        [
+          {
+            "node": "IF Has Created Rows",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF Has Created Rows": {
+      "main": [
+        [
+          {
+            "node": "Mark WI Created on EasyBOP",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Create Failed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mark WI Created on EasyBOP": {
+      "main": [
+        [
+          {
+            "node": "Create Done",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create Done": {
+      "main": [
+        [
+          {
+            "node": "Clear data rows (keep headers)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Clear data rows (keep headers)": {
+      "main": [
+        [
+          {
+            "node": "POST download-works-list-export",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "POST download-works-list-export": {
+      "main": [
+        [
+          {
+            "node": "Read xlsx rows (works list)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read xlsx rows (works list)": {
+      "main": [
+        [
+          {
+            "node": "Append rows to Works List Export1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Append rows to Works List Export1": {
+      "main": [
+        [
+          {
+            "node": "Read BOQ Import",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read BOQ Import": {
+      "main": [
+        [
+          {
+            "node": "Check Has BOQ Rows",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Has BOQ Rows": {
+      "main": [
+        [
+          {
+            "node": "IF Has BOQ Rows",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF Has BOQ Rows": {
+      "main": [
+        [
+          {
+            "node": "Match WI Ref by CORF",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "No BOQ Rows",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Match WI Ref by CORF": {
+      "main": [
+        [
+          {
+            "node": "IF BOQ Ref Updates",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF BOQ Ref Updates": {
+      "main": [
+        [
+          {
+            "node": "Update BOQ WI Ref",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Read BOQ Import for upload",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update BOQ WI Ref": {
+      "main": [
+        [
+          {
+            "node": "Read BOQ Import for upload",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read BOQ Import for upload": {
+      "main": [
+        [
+          {
+            "node": "Prepare BOQ Upload Rows",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare BOQ Upload Rows": {
+      "main": [
+        [
+          {
+            "node": "IF BOQ Ready To Upload",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF BOQ Ready To Upload": {
+      "main": [
+        [
+          {
+            "node": "POST save-boq-rows",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "BOQ Done",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "POST save-boq-rows": {
+      "main": [
+        [
+          {
+            "node": "POST upload-boq-file",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "POST upload-boq-file": {
+      "main": [
+        [
+          {
+            "node": "Prepare BOQ Uploaded marks",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare BOQ Uploaded marks": {
+      "main": [
+        [
+          {
+            "node": "IF Has BOQ Uploaded marks",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF Has BOQ Uploaded marks": {
+      "main": [
+        [
+          {
+            "node": "Mark BOQ Uploaded",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Clear BOQ Import",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mark BOQ Uploaded": {
+      "main": [
+        [
+          {
+            "node": "Clear BOQ Import",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Clear BOQ Import": {
+      "main": [
+        [
+          {
+            "node": "BOQ Done",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Schedule every 2h (works list)": {
+      "main": [
+        []
+      ]
+    }
+  },
+  "pinData": {},
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "a5cd22a95d5313a977e9ac21c3a833db76b18ca78fb8cb2cf7013465d69f17f8"
+  }
+}

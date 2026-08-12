@@ -683,6 +683,87 @@ async def run_create_contractor_task(
     }
 
 
+async def run_create_task(
+    page: Page,
+    *,
+    contract_id: str,
+    works_id: str,
+    category: str,
+    description: str,
+    issued_to_query: str,
+    issued_to_label: str,
+    priority: str = "High",
+    due_date: Optional[str] = None,
+    username: str,
+    password: str,
+    timeout_ms: int,
+    login_fn: Callable[[Page, str, str], Awaitable[bool]],
+    session_path: Path,
+    context: BrowserContext,
+) -> Dict[str, Any]:
+    """
+    Generic task creation on a works order's Tasks tab. Unlike
+    run_create_contractor_task (fixed to Shannon Slade / "Book work for
+    contractor"), this accepts category/description/assignee/priority/due
+    date so it can be used for other notifications — e.g. flagging a Vapi
+    voice-call reschedule or scheduling conflict for the admin/scheduling
+    team to action manually.
+    """
+    tasks_url = f"https://easybop.co.uk/a_planned_works/z_works/works_details.php?works_id={works_id}&contract_id={contract_id}&tab_nav_item=tasks"
+
+    await _ensure_authenticated(
+        page,
+        context=context,
+        url=tasks_url,
+        login=login_fn,
+        username=username,
+        password=password,
+        session_path=session_path,
+        timeout_ms=timeout_ms,
+    )
+
+    add_task_btn = page.locator("button#btn_add_task_5")
+    if await add_task_btn.count() == 0 or not await add_task_btn.first.is_visible():
+        add_task_btn = page.locator("button[id^='btn_add_task']")
+    if await add_task_btn.count() == 0 or not await add_task_btn.first.is_visible():
+        add_task_btn = page.locator("button").filter(has_text="Add Task")
+
+    await add_task_btn.first.wait_for(state="visible", timeout=timeout_ms)
+    await add_task_btn.first.click()
+    log.info("create_task(generic): clicked 'Add Task' works_id=%s category=%r", works_id, category)
+
+    dialog = page.locator(".ui-dialog:visible, [role='dialog']:visible")
+    await dialog.first.wait_for(state="visible", timeout=8_000)
+    await asyncio.sleep(0.5)
+
+    await _select_task_category(page, category, timeout_ms)
+
+    desc_field = page.locator("#description").first
+    await desc_field.fill(description)
+
+    await _fill_task_issued_to(page, issued_to_query, issued_to_label, timeout_ms)
+    await _select_task_priority(page, priority, timeout_ms)
+
+    due_date_str = due_date or datetime.now().strftime("%d/%m/%Y")
+    await _fill_task_due_date(page, due_date_str)
+
+    await asyncio.sleep(0.4)
+    await _save_task_changes(page, timeout_ms)
+
+    log.info("create_task(generic): task created for works_id=%s category=%r issued_to=%r", works_id, category, issued_to_label)
+
+    return {
+        "success": True,
+        "works_id": works_id,
+        "issued_to": issued_to_label,
+        "category": category,
+        "priority": priority,
+        "due_date": due_date_str,
+        "description": description,
+        "message": f"Task created successfully for works_id={works_id}",
+    }
+
+
 async def run_pre_works_jis(
     page: Page,
     *,

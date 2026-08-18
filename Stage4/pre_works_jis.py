@@ -1806,6 +1806,29 @@ async def run_book_appointment(
             return false;
         }""", snippet)
 
+    async def _ensure_phone_has_plus() -> None:
+        """
+        EasyBOP's 'Add Other Appointment' modal validates the prefilled
+        tenant mobile number (#aptj_resident_mobile) on submit and blocks
+        with "Enter Valid Tenant phone number" if it doesn't start with a
+        '+' — even though the field comes prefilled from the job record.
+        Prepend '+' if it's missing so the modal's own validation passes.
+        """
+        phone_field = page.locator("#aptj_resident_mobile")
+        if await phone_field.count() == 0:
+            return
+        try:
+            current_val = (await phone_field.first.input_value()).strip()
+        except Exception:
+            current_val = ""
+        if current_val and not current_val.startswith("+"):
+            fixed_val = "+" + current_val
+            await phone_field.first.fill(fixed_val)
+            await phone_field.first.evaluate(
+                "(el) => { el.dispatchEvent(new Event('input', { bubbles: true })); el.dispatchEvent(new Event('change', { bubbles: true })); }"
+            )
+            log.info("book_appointment: tenant mobile missing '+' prefix — corrected %r -> %r", current_val, fixed_val)
+
     async def _submit_modal_and_wait_staged(current_save_btn, attempt_label: str) -> bool:
         """
         Click the modal's 'Add New Other Appointment' button, wait for the
@@ -1850,6 +1873,7 @@ async def run_book_appointment(
         save_btn = page.locator(".ui-dialog:visible button").filter(has_text="Add New Other Appointment")
     await save_btn.first.wait_for(state="visible", timeout=timeout_ms)
 
+    await _ensure_phone_has_plus()
     staged_ok = await _submit_modal_and_wait_staged(save_btn, "attempt 1")
 
     if not staged_ok:
@@ -1922,6 +1946,7 @@ async def run_book_appointment(
             retry_save_btn = page.locator(".ui-dialog:visible button").filter(has_text="Add New Other Appointment")
         await retry_save_btn.first.wait_for(state="visible", timeout=timeout_ms)
 
+        await _ensure_phone_has_plus()
         staged_ok = await _submit_modal_and_wait_staged(retry_save_btn, "attempt 2 / retry")
 
     if not staged_ok:

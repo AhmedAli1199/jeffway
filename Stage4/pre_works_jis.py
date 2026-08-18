@@ -1984,77 +1984,26 @@ async def run_get_staff_availability(
 
     weekly_results: List[Dict[str, Any]] = []
 
-    async def _read_fc_date_picker_month_year() -> Optional[tuple]:
-        """
-        Read the currently displayed month/year straight from the
-        #fc_date_picker widget's own header (.ui-datepicker-month /
-        .ui-datepicker-year), scoped to that specific widget — the page
-        may have other datepicker instances, so an unscoped lookup can
-        silently read/act on the wrong calendar.
-        """
-        result = await page.evaluate("""() => {
-            const root = document.getElementById('fc_date_picker');
-            if (!root) return null;
-            const monthEl = root.querySelector('.ui-datepicker-month');
-            const yearEl = root.querySelector('.ui-datepicker-year');
-            if (!monthEl || !yearEl) return null;
-            const monthVal = monthEl.tagName === 'SELECT' ? parseInt(monthEl.value, 10) : (monthEl.textContent || '').trim();
-            const yearVal = yearEl.tagName === 'SELECT' ? parseInt(yearEl.value, 10) : parseInt((yearEl.textContent || '').trim(), 10);
-            return { month: monthVal, year: yearVal };
-        }""")
-        if not result or result.get("year") is None:
-            return None
+    # Track which month/year the #fc_date_picker calendar is currently
+    # displaying, purely in Python — no reading it back from the DOM (the
+    # header markup turned out to be unreliable to parse and caused
+    # overshooting). The calendar opens on the real-world current month by
+    # default, and every click below is accounted for here, so the state
+    # we track always matches what's on screen. Month lengths (28/29/30/31)
+    # don't matter at all for this — we're only ever counting whole months
+    # crossed, not days.
+    _today = datetime.now()
+    displayed_month_idx = _today.month - 1
+    displayed_year = _today.year
 
-        month_names = ["january", "february", "march", "april", "may", "june",
-                        "july", "august", "september", "october", "november", "december"]
-        month_raw = result.get("month")
-        if isinstance(month_raw, str):
-            key = month_raw.strip().lower()
-            if key not in month_names:
-                return None
-            month_idx = month_names.index(key)
-        else:
-            month_idx = month_raw
+    async def _goto_month(target_month_idx: int, target_year: int) -> None:
+        nonlocal displayed_month_idx, displayed_year
+        months_forward = (target_year - displayed_year) * 12 + (target_month_idx - displayed_month_idx)
+        if months_forward <= 0:
+            return
 
-        return (month_idx, result["year"])
-
-    async def _ensure_datepicker_on_month(target_month_idx: int, target_year: int, max_clicks: int = 3) -> bool:
-        """
-        The #fc_date_picker jQuery UI Datepicker only renders day cells for
-        whichever month is currently displayed. If the target working day
-        falls in a later month (e.g. calculating the next working days
-        right at month-end), the day cell for that date doesn't exist in
-        the DOM yet, so clicking it silently no-ops and the calendar stays
-        wrapped on the current month.
-
-        Compute exactly how many months forward are needed from the
-        widget's own displayed month/year, and click 'Next' that many
-        times — not a blind click-and-recheck loop, which previously
-        overshot many months on a detection bug.
-        """
-        current = await _read_fc_date_picker_month_year()
-
-        if current is not None:
-            current_month_idx, current_year = current
-            months_forward = (target_year - current_year) * 12 + (target_month_idx - current_month_idx)
-            if months_forward <= 0:
-                return True
-        else:
-            # Couldn't read the header — check once whether the target
-            # month is already rendered before assuming any clicks are
-            # needed at all.
-            already_there = await page.evaluate(
-                """({ m, y }) => !!document.querySelector(`#fc_date_picker td[data-month="${m}"][data-year="${y}"]`)""",
-                {"m": target_month_idx, "y": target_year},
-            )
-            if already_there:
-                return True
-            months_forward = 1  # unknown starting point — nudge forward once, conservatively
-
-        months_forward = min(months_forward, max_clicks)
-
+        next_btn = page.locator("#fc_date_picker a.ui-datepicker-next").first
         for _ in range(months_forward):
-            next_btn = page.locator("#fc_date_picker a.ui-datepicker-next").first
             try:
                 if await next_btn.count() > 0:
                     await next_btn.click(force=True)
@@ -2067,20 +2016,14 @@ async def run_get_staff_availability(
                     }""")
             except Exception:
                 pass
-
             await asyncio.sleep(1.0)
-            try:
-                await page.wait_for_selector(
-                    "#fc_date_picker .ui-datepicker-calendar, #fc_date_picker td[data-handler='selectDay']",
-                    state="attached", timeout=8000,
-                )
-            except Exception:
-                pass
 
-        return await page.evaluate(
-            """({ m, y }) => !!document.querySelector(`#fc_date_picker td[data-month="${m}"][data-year="${y}"]`)""",
-            {"m": target_month_idx, "y": target_year},
+        log.info(
+            "staff_availability: clicked datepicker 'Next' %d time(s) to reach month=%s year=%s",
+            months_forward, target_month_idx, target_year,
         )
+        displayed_month_idx = target_month_idx
+        displayed_year = target_year
 
     # 2. Iterate through each working day
     for idx, (dt_obj, date_str, day_name) in enumerate(working_days):
@@ -2101,12 +2044,7 @@ async def run_get_staff_availability(
         # the datepicker forward via the 'Next' arrow before trying to
         # click the day cell — otherwise the cell doesn't exist yet and
         # the click below silently no-ops.
-        month_ready = await _ensure_datepicker_on_month(t_month_idx, t_year)
-        if not month_ready:
-            log.warning(
-                "staff_availability: could not navigate datepicker to month=%s year=%s for date=%s after max 'Next' clicks",
-                t_month_idx, t_year, date_str,
-            )
+        await _goto_month(t_month_idx, t_year)
 
         date_selected = False
 

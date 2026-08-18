@@ -1430,6 +1430,133 @@ async def run_check_completed_tasks(
     }
 
 
+async def run_add_works_note(
+    page: Page,
+    *,
+    works_id: str,
+    contract_id: str,
+    note_text: str,
+    category_label: Optional[str] = "Telephone Call",
+    date_of: Optional[str] = None,
+    time_issued: Optional[str] = None,
+    rlo_visit: Optional[bool] = None,
+    username: str,
+    password: str,
+    timeout_ms: int,
+    login_fn: Callable[[Page, str, str], Awaitable[bool]],
+    session_path: Path,
+    context: BrowserContext,
+) -> Dict[str, Any]:
+    """
+    Add a formal Note entry on the works order's Notes tab (distinct from
+    the plain internal_notes textarea) — the "Add New Note" dialog with
+    Date/Time, Category, RLO Visit, and free-text fields. Used to log
+    things like Vapi voice-call attempts against a structured category
+    (e.g. 'Telephone Call', 'Telephone Call No Answer', 'Voicemail left').
+    """
+    async def _accept_dialog(dialog):
+        log.info("add_works_note: auto-accepting native browser dialog: %s", dialog.message)
+        await dialog.accept()
+    page.on("dialog", _accept_dialog)
+
+    notes_url = f"https://easybop.co.uk/a_planned_works/z_works/works_details.php?works_id={works_id}&contract_id={contract_id}&tab_nav_item=notes"
+
+    # 1. Authenticate & Navigate to Notes tab
+    await _ensure_authenticated(
+        page,
+        context=context,
+        url=notes_url,
+        login=login_fn,
+        username=username,
+        password=password,
+        session_path=session_path,
+        timeout_ms=timeout_ms,
+    )
+
+    # 2. Click "Add New Note" button
+    add_note_btn = page.locator("#btn_add_note_dialog")
+    if await add_note_btn.count() == 0 or not await add_note_btn.first.is_visible():
+        add_note_btn = page.locator("button").filter(has_text="Add New Note")
+    await add_note_btn.first.wait_for(state="visible", timeout=timeout_ms)
+    await add_note_btn.first.click()
+    log.info("add_works_note: clicked 'Add New Note'")
+
+    # 3. Wait for dialog
+    dialog = page.locator(".ui-dialog:visible, [role='dialog']:visible")
+    await dialog.first.wait_for(state="visible", timeout=8_000)
+    await asyncio.sleep(0.5)
+
+    # 4. Date / Time — both come prefilled with today's date/current time;
+    # only touch them if the caller explicitly wants something different.
+    if date_of:
+        date_field = page.locator("#date_of")
+        await date_field.wait_for(state="visible", timeout=timeout_ms)
+        await date_field.fill(date_of)
+        await date_field.evaluate(
+            "(el) => { el.dispatchEvent(new Event('input', { bubbles: true })); el.dispatchEvent(new Event('change', { bubbles: true })); }"
+        )
+
+    if time_issued:
+        time_field = page.locator("#time_issued")
+        await time_field.wait_for(state="visible", timeout=timeout_ms)
+        await time_field.fill(time_issued)
+        await time_field.evaluate(
+            "(el) => { el.dispatchEvent(new Event('input', { bubbles: true })); el.dispatchEvent(new Event('change', { bubbles: true })); }"
+        )
+
+    # 5. Category — reuses the same #category_id select and matching
+    # logic as the task-creation dialog (_select_task_category).
+    if category_label:
+        await _select_task_category(page, category_label, timeout_ms)
+
+    # 6. RLO Visit — leave at its default ("No") unless explicitly set
+    if rlo_visit is not None:
+        rlo_select = page.locator("#rlo_visit")
+        try:
+            await rlo_select.select_option(value="1" if rlo_visit else "0")
+        except Exception as e:
+            log.warning("add_works_note: failed setting rlo_visit=%r: %s", rlo_visit, e)
+
+    # 7. Fill the note text
+    notes_field = page.locator("#notes")
+    await notes_field.wait_for(state="visible", timeout=timeout_ms)
+    await notes_field.fill(note_text)
+    await notes_field.evaluate(
+        "(el) => { el.dispatchEvent(new Event('input', { bubbles: true })); el.dispatchEvent(new Event('change', { bubbles: true })); }"
+    )
+    log.info("add_works_note: filled note text — %r", note_text)
+
+    await asyncio.sleep(0.3)
+
+    # 8. Click "Add Note" to save
+    save_btn = page.locator("#btn_save_changes")
+    if await save_btn.count() == 0 or not await save_btn.first.is_visible():
+        save_btn = page.locator(".ui-dialog:visible button").filter(has_text="Add Note")
+    await save_btn.first.wait_for(state="visible", timeout=timeout_ms)
+    await save_btn.first.click()
+    log.info("add_works_note: clicked 'Add Note' (save)")
+
+    try:
+        await page.wait_for_selector(".ui-dialog:visible", state="hidden", timeout=10_000)
+        log.info("add_works_note: dialog closed after save")
+    except Exception:
+        pass
+
+    try:
+        await page.wait_for_load_state("networkidle", timeout=5000)
+    except Exception:
+        pass
+    await asyncio.sleep(1.0)
+
+    return {
+        "success": True,
+        "works_id": works_id,
+        "category": category_label,
+        "note_text": note_text,
+        "message": f"Successfully added note for works_id={works_id}",
+    }
+
+
 async def run_add_internal_note(
     page: Page,
     *,

@@ -1984,54 +1984,101 @@ async def run_get_staff_availability(
 
     weekly_results: List[Dict[str, Any]] = []
 
-    async def _ensure_datepicker_on_month(target_month_idx: int, target_year: int, max_clicks: int = 6) -> bool:
+    async def _read_fc_date_picker_month_year() -> Optional[tuple]:
+        """
+        Read the currently displayed month/year straight from the
+        #fc_date_picker widget's own header (.ui-datepicker-month /
+        .ui-datepicker-year), scoped to that specific widget — the page
+        may have other datepicker instances, so an unscoped lookup can
+        silently read/act on the wrong calendar.
+        """
+        result = await page.evaluate("""() => {
+            const root = document.getElementById('fc_date_picker');
+            if (!root) return null;
+            const monthEl = root.querySelector('.ui-datepicker-month');
+            const yearEl = root.querySelector('.ui-datepicker-year');
+            if (!monthEl || !yearEl) return null;
+            const monthVal = monthEl.tagName === 'SELECT' ? parseInt(monthEl.value, 10) : (monthEl.textContent || '').trim();
+            const yearVal = yearEl.tagName === 'SELECT' ? parseInt(yearEl.value, 10) : parseInt((yearEl.textContent || '').trim(), 10);
+            return { month: monthVal, year: yearVal };
+        }""")
+        if not result or result.get("year") is None:
+            return None
+
+        month_names = ["january", "february", "march", "april", "may", "june",
+                        "july", "august", "september", "october", "november", "december"]
+        month_raw = result.get("month")
+        if isinstance(month_raw, str):
+            key = month_raw.strip().lower()
+            if key not in month_names:
+                return None
+            month_idx = month_names.index(key)
+        else:
+            month_idx = month_raw
+
+        return (month_idx, result["year"])
+
+    async def _ensure_datepicker_on_month(target_month_idx: int, target_year: int, max_clicks: int = 3) -> bool:
         """
         The #fc_date_picker jQuery UI Datepicker only renders day cells for
         whichever month is currently displayed. If the target working day
         falls in a later month (e.g. calculating the next working days
         right at month-end), the day cell for that date doesn't exist in
         the DOM yet, so clicking it silently no-ops and the calendar stays
-        wrapped on the current month. Step the 'Next' arrow forward until
-        the target month/year is actually rendered before selecting the day.
+        wrapped on the current month.
+
+        Compute exactly how many months forward are needed from the
+        widget's own displayed month/year, and click 'Next' that many
+        times — not a blind click-and-recheck loop, which previously
+        overshot many months on a detection bug.
         """
-        for _ in range(max_clicks):
-            has_target_month = await page.evaluate(
-                """({ m, y }) => !!document.querySelector(`td[data-month="${m}"][data-year="${y}"]`)""",
+        current = await _read_fc_date_picker_month_year()
+
+        if current is not None:
+            current_month_idx, current_year = current
+            months_forward = (target_year - current_year) * 12 + (target_month_idx - current_month_idx)
+            if months_forward <= 0:
+                return True
+        else:
+            # Couldn't read the header — check once whether the target
+            # month is already rendered before assuming any clicks are
+            # needed at all.
+            already_there = await page.evaluate(
+                """({ m, y }) => !!document.querySelector(`#fc_date_picker td[data-month="${m}"][data-year="${y}"]`)""",
                 {"m": target_month_idx, "y": target_year},
             )
-            if has_target_month:
+            if already_there:
                 return True
+            months_forward = 1  # unknown starting point — nudge forward once, conservatively
 
-            next_btn = page.locator(
-                "#fc_date_picker .ui-datepicker-next, .ui-datepicker-next"
-            ).first
-            clicked = False
+        months_forward = min(months_forward, max_clicks)
+
+        for _ in range(months_forward):
+            next_btn = page.locator("#fc_date_picker a.ui-datepicker-next").first
             try:
-                if await next_btn.count() > 0 and await next_btn.is_visible():
+                if await next_btn.count() > 0:
                     await next_btn.click(force=True)
-                    clicked = True
+                else:
+                    await page.evaluate("""() => {
+                        const root = document.getElementById('fc_date_picker');
+                        const btn = root && (root.querySelector('a.ui-datepicker-next')
+                                    || root.querySelector('span.ui-icon-circle-triangle-e')?.closest('a'));
+                        if (btn) btn.click();
+                    }""")
             except Exception:
                 pass
 
-            if not clicked:
-                # Fallback: JS click, in case Playwright's locator can't
-                # resolve the widget instance (e.g. rebuilt after AJAX reload).
-                await page.evaluate("""() => {
-                    const btn = document.querySelector('#fc_date_picker .ui-datepicker-next')
-                             || document.querySelector('.ui-datepicker-next')
-                             || Array.from(document.querySelectorAll('a')).find(a => (a.textContent || '').trim() === 'Next');
-                    if (btn) btn.click();
-                }""")
-
-            await asyncio.sleep(1.2)
+            await asyncio.sleep(1.0)
             try:
-                await page.wait_for_selector(".ui-datepicker-calendar, td[data-handler='selectDay']", state="attached", timeout=8000)
+                await page.wait_for_selector(
+                    "#fc_date_picker .ui-datepicker-calendar, #fc_date_picker td[data-handler='selectDay']",
+                    state="attached", timeout=8000,
+                )
             except Exception:
                 pass
 
-        # Final check after exhausting the click budget
         return await page.evaluate(
-            """({ m, y }) => !!document.querySelector(`td[data-month="${m}"][data-year="${y}"]`)""",
+            """({ m, y }) => !!document.querySelector(`#fc_date_picker td[data-month="${m}"][data-year="${y}"]`)""",
             {"m": target_month_idx, "y": target_year},
         )
 

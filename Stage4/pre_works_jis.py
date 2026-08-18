@@ -1984,9 +1984,60 @@ async def run_get_staff_availability(
 
     weekly_results: List[Dict[str, Any]] = []
 
+    async def _ensure_datepicker_on_month(target_month_idx: int, target_year: int, max_clicks: int = 6) -> bool:
+        """
+        The #fc_date_picker jQuery UI Datepicker only renders day cells for
+        whichever month is currently displayed. If the target working day
+        falls in a later month (e.g. calculating the next working days
+        right at month-end), the day cell for that date doesn't exist in
+        the DOM yet, so clicking it silently no-ops and the calendar stays
+        wrapped on the current month. Step the 'Next' arrow forward until
+        the target month/year is actually rendered before selecting the day.
+        """
+        for _ in range(max_clicks):
+            has_target_month = await page.evaluate(
+                """({ m, y }) => !!document.querySelector(`td[data-month="${m}"][data-year="${y}"]`)""",
+                {"m": target_month_idx, "y": target_year},
+            )
+            if has_target_month:
+                return True
+
+            next_btn = page.locator(
+                "#fc_date_picker .ui-datepicker-next, .ui-datepicker-next"
+            ).first
+            clicked = False
+            try:
+                if await next_btn.count() > 0 and await next_btn.is_visible():
+                    await next_btn.click(force=True)
+                    clicked = True
+            except Exception:
+                pass
+
+            if not clicked:
+                # Fallback: JS click, in case Playwright's locator can't
+                # resolve the widget instance (e.g. rebuilt after AJAX reload).
+                await page.evaluate("""() => {
+                    const btn = document.querySelector('#fc_date_picker .ui-datepicker-next')
+                             || document.querySelector('.ui-datepicker-next')
+                             || Array.from(document.querySelectorAll('a')).find(a => (a.textContent || '').trim() === 'Next');
+                    if (btn) btn.click();
+                }""")
+
+            await asyncio.sleep(1.2)
+            try:
+                await page.wait_for_selector(".ui-datepicker-calendar, td[data-handler='selectDay']", state="attached", timeout=8000)
+            except Exception:
+                pass
+
+        # Final check after exhausting the click budget
+        return await page.evaluate(
+            """({ m, y }) => !!document.querySelector(`td[data-month="${m}"][data-year="${y}"]`)""",
+            {"m": target_month_idx, "y": target_year},
+        )
+
     # 2. Iterate through each working day
     for idx, (dt_obj, date_str, day_name) in enumerate(working_days):
-        log.info("staff_availability: [%d/%d] checking availability for date=%s (%s)", 
+        log.info("staff_availability: [%d/%d] checking availability for date=%s (%s)",
                  idx + 1, len(working_days), date_str, day_name)
 
         t_day, t_month, t_year = dt_obj.day, dt_obj.month, dt_obj.year
@@ -1997,6 +2048,18 @@ async def run_get_staff_availability(
             await page.wait_for_selector(".ui-datepicker-calendar, td[data-handler='selectDay']", state="attached", timeout=10000)
         except Exception:
             pass
+
+        # If the target day falls in a month later than what's currently
+        # rendered (e.g. rolling from end-of-month into next month), step
+        # the datepicker forward via the 'Next' arrow before trying to
+        # click the day cell — otherwise the cell doesn't exist yet and
+        # the click below silently no-ops.
+        month_ready = await _ensure_datepicker_on_month(t_month_idx, t_year)
+        if not month_ready:
+            log.warning(
+                "staff_availability: could not navigate datepicker to month=%s year=%s for date=%s after max 'Next' clicks",
+                t_month_idx, t_year, date_str,
+            )
 
         date_selected = False
 

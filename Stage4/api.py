@@ -33,6 +33,7 @@ _pre_works_jis = _load_local_module("_pre_works_jis", "pre_works_jis.py")
 run_pre_works_jis = _pre_works_jis.run_pre_works_jis
 run_create_contractor_task = _pre_works_jis.run_create_contractor_task
 run_create_task = _pre_works_jis.run_create_task
+run_add_internal_note = _pre_works_jis.run_add_internal_note
 run_check_completed_tasks = _pre_works_jis.run_check_completed_tasks
 run_process_completed_task = _pre_works_jis.run_process_completed_task
 run_book_appointment = _pre_works_jis.run_book_appointment
@@ -77,6 +78,13 @@ class CreateTaskRequest(BaseModel):
     issued_to_label: str = Field(..., description="Full name to match in the autocomplete dropdown, e.g. 'Shannon Slade'")
     priority: str = Field("High", description="Task priority e.g. High, Medium, Low")
     due_date: Optional[str] = Field(None, description="Due date DD/MM/YYYY, defaults to today")
+    keep_page_open: Optional[bool] = Field(None, description="Leave Playwright page open after run")
+
+
+class AddInternalNoteRequest(BaseModel):
+    works_id: str = Field(..., description="EasyBOP works_id of the job")
+    contract_id: str = Field("321129", description="EasyBOP contract_id")
+    note: str = Field(..., description="Text to append to the internal notes field, e.g. 'Vapi call attempt 1 placed 18/08/2026 15:02 — call_id: 8f3a2b1c-...'")
     keep_page_open: Optional[bool] = Field(None, description="Leave Playwright page open after run")
 
 
@@ -259,6 +267,48 @@ def create_router(
             raise HTTPException(status_code=422, detail=str(e)) from e
         except Exception:
             logger.exception("stage4-create-task")
+            raise HTTPException(status_code=500, detail="Failed — see server logs.")
+        finally:
+            if not keep:
+                await page.close()
+
+    @router.post(
+        "/add-internal-note",
+        summary="Append a line to a job's internal notes (Details tab) and save",
+        description=(
+            "Navigates to the works Details tab, appends the given text to the internal_notes field, "
+            "and saves. Use this to log Vapi voice-call attempts and call IDs against the job so the "
+            "team can later pull a transcript/recording from Vapi by call_id."
+        ),
+    )
+    async def add_internal_note(req: AddInternalNoteRequest):
+        require_browser()
+        context = get_context()
+
+        keep = default_keep_page_open if req.keep_page_open is None else req.keep_page_open
+
+        page = await context.new_page()
+        try:
+            result = await run_add_internal_note(
+                page,
+                works_id=req.works_id,
+                contract_id=req.contract_id,
+                note=req.note,
+                username=username,
+                password=password,
+                timeout_ms=timeout_ms,
+                login_fn=login_fn,
+                session_path=session_path,
+                context=context,
+            )
+            return {
+                "success": result.get("success", False),
+                **result,
+            }
+        except RuntimeError as e:
+            raise HTTPException(status_code=422, detail=str(e)) from e
+        except Exception:
+            logger.exception("stage4-add-internal-note")
             raise HTTPException(status_code=500, detail="Failed — see server logs.")
         finally:
             if not keep:

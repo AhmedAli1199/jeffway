@@ -1430,6 +1430,75 @@ async def run_check_completed_tasks(
     }
 
 
+async def run_add_internal_note(
+    page: Page,
+    *,
+    works_id: str,
+    contract_id: str,
+    note: str,
+    username: str,
+    password: str,
+    timeout_ms: int,
+    login_fn: Callable[[Page, str, str], Awaitable[bool]],
+    session_path: Path,
+    context: BrowserContext,
+) -> Dict[str, Any]:
+    """
+    Append a line to the works order's internal notes (Details tab) and
+    save. Generic version of the notes-append step used inside
+    run_process_completed_task, without the task-completion UDF handling —
+    for logging things like Vapi voice-call attempts and call IDs against
+    the job, so the team can later pull a transcript/recording by call_id.
+    """
+    async def _accept_dialog(dialog):
+        log.info("add_internal_note: auto-accepting native browser dialog: %s", dialog.message)
+        await dialog.accept()
+    page.on("dialog", _accept_dialog)
+
+    wi_url = f"https://easybop.co.uk/a_planned_works/z_works/works_details.php?works_id={works_id}&contract_id={contract_id}&tab_nav_item=wi"
+
+    await _ensure_authenticated(
+        page,
+        context=context,
+        url=wi_url,
+        login=login_fn,
+        username=username,
+        password=password,
+        session_path=session_path,
+        timeout_ms=timeout_ms,
+    )
+
+    notes_field = page.locator("#internal_notes")
+    await notes_field.wait_for(state="visible", timeout=timeout_ms)
+    current_val = (await notes_field.input_value()).strip()
+    new_val = f"{current_val} {note}".strip() if current_val else note
+
+    await notes_field.focus()
+    await notes_field.fill(new_val)
+    await notes_field.evaluate(
+        "(el) => { el.dispatchEvent(new Event('input', { bubbles: true })); el.dispatchEvent(new Event('change', { bubbles: true })); }"
+    )
+    log.info("add_internal_note: appended note to works_id=%s: %r", works_id, note)
+
+    save_wi_btn = page.locator("#btn_save_works_changes")
+    await save_wi_btn.wait_for(state="visible", timeout=timeout_ms)
+    await save_wi_btn.click()
+    log.info("add_internal_note: clicked save works changes")
+
+    try:
+        await page.wait_for_load_state("networkidle", timeout=5000)
+    except Exception:
+        pass
+    await asyncio.sleep(2.0)
+
+    return {
+        "success": True,
+        "works_id": works_id,
+        "note": note,
+        "message": f"Successfully appended internal note for works_id={works_id}",
+    }
+
+
 async def run_process_completed_task(
     page: Page,
     *,

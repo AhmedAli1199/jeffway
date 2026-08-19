@@ -1430,6 +1430,91 @@ async def run_check_completed_tasks(
     }
 
 
+async def run_get_job_contact_info(
+    page: Page,
+    *,
+    works_id: str,
+    contract_id: str,
+    username: str,
+    password: str,
+    timeout_ms: int,
+    login_fn: Callable[[Page, str, str], Awaitable[bool]],
+    session_path: Path,
+    context: BrowserContext,
+) -> Dict[str, Any]:
+    """
+    Fetch tenant contact + address details for a works order, for use by
+    downstream SMS/voice notification steps. Reuses the same
+    .box_title_item header-scrape pattern already proven in
+    run_pre_works_jis's tenant_mobile extraction.
+    """
+    wi_url = f"https://easybop.co.uk/a_planned_works/z_works/works_details.php?works_id={works_id}&contract_id={contract_id}&tab_nav_item=wi"
+
+    await _ensure_authenticated(
+        page,
+        context=context,
+        url=wi_url,
+        login=login_fn,
+        username=username,
+        password=password,
+        session_path=session_path,
+        timeout_ms=timeout_ms,
+    )
+
+    try:
+        await page.wait_for_load_state("domcontentloaded", timeout=timeout_ms)
+    except Exception:
+        pass
+    await asyncio.sleep(1.0)
+
+    contact_info = await page.evaluate(
+        """() => {
+            const items = document.querySelectorAll('.box_title_item');
+            const allText = Array.from(items).map(el => (el.textContent || '').trim());
+
+            function findAfterLabel(labels) {
+                for (const item of items) {
+                    const text = (item.textContent || '').trim();
+                    for (const label of labels) {
+                        const re = new RegExp('^' + label, 'i');
+                        if (re.test(text)) {
+                            return text.replace(re, '').trim();
+                        }
+                    }
+                }
+                return '';
+            }
+
+            const mobile = findAfterLabel(['mobile:']) || findAfterLabel(['tel:', 'telephone:']);
+            const email = findAfterLabel(['email:']);
+
+            // Address and resident name are not consistently labelled in
+            // .box_title_item across EasyBOP page variants — fall back to
+            // the page <h1>/title text, which usually carries the address.
+            const h1 = document.querySelector('h1');
+            const h1Text = h1 ? (h1.textContent || '').trim() : '';
+
+            return {
+                tenant_mobile: mobile,
+                tenant_email: email,
+                header_text: allText.join(' | '),
+                page_h1: h1Text
+            };
+        }"""
+    )
+    log.info("get_job_contact_info: works_id=%s -> %r", works_id, contact_info)
+
+    return {
+        "success": True,
+        "works_id": works_id,
+        "tenant_mobile": contact_info.get("tenant_mobile", ""),
+        "tenant_email": contact_info.get("tenant_email", ""),
+        "page_h1": contact_info.get("page_h1", ""),
+        "header_text": contact_info.get("header_text", ""),
+        "message": f"Fetched contact info for works_id={works_id}",
+    }
+
+
 async def run_add_works_note(
     page: Page,
     *,

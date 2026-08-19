@@ -35,6 +35,7 @@ run_create_contractor_task = _pre_works_jis.run_create_contractor_task
 run_create_task = _pre_works_jis.run_create_task
 run_add_internal_note = _pre_works_jis.run_add_internal_note
 run_add_works_note = _pre_works_jis.run_add_works_note
+run_get_job_contact_info = _pre_works_jis.run_get_job_contact_info
 run_check_completed_tasks = _pre_works_jis.run_check_completed_tasks
 run_process_completed_task = _pre_works_jis.run_process_completed_task
 run_book_appointment = _pre_works_jis.run_book_appointment
@@ -79,6 +80,12 @@ class CreateTaskRequest(BaseModel):
     issued_to_label: str = Field(..., description="Full name to match in the autocomplete dropdown, e.g. 'Shannon Slade'")
     priority: str = Field("High", description="Task priority e.g. High, Medium, Low")
     due_date: Optional[str] = Field(None, description="Due date DD/MM/YYYY, defaults to today")
+    keep_page_open: Optional[bool] = Field(None, description="Leave Playwright page open after run")
+
+
+class GetJobContactInfoRequest(BaseModel):
+    works_id: str = Field(..., description="EasyBOP works_id of the job")
+    contract_id: str = Field("321129", description="EasyBOP contract_id")
     keep_page_open: Optional[bool] = Field(None, description="Leave Playwright page open after run")
 
 
@@ -279,6 +286,48 @@ def create_router(
             raise HTTPException(status_code=422, detail=str(e)) from e
         except Exception:
             logger.exception("stage4-create-task")
+            raise HTTPException(status_code=500, detail="Failed — see server logs.")
+        finally:
+            if not keep:
+                await page.close()
+
+    @router.post(
+        "/job-contact-info",
+        summary="Fetch tenant mobile/email + raw header text for a works order",
+        description=(
+            "Navigates to the works Details tab and scrapes tenant mobile/email from the .box_title_item "
+            "header, for use by SMS/voice notification steps that need contact details not otherwise "
+            "available in the calling n8n workflow. Also returns page_h1/header_text as raw fields since "
+            "tenant name/address aren't consistently labelled — inspect these to refine parsing if needed."
+        ),
+    )
+    async def job_contact_info(req: GetJobContactInfoRequest):
+        require_browser()
+        context = get_context()
+
+        keep = default_keep_page_open if req.keep_page_open is None else req.keep_page_open
+
+        page = await context.new_page()
+        try:
+            result = await run_get_job_contact_info(
+                page,
+                works_id=req.works_id,
+                contract_id=req.contract_id,
+                username=username,
+                password=password,
+                timeout_ms=timeout_ms,
+                login_fn=login_fn,
+                session_path=session_path,
+                context=context,
+            )
+            return {
+                "success": result.get("success", False),
+                **result,
+            }
+        except RuntimeError as e:
+            raise HTTPException(status_code=422, detail=str(e)) from e
+        except Exception:
+            logger.exception("stage4-job-contact-info")
             raise HTTPException(status_code=500, detail="Failed — see server logs.")
         finally:
             if not keep:

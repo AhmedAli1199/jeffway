@@ -2107,13 +2107,34 @@ async def run_book_appointment(
             return false;
         }""", snippet)
 
+    def _uk_to_e164(raw: str) -> str:
+        """
+        Convert a UK number in any common local format into proper E.164
+        (+44...). A bare '+' prepended to a leading '0' (the previous
+        behavior — e.g. '07476444020' -> '+07476444020') is NOT valid
+        E.164 and gets silently rejected by EasyBOP's own phone
+        validation, which is what was actually blocking these bookings
+        despite every log line up to the click looking successful.
+        """
+        digits = re.sub(r"[^0-9+]", "", raw or "")
+        if not digits:
+            return digits
+        if digits.startswith("+"):
+            return digits
+        if digits.startswith("0"):
+            return "+44" + digits[1:]
+        if digits.startswith("44"):
+            return "+" + digits
+        return "+44" + digits
+
     async def _ensure_phone_has_plus() -> None:
         """
         EasyBOP's 'Add Other Appointment' modal validates the prefilled
         tenant mobile number (#aptj_resident_mobile) on submit and blocks
-        with "Enter Valid Tenant phone number" if it doesn't start with a
-        '+' — even though the field comes prefilled from the job record.
-        Prepend '+' if it's missing so the modal's own validation passes.
+        with "Enter Valid Tenant phone number" if it isn't a properly
+        formatted number — even though the field comes prefilled from the
+        job record. Normalize it to E.164 so the modal's own validation
+        passes.
         """
         phone_field = page.locator("#aptj_resident_mobile")
         if await phone_field.count() == 0:
@@ -2123,12 +2144,13 @@ async def run_book_appointment(
         except Exception:
             current_val = ""
         if current_val and not current_val.startswith("+"):
-            fixed_val = "+" + current_val
-            await phone_field.first.fill(fixed_val)
-            await phone_field.first.evaluate(
-                "(el) => { el.dispatchEvent(new Event('input', { bubbles: true })); el.dispatchEvent(new Event('change', { bubbles: true })); }"
-            )
-            log.info("book_appointment: tenant mobile missing '+' prefix — corrected %r -> %r", current_val, fixed_val)
+            fixed_val = _uk_to_e164(current_val)
+            if fixed_val != current_val:
+                await phone_field.first.fill(fixed_val)
+                await phone_field.first.evaluate(
+                    "(el) => { el.dispatchEvent(new Event('input', { bubbles: true })); el.dispatchEvent(new Event('change', { bubbles: true })); }"
+                )
+                log.info("book_appointment: tenant mobile normalized to E.164 %r -> %r", current_val, fixed_val)
 
     # 7. Click Add New Other Appointment save button in modal — single attempt.
     # (Previously this retried on a "staged" DOM check that turned out to be

@@ -770,6 +770,7 @@ async def run_pre_works_jis(
     contract_id: str,
     item_id: str,
     existing_corfs: Optional[List[Any]] = None,
+    date_received_after: Optional[str] = None,
     username: str,
     password: str,
     timeout_ms: int,
@@ -1010,6 +1011,25 @@ async def run_pre_works_jis(
 
     log.info("pre_works_jis: found %d raw qualifying pre-works jobs (total table rows: %d, statuses seen: %r)", 
              len(jobs_info), debug_info.get("total_rows", 0), debug_info.get("statuses_seen", []))
+
+    # Apply date_received filtering, if a threshold was supplied — only keep
+    # jobs whose Date Received is strictly after date_received_after.
+    # Independent of, and applied before, the existing CORF dedup below —
+    # neither changes the other's behavior, both can be used together.
+    if date_received_after:
+        threshold = _parse_date_received(date_received_after)
+        if threshold == datetime.max:
+            log.warning("pre_works_jis: date_received_after=%r could not be parsed — skipping date filter", date_received_after)
+        else:
+            before_count = len(jobs_info)
+            jobs_info = [
+                job for job in jobs_info
+                if _parse_date_received(job.get("date_received", "")) > threshold
+            ]
+            log.info(
+                "pre_works_jis: date_received_after=%r filtered %d -> %d jobs",
+                date_received_after, before_count, len(jobs_info),
+            )
 
     # Apply CORF deduplication against existing_corfs
     exclude_corfs = _normalize_corf_list(existing_corfs)

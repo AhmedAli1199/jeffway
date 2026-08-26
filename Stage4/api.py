@@ -62,6 +62,10 @@ class PreWorksJisRequest(BaseModel):
         default=None,
         description="Optional list of already booked Client Order References (CORF) or sheet rows to exclude from qualifying jobs"
     )
+    date_received_after: Optional[str] = Field(
+        default=None,
+        description="Optional date DD/MM/YYYY — only include jobs whose Date Received is strictly after this date. Independent of existing_corfs; either or both filters can be used."
+    )
     keep_page_open: Optional[bool] = Field(None, description="Leave Playwright page open after run")
 
 
@@ -183,6 +187,7 @@ def create_router(
                 contract_id=req.contract_id,
                 item_id=req.item_id,
                 existing_corfs=req.existing_corfs,
+                date_received_after=req.date_received_after,
                 username=username,
                 password=password,
                 timeout_ms=timeout_ms,

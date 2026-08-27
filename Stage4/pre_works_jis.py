@@ -1181,12 +1181,7 @@ async def run_pre_works_jis(
                                 hours = ans_list[1] if len(ans_list) > 1 else ""
                                 desc = ans_list[2] if len(ans_list) > 2 else ""
 
-                                # Trade classification logic — computed up front so the
-                                # duration ALERT prefixes below can be gated to in-house
-                                # jobs only. Subcontractor trades are booked/scheduled
-                                # separately (sub-order + subcontractor email), so an
-                                # "in-house scheduling staff must confirm duration" alert
-                                # doesn't apply and shouldn't appear in their description.
+                                # Trade classification logic
                                 raw_hours_str = str(hours or "").strip().lower()
                                 trade_lower = str(trade or "").lower().strip()
                                 sub_keywords = [
@@ -1205,39 +1200,28 @@ async def run_pre_works_jis(
                                 is_sub = any(kw in trade_lower for kw in sub_keywords) or any(kw in raw_hours_str for kw in sub_keywords)
                                 classification = "subcontractor" if is_sub else "in-house"
 
-                                # Parse total numeric hours required
+                                # Parse total numeric hours required. No ALERT text is ever
+                                # prepended to the description here — that was suppressing the
+                                # real JIS description underneath it. Capping at 40 hours (5
+                                # workdays) for initial scheduling purposes still happens, just
+                                # silently; the "[Day X of Y — Z Hours]" prefix added below during
+                                # daily-chunk splitting is the only prefix that survives.
                                 total_hours_val = None
-                                desc_prefix = ""
 
                                 if not raw_hours_str or raw_hours_str in ["null", "n/a", "na", "unknown", "none", "0"]:
-                                    if classification == "in-house":
-                                        desc_prefix = "ALERT: JOB DURATION UNKNOWN — DEFAULT 1 HOUR APPOINTMENT CREATED. SCHEDULING STAFF MUST CONFIRM ACTUAL DURATION BEFORE ALLOCATING."
                                     total_hours_val = 1.0
                                 else:
                                     h_match = re.search(r"(\d+(?:\.\d+)?)", raw_hours_str)
                                     if h_match:
                                         try:
                                             parsed_val = float(h_match.group(1))
-                                            if parsed_val > 40.0:
-                                                if classification == "in-house":
-                                                    orig_h = int(parsed_val) if parsed_val.is_integer() else round(parsed_val, 1)
-                                                    days_calc = parsed_val / 8.0
-                                                    approx_workdays = int(round(days_calc)) if abs(days_calc - round(days_calc)) < 0.1 else round(days_calc, 1)
-                                                    desc_prefix = (
-                                                        f"ALERT: ORIGINAL REQUIRED DURATION WAS {orig_h} HOURS (~{approx_workdays} WORKDAYS). "
-                                                        f"DURATION CAPPED AT 40 HOURS (5 WORKDAYS MAXIMUM) FOR INITIAL SCHEDULING — PLEASE SCHEDULE REMAINING WEEKS / SLOTS IN EASYBOP."
-                                                    )
-                                                # Capping/day-splitting behavior itself is unchanged for
-                                                # both classifications — only the ALERT text is gated above.
-                                                total_hours_val = 40.0
-                                            else:
-                                                total_hours_val = parsed_val
+                                            total_hours_val = 40.0 if parsed_val > 40.0 else parsed_val
                                         except Exception:
                                             total_hours_val = 1.0
                                     else:
                                         total_hours_val = 1.0
 
-                                full_desc = f"{desc_prefix} * {desc}" if desc_prefix and desc else (desc_prefix or desc)
+                                full_desc = desc
 
                                 # Daily-chunk splitting: Maximum 8 hours per appointment day
                                 # e.g. 15 hours -> Day 1: 8 hours, Day 2: 7 hours

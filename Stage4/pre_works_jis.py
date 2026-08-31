@@ -2430,15 +2430,8 @@ async def run_get_staff_availability(
             months_forward = 1  # unknown starting point — nudge forward once, conservatively
 
         months_forward = min(months_forward, max_clicks)
-        expected_month_idx, expected_year = current_month_idx if current is not None else None, current_year if current is not None else None
 
-        for step in range(months_forward):
-            # What month/year we expect to see AFTER this click (only
-            # meaningful when we had a reliable starting point).
-            if current is not None:
-                total = current_year * 12 + current_month_idx + (step + 1)
-                expected_year, expected_month_idx = divmod(total, 12)
-
+        for _ in range(months_forward):
             next_btn = page.locator("#fc_date_picker a.ui-datepicker-next").first
             try:
                 if await next_btn.count() > 0:
@@ -2453,22 +2446,14 @@ async def run_get_staff_availability(
             except Exception:
                 pass
 
-            # The datepicker re-renders the SAME <table> element in place
-            # (just swaps its cell contents), so waiting for the table to be
-            # "attached" resolves instantly and proves nothing — it was
-            # already attached before the click. Poll the widget's own
-            # month/year header instead, until it actually reflects the
-            # month we just advanced to (or we time out).
-            settled = False
-            for _ in range(15):  # up to ~4.5s
-                await asyncio.sleep(0.3)
-                seen = await _read_fc_date_picker_month_year()
-                if seen is not None and (expected_month_idx is None or seen == (expected_month_idx, expected_year)):
-                    settled = True
-                    break
-            if not settled:
-                # Fall back to a flat delay so we don't act on a half-rendered calendar.
-                await asyncio.sleep(1.5)
+            await asyncio.sleep(1.0)
+            try:
+                await page.wait_for_selector(
+                    "#fc_date_picker .ui-datepicker-calendar, #fc_date_picker td[data-handler='selectDay']",
+                    state="attached", timeout=8000,
+                )
+            except Exception:
+                pass
 
         return await page.evaluate(
             """({ m, y }) => !!document.querySelector(`#fc_date_picker td[data-month="${m}"][data-year="${y}"]`)""",
@@ -2501,118 +2486,48 @@ async def run_get_staff_availability(
                 t_month_idx, t_year, date_str,
             )
 
-        async def _read_selected_day() -> Optional[tuple]:
-            """
-            Read back which day is actually marked selected/current in the
-            #fc_date_picker widget right now, scoped by its own month/year
-            header — so a stale "current day" left over from a previous
-            month can't be mistaken for a real match.
-            """
-            month_year = await _read_fc_date_picker_month_year()
-            if month_year is None:
-                return None
-            day = await page.evaluate("""() => {
-                const el = document.querySelector('#fc_date_picker .ui-datepicker-current-day a');
-                if (!el) return null;
-                const v = el.getAttribute('data-date');
-                return v ? parseInt(v, 10) : null;
-            }""")
-            if day is None:
-                return None
-            return (month_year[0], month_year[1], day)
-
         date_selected = False
 
-        # Retry the click itself up to 3 times — each attempt re-confirms
-        # the calendar is on the target month first (a Next-click can take
-        # a beat to settle) and, after clicking, reads back which day the
-        # widget now shows as selected before trusting it and moving on to
-        # scrape the schedule grid. Without this, a click that landed too
-        # early (calendar still mid-render) silently no-ops and the code
-        # would previously go on to scrape whatever date was left showing
-        # (e.g. day 1, right after a bare month jump) instead of the
-        # intended day.
-        for attempt in range(3):
-            if attempt > 0:
-                # Re-confirm we're still on the right month before retrying —
-                # a slow render can leave the widget mid-transition.
-                await _ensure_datepicker_on_month(t_month_idx, t_year)
+        # Method A: Playwright native locator click
+        try:
+            cell_selector = f'td[data-handler="selectDay"][data-month="{t_month_idx}"][data-year="{t_year}"] a[data-date="{t_day}"], td[data-month="{t_month_idx}"][data-year="{t_year}"] a[data-date="{t_day}"]'
+            cell_loc = page.locator(cell_selector).first
+            if await cell_loc.count() > 0 and await cell_loc.is_visible():
+                await cell_loc.click(force=True)
+                date_selected = True
+        except Exception:
+            pass
 
-            clicked = False
-            # Method A: Playwright native locator click
-            try:
-                cell_selector = f'td[data-handler="selectDay"][data-month="{t_month_idx}"][data-year="{t_year}"] a[data-date="{t_day}"], td[data-month="{t_month_idx}"][data-year="{t_year}"] a[data-date="{t_day}"]'
-                cell_loc = page.locator(cell_selector).first
-                if await cell_loc.count() > 0 and await cell_loc.is_visible():
-                    await cell_loc.click(force=True)
-                    clicked = True
-            except Exception:
-                pass
-
-            # Method B: JS evaluate fallback — deliberately scoped to the
-            # target month/year only (no unscoped last-resort match), so a
-            # failed lookup can never click a same-numbered day in the
-            # wrong month.
-            if not clicked:
-                try:
-                    clicked = await page.evaluate(
-                        """({ targetDay, targetMonthIdx, targetYear }) => {
-                            const cell = document.querySelector(`td[data-handler="selectDay"][data-month="${targetMonthIdx}"][data-year="${targetYear}"] a[data-date="${targetDay}"]`) ||
-                                         document.querySelector(`td[data-month="${targetMonthIdx}"][data-year="${targetYear}"] a[data-date="${targetDay}"]`);
-                            if (!cell) return false;
-
-                            const td = cell.closest('td') || cell;
-
-                            td.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }));
-                            cell.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }));
-
-                            try { td.click(); } catch(e) {}
-                            try { cell.click(); } catch(e) {}
-
-                            if (window.jQuery) {
-                                try { window.jQuery(td).trigger('click'); } catch(e) {}
-                                try { window.jQuery(cell).trigger('click'); } catch(e) {}
-                            }
-                            return true;
-                        }""",
-                        {"targetDay": t_day, "targetMonthIdx": t_month_idx, "targetYear": t_year}
-                    )
-                except Exception as exc:
-                    log.warning("staff_availability: date selection fallback failed for %s (attempt %d): %s", date_str, attempt + 1, exc)
-
-            if not clicked:
-                await asyncio.sleep(0.8)
-                continue
-
-            # Poll for the widget to confirm the click actually registered
-            # before trusting it.
-            for _ in range(10):  # up to ~3s
-                await asyncio.sleep(0.3)
-                seen = await _read_selected_day()
-                if seen == (t_month_idx, t_year, t_day):
-                    date_selected = True
-                    break
-            if date_selected:
-                break
-            log.warning(
-                "staff_availability: day-cell click for %s did not register on attempt %d, retrying",
-                date_str, attempt + 1,
-            )
-
+        # Method B: JS evaluate fallback
         if not date_selected:
-            log.warning(
-                "staff_availability: could not confirm date selection for %s (month=%s year=%s day=%s) after 3 attempts — "
-                "scraping whatever the board currently shows, results may be wrong",
-                date_str, t_month_idx, t_year, t_day,
-            )
+            try:
+                await page.evaluate(
+                    """async ({ targetDay, targetMonthIdx, targetYear }) => {
+                        const cell = document.querySelector(`td[data-handler="selectDay"][data-month="${targetMonthIdx}"][data-year="${targetYear}"] a[data-date="${targetDay}"]`) ||
+                                     document.querySelector(`td[data-month="${targetMonthIdx}"][data-year="${targetYear}"] a[data-date="${targetDay}"]`) ||
+                                     document.querySelector(`a[data-date="${targetDay}"]`);
+                        if (!cell) return;
 
-        # Pause to allow AJAX schedule board reload. Bumped up from the
-        # previous 2.0s — the FullCalendar timeline elements are reused in
-        # place rather than removed/recreated, so waiting for them to be
-        # "attached" below proves nothing on its own, and a cross-month
-        # selection can trigger two back-to-back reloads (the month
-        # Next() itself, then the day select) that need more settle time.
-        await asyncio.sleep(3.0)
+                        const td = cell.closest('td') || cell;
+
+                        td.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }));
+                        cell.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }));
+
+                        try { td.click(); } catch(e) {}
+                        try { cell.click(); } catch(e) {}
+
+                        if (window.jQuery) {
+                            try { window.jQuery(td).trigger('click'); } catch(e) {}
+                            try { window.jQuery(cell).trigger('click'); } catch(e) {}
+                        }
+                    }""",
+                    {"targetDay": t_day, "targetMonthIdx": t_month_idx, "targetYear": t_year}
+                )
+            except Exception as exc:
+                log.warning("staff_availability: date selection fallback failed for %s: %s", date_str, exc)
+
+        # Pause to allow AJAX schedule board reload
+        await asyncio.sleep(2.0)
 
         # Wait for FullCalendar timeline events to load
         try:

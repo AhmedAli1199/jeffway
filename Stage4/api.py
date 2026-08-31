@@ -33,6 +33,10 @@ _pre_works_jis = _load_local_module("_pre_works_jis", "pre_works_jis.py")
 run_pre_works_jis = _pre_works_jis.run_pre_works_jis
 run_create_contractor_task = _pre_works_jis.run_create_contractor_task
 run_create_task = _pre_works_jis.run_create_task
+run_add_internal_note = _pre_works_jis.run_add_internal_note
+run_set_vulnerability = _pre_works_jis.run_set_vulnerability
+run_add_works_note = _pre_works_jis.run_add_works_note
+run_get_job_contact_info = _pre_works_jis.run_get_job_contact_info
 run_check_completed_tasks = _pre_works_jis.run_check_completed_tasks
 run_process_completed_task = _pre_works_jis.run_process_completed_task
 run_book_appointment = _pre_works_jis.run_book_appointment
@@ -59,6 +63,10 @@ class PreWorksJisRequest(BaseModel):
         default=None,
         description="Optional list of already booked Client Order References (CORF) or sheet rows to exclude from qualifying jobs"
     )
+    date_received_after: Optional[str] = Field(
+        default=None,
+        description="Optional date DD/MM/YYYY — only include jobs whose Date Received is strictly after this date. Independent of existing_corfs; either or both filters can be used."
+    )
     keep_page_open: Optional[bool] = Field(None, description="Leave Playwright page open after run")
 
 
@@ -77,6 +85,45 @@ class CreateTaskRequest(BaseModel):
     issued_to_label: str = Field(..., description="Full name to match in the autocomplete dropdown, e.g. 'Shannon Slade'")
     priority: str = Field("High", description="Task priority e.g. High, Medium, Low")
     due_date: Optional[str] = Field(None, description="Due date DD/MM/YYYY, defaults to today")
+    keep_page_open: Optional[bool] = Field(None, description="Leave Playwright page open after run")
+
+
+class GetJobContactInfoRequest(BaseModel):
+    works_id: str = Field(..., description="EasyBOP works_id of the job")
+    contract_id: str = Field("321129", description="EasyBOP contract_id")
+    keep_page_open: Optional[bool] = Field(None, description="Leave Playwright page open after run")
+
+
+class AddWorksNoteRequest(BaseModel):
+    works_id: str = Field(..., description="EasyBOP works_id of the job")
+    contract_id: str = Field("321129", description="EasyBOP contract_id")
+    note_text: str = Field(..., description="Text for the note's free-text field")
+    category_label: Optional[str] = Field("Telephone Call", description="Category dropdown label, e.g. 'Telephone Call', 'Telephone Call No Answer', 'Voicemail left', 'Appointment Made'")
+    date_of: Optional[str] = Field(None, description="Date DD/MM/YYYY — leave unset to keep the dialog's prefilled today's date")
+    time_issued: Optional[str] = Field(None, description="Time HH:MM — leave unset to keep the dialog's prefilled current time")
+    rlo_visit: Optional[bool] = Field(None, description="RLO Visit Yes/No — leave unset to keep the dialog's default (No)")
+    keep_page_open: Optional[bool] = Field(None, description="Leave Playwright page open after run")
+
+
+class AddInternalNoteRequest(BaseModel):
+    works_id: str = Field(..., description="EasyBOP works_id of the job")
+    contract_id: str = Field("321129", description="EasyBOP contract_id")
+    note: str = Field(..., description="Text to append to the internal notes field, e.g. 'Vapi call attempt 1 placed 18/08/2026 15:02 — call_id: 8f3a2b1c-...'")
+    keep_page_open: Optional[bool] = Field(None, description="Leave Playwright page open after run")
+
+
+class SetVulnerabilityRequest(BaseModel):
+    works_id: str = Field(..., description="EasyBOP works_id of the job")
+    contract_id: str = Field("321129", description="EasyBOP contract_id")
+    vulnerability_id: str = Field(
+        ...,
+        description=(
+            "Numeric EasyBOP option value from the Property tab's vulnerability_id select, e.g. "
+            "'818' DNVA, '819' SP, '820' EP, '821' CI, '822' MH, '823' PETS, '824' SL, '825' MBI, "
+            "'826' H, '827' EV, '828' LD, '829' DA, '962' CT, '984' DD, '985' SC, '986' GV. "
+            "Pass '' to clear the vulnerability back to '-'."
+        ),
+    )
     keep_page_open: Optional[bool] = Field(None, description="Leave Playwright page open after run")
 
 
@@ -156,6 +203,7 @@ def create_router(
                 contract_id=req.contract_id,
                 item_id=req.item_id,
                 existing_corfs=req.existing_corfs,
+                date_received_after=req.date_received_after,
                 username=username,
                 password=password,
                 timeout_ms=timeout_ms,
@@ -259,6 +307,178 @@ def create_router(
             raise HTTPException(status_code=422, detail=str(e)) from e
         except Exception:
             logger.exception("stage4-create-task")
+            raise HTTPException(status_code=500, detail="Failed — see server logs.")
+        finally:
+            if not keep:
+                await page.close()
+
+    @router.post(
+        "/job-contact-info",
+        summary="Fetch tenant mobile/email + raw header text for a works order",
+        description=(
+            "Navigates to the works Details tab and scrapes tenant mobile/email from the .box_title_item "
+            "header, for use by SMS/voice notification steps that need contact details not otherwise "
+            "available in the calling n8n workflow. Also returns page_h1/header_text as raw fields since "
+            "tenant name/address aren't consistently labelled — inspect these to refine parsing if needed."
+        ),
+    )
+    async def job_contact_info(req: GetJobContactInfoRequest):
+        require_browser()
+        context = get_context()
+
+        keep = default_keep_page_open if req.keep_page_open is None else req.keep_page_open
+
+        page = await context.new_page()
+        try:
+            result = await run_get_job_contact_info(
+                page,
+                works_id=req.works_id,
+                contract_id=req.contract_id,
+                username=username,
+                password=password,
+                timeout_ms=timeout_ms,
+                login_fn=login_fn,
+                session_path=session_path,
+                context=context,
+            )
+            return {
+                "success": result.get("success", False),
+                **result,
+            }
+        except RuntimeError as e:
+            raise HTTPException(status_code=422, detail=str(e)) from e
+        except Exception:
+            logger.exception("stage4-job-contact-info")
+            raise HTTPException(status_code=500, detail="Failed — see server logs.")
+        finally:
+            if not keep:
+                await page.close()
+
+    @router.post(
+        "/add-works-note",
+        summary="Add a formal Note entry via the Notes tab's 'Add New Note' dialog",
+        description=(
+            "Navigates to the works Notes tab, opens the 'Add New Note' dialog, sets category/date/time/"
+            "RLO fields as provided, fills the free-text note, and saves. Distinct from /add-internal-note, "
+            "which appends to the plain internal_notes textarea on the Details tab instead."
+        ),
+    )
+    async def add_works_note(req: AddWorksNoteRequest):
+        require_browser()
+        context = get_context()
+
+        keep = default_keep_page_open if req.keep_page_open is None else req.keep_page_open
+
+        page = await context.new_page()
+        try:
+            result = await run_add_works_note(
+                page,
+                works_id=req.works_id,
+                contract_id=req.contract_id,
+                note_text=req.note_text,
+                category_label=req.category_label,
+                date_of=req.date_of,
+                time_issued=req.time_issued,
+                rlo_visit=req.rlo_visit,
+                username=username,
+                password=password,
+                timeout_ms=timeout_ms,
+                login_fn=login_fn,
+                session_path=session_path,
+                context=context,
+            )
+            return {
+                "success": result.get("success", False),
+                **result,
+            }
+        except RuntimeError as e:
+            raise HTTPException(status_code=422, detail=str(e)) from e
+        except Exception:
+            logger.exception("stage4-add-works-note")
+            raise HTTPException(status_code=500, detail="Failed — see server logs.")
+        finally:
+            if not keep:
+                await page.close()
+
+    @router.post(
+        "/add-internal-note",
+        summary="Append a line to a job's internal notes (Details tab) and save",
+        description=(
+            "Navigates to the works Details tab, appends the given text to the internal_notes field, "
+            "and saves. Use this to log Vapi voice-call attempts and call IDs against the job so the "
+            "team can later pull a transcript/recording from Vapi by call_id."
+        ),
+    )
+    async def add_internal_note(req: AddInternalNoteRequest):
+        require_browser()
+        context = get_context()
+
+        keep = default_keep_page_open if req.keep_page_open is None else req.keep_page_open
+
+        page = await context.new_page()
+        try:
+            result = await run_add_internal_note(
+                page,
+                works_id=req.works_id,
+                contract_id=req.contract_id,
+                note=req.note,
+                username=username,
+                password=password,
+                timeout_ms=timeout_ms,
+                login_fn=login_fn,
+                session_path=session_path,
+                context=context,
+            )
+            return {
+                "success": result.get("success", False),
+                **result,
+            }
+        except RuntimeError as e:
+            raise HTTPException(status_code=422, detail=str(e)) from e
+        except Exception:
+            logger.exception("stage4-add-internal-note")
+            raise HTTPException(status_code=500, detail="Failed — see server logs.")
+        finally:
+            if not keep:
+                await page.close()
+
+    @router.post(
+        "/set-vulnerability",
+        summary="Set the vulnerability flag on a job's Property tab and save",
+        description=(
+            "Navigates to the works Property tab, selects the given option in the vulnerability_id "
+            "select (e.g. '829' for DA : Dementia / Alzheimer's), and saves. Use this to flag a "
+            "property as vulnerable based on what the voice agent (Michael) learned during a call."
+        ),
+    )
+    async def set_vulnerability(req: SetVulnerabilityRequest):
+        require_browser()
+        context = get_context()
+
+        keep = default_keep_page_open if req.keep_page_open is None else req.keep_page_open
+
+        page = await context.new_page()
+        try:
+            result = await run_set_vulnerability(
+                page,
+                works_id=req.works_id,
+                contract_id=req.contract_id,
+                vulnerability_id=req.vulnerability_id,
+                username=username,
+                password=password,
+                timeout_ms=timeout_ms,
+                login_fn=login_fn,
+                session_path=session_path,
+                context=context,
+            )
+            return {
+                "success": result.get("success", False),
+                **result,
+            }
+        except RuntimeError as e:
+            raise HTTPException(status_code=422, detail=str(e)) from e
+        except Exception:
+            logger.exception("stage4-set-vulnerability")
             raise HTTPException(status_code=500, detail="Failed — see server logs.")
         finally:
             if not keep:

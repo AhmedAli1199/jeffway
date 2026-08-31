@@ -770,6 +770,7 @@ async def run_pre_works_jis(
     contract_id: str,
     item_id: str,
     existing_corfs: Optional[List[Any]] = None,
+    date_received_after: Optional[str] = None,
     username: str,
     password: str,
     timeout_ms: int,
@@ -1011,6 +1012,25 @@ async def run_pre_works_jis(
     log.info("pre_works_jis: found %d raw qualifying pre-works jobs (total table rows: %d, statuses seen: %r)", 
              len(jobs_info), debug_info.get("total_rows", 0), debug_info.get("statuses_seen", []))
 
+    # Apply date_received filtering, if a threshold was supplied — only keep
+    # jobs whose Date Received is strictly after date_received_after.
+    # Independent of, and applied before, the existing CORF dedup below —
+    # neither changes the other's behavior, both can be used together.
+    if date_received_after:
+        threshold = _parse_date_received(date_received_after)
+        if threshold == datetime.max:
+            log.warning("pre_works_jis: date_received_after=%r could not be parsed — skipping date filter", date_received_after)
+        else:
+            before_count = len(jobs_info)
+            jobs_info = [
+                job for job in jobs_info
+                if _parse_date_received(job.get("date_received", "")) > threshold
+            ]
+            log.info(
+                "pre_works_jis: date_received_after=%r filtered %d -> %d jobs",
+                date_received_after, before_count, len(jobs_info),
+            )
+
     # Apply CORF deduplication against existing_corfs
     exclude_corfs = _normalize_corf_list(existing_corfs)
     if exclude_corfs:
@@ -1160,37 +1180,48 @@ async def run_pre_works_jis(
                                 ans_list = list(answers.values()) if isinstance(answers, dict) else []
                                 hours = ans_list[1] if len(ans_list) > 1 else ""
                                 desc = ans_list[2] if len(ans_list) > 2 else ""
-                                
-                                # Parse total numeric hours required
+
+                                # Trade classification logic
                                 raw_hours_str = str(hours or "").strip().lower()
+                                trade_lower = str(trade or "").lower().strip()
+                                sub_keywords = [
+                                    "roofing",
+                                    "roofer",
+                                    "scaffolding",
+                                    "scaffolder",
+                                    "asbestos removal subcontract",
+                                    "asbestos removal",
+                                    "asbestos",
+                                    "subcontract",
+                                    "subcontractor",
+                                    "book separately",
+                                    "bokk separately"
+                                ]
+                                is_sub = any(kw in trade_lower for kw in sub_keywords) or any(kw in raw_hours_str for kw in sub_keywords)
+                                classification = "subcontractor" if is_sub else "in-house"
+
+                                # Parse total numeric hours required. No ALERT text is ever
+                                # prepended to the description here — that was suppressing the
+                                # real JIS description underneath it. Capping at 40 hours (5
+                                # workdays) for initial scheduling purposes still happens, just
+                                # silently; the "[Day X of Y — Z Hours]" prefix added below during
+                                # daily-chunk splitting is the only prefix that survives.
                                 total_hours_val = None
-                                desc_prefix = ""
 
                                 if not raw_hours_str or raw_hours_str in ["null", "n/a", "na", "unknown", "none", "0"]:
-                                    desc_prefix = "ALERT: JOB DURATION UNKNOWN — DEFAULT 1 HOUR APPOINTMENT CREATED. SCHEDULING STAFF MUST CONFIRM ACTUAL DURATION BEFORE ALLOCATING."
                                     total_hours_val = 1.0
                                 else:
                                     h_match = re.search(r"(\d+(?:\.\d+)?)", raw_hours_str)
                                     if h_match:
                                         try:
                                             parsed_val = float(h_match.group(1))
-                                            if parsed_val > 40.0:
-                                                orig_h = int(parsed_val) if parsed_val.is_integer() else round(parsed_val, 1)
-                                                days_calc = parsed_val / 8.0
-                                                approx_workdays = int(round(days_calc)) if abs(days_calc - round(days_calc)) < 0.1 else round(days_calc, 1)
-                                                desc_prefix = (
-                                                    f"ALERT: ORIGINAL REQUIRED DURATION WAS {orig_h} HOURS (~{approx_workdays} WORKDAYS). "
-                                                    f"DURATION CAPPED AT 40 HOURS (5 WORKDAYS MAXIMUM) FOR INITIAL SCHEDULING — PLEASE SCHEDULE REMAINING WEEKS / SLOTS IN EASYBOP."
-                                                )
-                                                total_hours_val = 40.0
-                                            else:
-                                                total_hours_val = parsed_val
+                                            total_hours_val = 40.0 if parsed_val > 40.0 else parsed_val
                                         except Exception:
                                             total_hours_val = 1.0
                                     else:
                                         total_hours_val = 1.0
 
-                                full_desc = f"{desc_prefix} * {desc}" if desc_prefix and desc else (desc_prefix or desc)
+                                full_desc = desc
 
                                 # Daily-chunk splitting: Maximum 8 hours per appointment day
                                 # e.g. 15 hours -> Day 1: 8 hours, Day 2: 7 hours
@@ -1210,24 +1241,7 @@ async def run_pre_works_jis(
 
                                 appt_counter += 1
 
-                                # Trade classification logic
-                                trade_lower = str(trade or "").lower().strip()
-                                hours_lower = raw_hours_str
-                                sub_keywords = [
-                                    "roofing",
-                                    "roofer",
-                                    "scaffolding",
-                                    "scaffolder",
-                                    "asbestos removal subcontract",
-                                    "asbestos removal",
-                                    "asbestos",
-                                    "subcontract",
-                                    "subcontractor",
-                                    "book separately",
-                                    "bokk separately"
-                                ]
-                                is_sub = any(kw in trade_lower for kw in sub_keywords) or any(kw in hours_lower for kw in sub_keywords)
-                                classification = "subcontractor" if is_sub else "in-house"
+                                # (classification was already computed above, before duration parsing)
 
                                 for section_label, c_hours, c_desc in daily_chunks:
                                     c_hours_str = str(int(c_hours)) if isinstance(c_hours, float) and c_hours.is_integer() else str(c_hours)
@@ -1427,6 +1441,348 @@ async def run_check_completed_tasks(
         "completed_count": len(completed_tasks),
         "completed_tasks": completed_tasks,
         "message": f"Successfully retrieved {len(completed_tasks)} completed task(s)."
+    }
+
+
+async def run_get_job_contact_info(
+    page: Page,
+    *,
+    works_id: str,
+    contract_id: str,
+    username: str,
+    password: str,
+    timeout_ms: int,
+    login_fn: Callable[[Page, str, str], Awaitable[bool]],
+    session_path: Path,
+    context: BrowserContext,
+) -> Dict[str, Any]:
+    """
+    Fetch tenant contact + address details for a works order, for use by
+    downstream SMS/voice notification steps. Reuses the same
+    .box_title_item header-scrape pattern already proven in
+    run_pre_works_jis's tenant_mobile extraction.
+    """
+    wi_url = f"https://easybop.co.uk/a_planned_works/z_works/works_details.php?works_id={works_id}&contract_id={contract_id}&tab_nav_item=wi"
+
+    await _ensure_authenticated(
+        page,
+        context=context,
+        url=wi_url,
+        login=login_fn,
+        username=username,
+        password=password,
+        session_path=session_path,
+        timeout_ms=timeout_ms,
+    )
+
+    try:
+        await page.wait_for_load_state("domcontentloaded", timeout=timeout_ms)
+    except Exception:
+        pass
+    await asyncio.sleep(1.0)
+
+    contact_info = await page.evaluate(
+        """() => {
+            const items = document.querySelectorAll('.box_title_item');
+            const allText = Array.from(items).map(el => (el.textContent || '').trim());
+
+            function findAfterLabel(labels) {
+                for (const item of items) {
+                    const text = (item.textContent || '').trim();
+                    for (const label of labels) {
+                        const re = new RegExp('^' + label, 'i');
+                        if (re.test(text)) {
+                            return text.replace(re, '').trim();
+                        }
+                    }
+                }
+                return '';
+            }
+
+            const mobile = findAfterLabel(['mobile:']) || findAfterLabel(['tel:', 'telephone:']);
+            const email = findAfterLabel(['email:']);
+
+            // Address and resident name are not consistently labelled in
+            // .box_title_item across EasyBOP page variants — fall back to
+            // the page <h1>/title text, which usually carries the address.
+            const h1 = document.querySelector('h1');
+            const h1Text = h1 ? (h1.textContent || '').trim() : '';
+
+            return {
+                tenant_mobile: mobile,
+                tenant_email: email,
+                header_text: allText.join(' | '),
+                page_h1: h1Text
+            };
+        }"""
+    )
+    log.info("get_job_contact_info: works_id=%s -> %r", works_id, contact_info)
+
+    return {
+        "success": True,
+        "works_id": works_id,
+        "tenant_mobile": contact_info.get("tenant_mobile", ""),
+        "tenant_email": contact_info.get("tenant_email", ""),
+        "page_h1": contact_info.get("page_h1", ""),
+        "header_text": contact_info.get("header_text", ""),
+        "message": f"Fetched contact info for works_id={works_id}",
+    }
+
+
+async def run_add_works_note(
+    page: Page,
+    *,
+    works_id: str,
+    contract_id: str,
+    note_text: str,
+    category_label: Optional[str] = "Telephone Call",
+    date_of: Optional[str] = None,
+    time_issued: Optional[str] = None,
+    rlo_visit: Optional[bool] = None,
+    username: str,
+    password: str,
+    timeout_ms: int,
+    login_fn: Callable[[Page, str, str], Awaitable[bool]],
+    session_path: Path,
+    context: BrowserContext,
+) -> Dict[str, Any]:
+    """
+    Add a formal Note entry on the works order's Notes tab (distinct from
+    the plain internal_notes textarea) — the "Add New Note" dialog with
+    Date/Time, Category, RLO Visit, and free-text fields. Used to log
+    things like Vapi voice-call attempts against a structured category
+    (e.g. 'Telephone Call', 'Telephone Call No Answer', 'Voicemail left').
+    """
+    async def _accept_dialog(dialog):
+        log.info("add_works_note: auto-accepting native browser dialog: %s", dialog.message)
+        await dialog.accept()
+    page.on("dialog", _accept_dialog)
+
+    notes_url = f"https://easybop.co.uk/a_planned_works/z_works/works_details.php?works_id={works_id}&contract_id={contract_id}&tab_nav_item=notes"
+
+    # 1. Authenticate & Navigate to Notes tab
+    await _ensure_authenticated(
+        page,
+        context=context,
+        url=notes_url,
+        login=login_fn,
+        username=username,
+        password=password,
+        session_path=session_path,
+        timeout_ms=timeout_ms,
+    )
+
+    # 2. Click "Add New Note" button
+    add_note_btn = page.locator("#btn_add_note_dialog")
+    if await add_note_btn.count() == 0 or not await add_note_btn.first.is_visible():
+        add_note_btn = page.locator("button").filter(has_text="Add New Note")
+    await add_note_btn.first.wait_for(state="visible", timeout=timeout_ms)
+    await add_note_btn.first.click()
+    log.info("add_works_note: clicked 'Add New Note'")
+
+    # 3. Wait for dialog
+    dialog = page.locator(".ui-dialog:visible, [role='dialog']:visible")
+    await dialog.first.wait_for(state="visible", timeout=8_000)
+    await asyncio.sleep(0.5)
+
+    # 4. Date / Time — both come prefilled with today's date/current time;
+    # only touch them if the caller explicitly wants something different.
+    if date_of:
+        date_field = page.locator("#date_of")
+        await date_field.wait_for(state="visible", timeout=timeout_ms)
+        await date_field.fill(date_of)
+        await date_field.evaluate(
+            "(el) => { el.dispatchEvent(new Event('input', { bubbles: true })); el.dispatchEvent(new Event('change', { bubbles: true })); }"
+        )
+
+    if time_issued:
+        time_field = page.locator("#time_issued")
+        await time_field.wait_for(state="visible", timeout=timeout_ms)
+        await time_field.fill(time_issued)
+        await time_field.evaluate(
+            "(el) => { el.dispatchEvent(new Event('input', { bubbles: true })); el.dispatchEvent(new Event('change', { bubbles: true })); }"
+        )
+
+    # 5. Category — reuses the same #category_id select and matching
+    # logic as the task-creation dialog (_select_task_category).
+    if category_label:
+        await _select_task_category(page, category_label, timeout_ms)
+
+    # 6. RLO Visit — leave at its default ("No") unless explicitly set
+    if rlo_visit is not None:
+        rlo_select = page.locator("#rlo_visit")
+        try:
+            await rlo_select.select_option(value="1" if rlo_visit else "0")
+        except Exception as e:
+            log.warning("add_works_note: failed setting rlo_visit=%r: %s", rlo_visit, e)
+
+    # 7. Fill the note text
+    notes_field = page.locator("#notes")
+    await notes_field.wait_for(state="visible", timeout=timeout_ms)
+    await notes_field.fill(note_text)
+    await notes_field.evaluate(
+        "(el) => { el.dispatchEvent(new Event('input', { bubbles: true })); el.dispatchEvent(new Event('change', { bubbles: true })); }"
+    )
+    log.info("add_works_note: filled note text — %r", note_text)
+
+    await asyncio.sleep(0.3)
+
+    # 8. Click "Add Note" to save
+    save_btn = page.locator("#btn_save_changes")
+    if await save_btn.count() == 0 or not await save_btn.first.is_visible():
+        save_btn = page.locator(".ui-dialog:visible button").filter(has_text="Add Note")
+    await save_btn.first.wait_for(state="visible", timeout=timeout_ms)
+    await save_btn.first.click()
+    log.info("add_works_note: clicked 'Add Note' (save)")
+
+    try:
+        await page.wait_for_selector(".ui-dialog:visible", state="hidden", timeout=10_000)
+        log.info("add_works_note: dialog closed after save")
+    except Exception:
+        pass
+
+    try:
+        await page.wait_for_load_state("networkidle", timeout=5000)
+    except Exception:
+        pass
+    await asyncio.sleep(1.0)
+
+    return {
+        "success": True,
+        "works_id": works_id,
+        "category": category_label,
+        "note_text": note_text,
+        "message": f"Successfully added note for works_id={works_id}",
+    }
+
+
+async def run_add_internal_note(
+    page: Page,
+    *,
+    works_id: str,
+    contract_id: str,
+    note: str,
+    username: str,
+    password: str,
+    timeout_ms: int,
+    login_fn: Callable[[Page, str, str], Awaitable[bool]],
+    session_path: Path,
+    context: BrowserContext,
+) -> Dict[str, Any]:
+    """
+    Append a line to the works order's internal notes (Details tab) and
+    save. Generic version of the notes-append step used inside
+    run_process_completed_task, without the task-completion UDF handling —
+    for logging things like Vapi voice-call attempts and call IDs against
+    the job, so the team can later pull a transcript/recording by call_id.
+    """
+    async def _accept_dialog(dialog):
+        log.info("add_internal_note: auto-accepting native browser dialog: %s", dialog.message)
+        await dialog.accept()
+    page.on("dialog", _accept_dialog)
+
+    wi_url = f"https://easybop.co.uk/a_planned_works/z_works/works_details.php?works_id={works_id}&contract_id={contract_id}&tab_nav_item=wi"
+
+    await _ensure_authenticated(
+        page,
+        context=context,
+        url=wi_url,
+        login=login_fn,
+        username=username,
+        password=password,
+        session_path=session_path,
+        timeout_ms=timeout_ms,
+    )
+
+    notes_field = page.locator("#internal_notes")
+    await notes_field.wait_for(state="visible", timeout=timeout_ms)
+    current_val = (await notes_field.input_value()).strip()
+    new_val = f"{current_val} {note}".strip() if current_val else note
+
+    await notes_field.focus()
+    await notes_field.fill(new_val)
+    await notes_field.evaluate(
+        "(el) => { el.dispatchEvent(new Event('input', { bubbles: true })); el.dispatchEvent(new Event('change', { bubbles: true })); }"
+    )
+    log.info("add_internal_note: appended note to works_id=%s: %r", works_id, note)
+
+    save_wi_btn = page.locator("#btn_save_works_changes")
+    await save_wi_btn.wait_for(state="visible", timeout=timeout_ms)
+    await save_wi_btn.click()
+    log.info("add_internal_note: clicked save works changes")
+
+    try:
+        await page.wait_for_load_state("networkidle", timeout=5000)
+    except Exception:
+        pass
+    await asyncio.sleep(2.0)
+
+    return {
+        "success": True,
+        "works_id": works_id,
+        "note": note,
+        "message": f"Successfully appended internal note for works_id={works_id}",
+    }
+
+
+async def run_set_vulnerability(
+    page: Page,
+    *,
+    works_id: str,
+    contract_id: str,
+    vulnerability_id: str,
+    username: str,
+    password: str,
+    timeout_ms: int,
+    login_fn: Callable[[Page, str, str], Awaitable[bool]],
+    session_path: Path,
+    context: BrowserContext,
+) -> Dict[str, Any]:
+    """
+    Set the vulnerability flag on the job's Property tab (<select id="vulnerability_id">)
+    and save. vulnerability_id is the numeric EasyBOP option value (e.g. "829" for
+    "DA : Dementia / Alzheimer's", "986" for "GV : General - call office"). Pass ""
+    to clear the vulnerability back to "-".
+    """
+    async def _accept_dialog(dialog):
+        log.info("set_vulnerability: auto-accepting native browser dialog: %s", dialog.message)
+        await dialog.accept()
+    page.on("dialog", _accept_dialog)
+
+    property_url = f"https://easybop.co.uk/a_planned_works/z_works/works_details.php?works_id={works_id}&contract_id={contract_id}&tab_nav_item=property"
+
+    await _ensure_authenticated(
+        page,
+        context=context,
+        url=property_url,
+        login=login_fn,
+        username=username,
+        password=password,
+        session_path=session_path,
+        timeout_ms=timeout_ms,
+    )
+
+    vuln_select = page.locator("#vulnerability_id")
+    await vuln_select.wait_for(state="visible", timeout=timeout_ms)
+    await vuln_select.select_option(value=str(vulnerability_id))
+    log.info("set_vulnerability: selected vulnerability_id=%r for works_id=%s", vulnerability_id, works_id)
+
+    save_btn = page.locator("xpath=/html/body/div[2]/div/div/div[10]/div[3]/button")
+    await save_btn.wait_for(state="visible", timeout=timeout_ms)
+    await save_btn.click()
+    log.info("set_vulnerability: clicked save on property tab")
+
+    try:
+        await page.wait_for_load_state("networkidle", timeout=5000)
+    except Exception:
+        pass
+    await asyncio.sleep(2.0)
+
+    return {
+        "success": True,
+        "works_id": works_id,
+        "vulnerability_id": vulnerability_id,
+        "message": f"Successfully set vulnerability_id={vulnerability_id!r} for works_id={works_id}",
     }
 
 
@@ -1785,11 +2141,83 @@ async def run_book_appointment(
 
     log.info("book_appointment: right before modal submit, aptj_time_allowed_override value is %r (target: %r)", pre_click_val, formatted_duration)
 
-    # 7. Click Add New Other Appointment save button in modal
+    # Comprehensive, case-insensitive DOM verification across innerText, innerHTML, input values, and title attributes
+    verify_snippet = clean_reason[:20].strip()
+
+    async def _snippet_in_dom(snippet: str) -> bool:
+        if not snippet:
+            return True
+        return await page.evaluate("""(snippet) => {
+            const target = snippet.toLowerCase();
+            const bodyText = (document.body.innerText || '').toLowerCase();
+            const bodyHTML = (document.body.innerHTML || '').toLowerCase();
+            if (bodyText.includes(target) || bodyHTML.includes(target)) return true;
+
+            const inputs = Array.from(document.querySelectorAll('input, textarea, select'));
+            if (inputs.some(el => (el.value || '').toLowerCase().includes(target))) return true;
+
+            const elements = Array.from(document.querySelectorAll('*'));
+            if (elements.some(el => (el.getAttribute('title') || '').toLowerCase().includes(target))) return true;
+
+            return false;
+        }""", snippet)
+
+    def _uk_to_e164(raw: str) -> str:
+        """
+        Convert a UK number in any common local format into proper E.164
+        (+44...). A bare '+' prepended to a leading '0' (the previous
+        behavior — e.g. '07476444020' -> '+07476444020') is NOT valid
+        E.164 and gets silently rejected by EasyBOP's own phone
+        validation, which is what was actually blocking these bookings
+        despite every log line up to the click looking successful.
+        """
+        digits = re.sub(r"[^0-9+]", "", raw or "")
+        if not digits:
+            return digits
+        if digits.startswith("+"):
+            return digits
+        if digits.startswith("0"):
+            return "+44" + digits[1:]
+        if digits.startswith("44"):
+            return "+" + digits
+        return "+44" + digits
+
+    async def _ensure_phone_has_plus() -> None:
+        """
+        EasyBOP's 'Add Other Appointment' modal validates the prefilled
+        tenant mobile number (#aptj_resident_mobile) on submit and blocks
+        with "Enter Valid Tenant phone number" if it isn't a properly
+        formatted number — even though the field comes prefilled from the
+        job record. Normalize it to E.164 so the modal's own validation
+        passes.
+        """
+        phone_field = page.locator("#aptj_resident_mobile")
+        if await phone_field.count() == 0:
+            return
+        try:
+            current_val = (await phone_field.first.input_value()).strip()
+        except Exception:
+            current_val = ""
+        if current_val and not current_val.startswith("+"):
+            fixed_val = _uk_to_e164(current_val)
+            if fixed_val != current_val:
+                await phone_field.first.fill(fixed_val)
+                await phone_field.first.evaluate(
+                    "(el) => { el.dispatchEvent(new Event('input', { bubbles: true })); el.dispatchEvent(new Event('change', { bubbles: true })); }"
+                )
+                log.info("book_appointment: tenant mobile normalized to E.164 %r -> %r", current_val, fixed_val)
+
+    # 7. Click Add New Other Appointment save button in modal — single attempt.
+    # (Previously this retried on a "staged" DOM check that turned out to be
+    # unreliable — EasyBOP's modal submit appears to persist the appointment
+    # on its own, independent of the outer Save Changes button, so the
+    # retry was silently creating real duplicate appointments. One click.)
     save_btn = page.locator("#btn_add_new_apt_board_job")
     if await save_btn.count() == 0 or not await save_btn.first.is_visible():
         save_btn = page.locator(".ui-dialog:visible button").filter(has_text="Add New Other Appointment")
     await save_btn.first.wait_for(state="visible", timeout=timeout_ms)
+
+    await _ensure_phone_has_plus()
     await save_btn.first.click()
     log.info("book_appointment: clicked 'Add New Other Appointment'")
 
@@ -1807,7 +2235,7 @@ async def run_book_appointment(
         document.querySelectorAll('.ui-widget-overlay, .ui-front, .ui-dialog-mask').forEach(el => el.remove());
     }""")
 
-    # 7b. Allow EasyBOP modal client-side JS to finish serializing the modal row into the main form array
+    # Allow EasyBOP modal client-side JS to finish serializing the modal row into the main form array
     await asyncio.sleep(1.5)
 
     # 8. Click "Save Changes" (#btn_save_works_changes) on main page to persist changes permanently
@@ -1847,35 +2275,38 @@ async def run_book_appointment(
         log.warning("book_appointment: issue clicking Save Changes button: %s", exc)
 
     # 9. Settlement buffer — allow EasyBOP backend SQL database write to complete 100%
-    await asyncio.sleep(3.5)
+    await asyncio.sleep(6.0)
     try:
-        await page.wait_for_load_state("networkidle", timeout=6000)
+        await page.wait_for_load_state("networkidle", timeout=10_000)
     except Exception:
         pass
-    await asyncio.sleep(1.0)
+    await asyncio.sleep(2.0)
 
-    # Comprehensive, case-insensitive DOM verification across innerText, innerHTML, input values, and title attributes
-    verify_snippet = clean_reason[:20].strip()
-    dom_found = await page.evaluate("""(snippet) => {
-        if (!snippet) return true;
-        const target = snippet.toLowerCase();
-        const bodyText = (document.body.innerText || '').toLowerCase();
-        const bodyHTML = (document.body.innerHTML || '').toLowerCase();
-        if (bodyText.includes(target) || bodyHTML.includes(target)) return true;
+    # 10. Ground-truth verification: reload the process_monitor page from
+    # scratch instead of inspecting the already-open DOM. The already-open
+    # page can still show staged/stale content (or nothing meaningful,
+    # depending on what EasyBOP re-renders in place) regardless of whether
+    # the server-side save actually succeeded — a fresh navigation is the
+    # only way to see what's really persisted.
+    await page.goto(process_url, wait_until="load", timeout=timeout_ms)
+    await asyncio.sleep(2.5)
+    try:
+        await page.wait_for_load_state("networkidle", timeout=8000)
+    except Exception:
+        pass
 
-        const inputs = Array.from(document.querySelectorAll('input, textarea, select'));
-        if (inputs.some(el => (el.value || '').toLowerCase().includes(target))) return true;
+    dom_found = await _snippet_in_dom(verify_snippet)
+    if not dom_found:
+        log.warning(
+            "book_appointment: POST-RELOAD verification did NOT find snippet %r for works_id=%s — the modal "
+            "submit itself appears to persist the appointment independent of this text check, so treating "
+            "the booking as successful and only flagging this as unverified rather than failing the request.",
+            verify_snippet, works_id,
+        )
+    else:
+        log.info("book_appointment: POST-RELOAD verification for snippet %r -> found=True", verify_snippet)
 
-        const elements = Array.from(document.querySelectorAll('*'));
-        if (elements.some(el => (el.getAttribute('title') || '').toLowerCase().includes(target))) return true;
-
-        return false;
-    }""", verify_snippet)
-
-    is_verified = dom_found or dialog_closed
-    log.info("book_appointment: DOM verification for snippet %r -> dom_found=%s, dialog_closed=%s -> appointment_verified=%s", 
-             verify_snippet, dom_found, dialog_closed, is_verified)
-
+    is_verified = dom_found
     selected_duration = formatted_duration
 
     return {
@@ -1931,9 +2362,107 @@ async def run_get_staff_availability(
 
     weekly_results: List[Dict[str, Any]] = []
 
+    async def _read_fc_date_picker_month_year() -> Optional[tuple]:
+        """
+        Read the currently displayed month/year straight from the
+        #fc_date_picker widget's own header (.ui-datepicker-month /
+        .ui-datepicker-year), scoped to that specific widget — the page
+        may have other datepicker instances, so an unscoped lookup can
+        silently read/act on the wrong calendar.
+        """
+        result = await page.evaluate("""() => {
+            const root = document.getElementById('fc_date_picker');
+            if (!root) return null;
+            const monthEl = root.querySelector('.ui-datepicker-month');
+            const yearEl = root.querySelector('.ui-datepicker-year');
+            if (!monthEl || !yearEl) return null;
+            const monthVal = monthEl.tagName === 'SELECT' ? parseInt(monthEl.value, 10) : (monthEl.textContent || '').trim();
+            const yearVal = yearEl.tagName === 'SELECT' ? parseInt(yearEl.value, 10) : parseInt((yearEl.textContent || '').trim(), 10);
+            return { month: monthVal, year: yearVal };
+        }""")
+        if not result or result.get("year") is None:
+            return None
+
+        month_names = ["january", "february", "march", "april", "may", "june",
+                        "july", "august", "september", "october", "november", "december"]
+        month_raw = result.get("month")
+        if isinstance(month_raw, str):
+            key = month_raw.strip().lower()
+            if key not in month_names:
+                return None
+            month_idx = month_names.index(key)
+        else:
+            month_idx = month_raw
+
+        return (month_idx, result["year"])
+
+    async def _ensure_datepicker_on_month(target_month_idx: int, target_year: int, max_clicks: int = 3) -> bool:
+        """
+        The #fc_date_picker jQuery UI Datepicker only renders day cells for
+        whichever month is currently displayed. If the target working day
+        falls in a later month (e.g. calculating the next working days
+        right at month-end), the day cell for that date doesn't exist in
+        the DOM yet, so clicking it silently no-ops and the calendar stays
+        wrapped on the current month.
+
+        Compute exactly how many months forward are needed from the
+        widget's own displayed month/year, and click 'Next' that many
+        times — not a blind click-and-recheck loop, which previously
+        overshot many months on a detection bug.
+        """
+        current = await _read_fc_date_picker_month_year()
+
+        if current is not None:
+            current_month_idx, current_year = current
+            months_forward = (target_year - current_year) * 12 + (target_month_idx - current_month_idx)
+            if months_forward <= 0:
+                return True
+        else:
+            # Couldn't read the header — check once whether the target
+            # month is already rendered before assuming any clicks are
+            # needed at all.
+            already_there = await page.evaluate(
+                """({ m, y }) => !!document.querySelector(`#fc_date_picker td[data-month="${m}"][data-year="${y}"]`)""",
+                {"m": target_month_idx, "y": target_year},
+            )
+            if already_there:
+                return True
+            months_forward = 1  # unknown starting point — nudge forward once, conservatively
+
+        months_forward = min(months_forward, max_clicks)
+
+        for _ in range(months_forward):
+            next_btn = page.locator("#fc_date_picker a.ui-datepicker-next").first
+            try:
+                if await next_btn.count() > 0:
+                    await next_btn.click(force=True)
+                else:
+                    await page.evaluate("""() => {
+                        const root = document.getElementById('fc_date_picker');
+                        const btn = root && (root.querySelector('a.ui-datepicker-next')
+                                    || root.querySelector('span.ui-icon-circle-triangle-e')?.closest('a'));
+                        if (btn) btn.click();
+                    }""")
+            except Exception:
+                pass
+
+            await asyncio.sleep(1.0)
+            try:
+                await page.wait_for_selector(
+                    "#fc_date_picker .ui-datepicker-calendar, #fc_date_picker td[data-handler='selectDay']",
+                    state="attached", timeout=8000,
+                )
+            except Exception:
+                pass
+
+        return await page.evaluate(
+            """({ m, y }) => !!document.querySelector(`#fc_date_picker td[data-month="${m}"][data-year="${y}"]`)""",
+            {"m": target_month_idx, "y": target_year},
+        )
+
     # 2. Iterate through each working day
     for idx, (dt_obj, date_str, day_name) in enumerate(working_days):
-        log.info("staff_availability: [%d/%d] checking availability for date=%s (%s)", 
+        log.info("staff_availability: [%d/%d] checking availability for date=%s (%s)",
                  idx + 1, len(working_days), date_str, day_name)
 
         t_day, t_month, t_year = dt_obj.day, dt_obj.month, dt_obj.year
@@ -1944,6 +2473,18 @@ async def run_get_staff_availability(
             await page.wait_for_selector(".ui-datepicker-calendar, td[data-handler='selectDay']", state="attached", timeout=10000)
         except Exception:
             pass
+
+        # If the target day falls in a month later than what's currently
+        # rendered (e.g. rolling from end-of-month into next month), step
+        # the datepicker forward via the 'Next' arrow before trying to
+        # click the day cell — otherwise the cell doesn't exist yet and
+        # the click below silently no-ops.
+        month_ready = await _ensure_datepicker_on_month(t_month_idx, t_year)
+        if not month_ready:
+            log.warning(
+                "staff_availability: could not navigate datepicker to month=%s year=%s for date=%s after max 'Next' clicks",
+                t_month_idx, t_year, date_str,
+            )
 
         date_selected = False
 

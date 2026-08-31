@@ -34,6 +34,7 @@ run_pre_works_jis = _pre_works_jis.run_pre_works_jis
 run_create_contractor_task = _pre_works_jis.run_create_contractor_task
 run_create_task = _pre_works_jis.run_create_task
 run_add_internal_note = _pre_works_jis.run_add_internal_note
+run_set_vulnerability = _pre_works_jis.run_set_vulnerability
 run_add_works_note = _pre_works_jis.run_add_works_note
 run_get_job_contact_info = _pre_works_jis.run_get_job_contact_info
 run_check_completed_tasks = _pre_works_jis.run_check_completed_tasks
@@ -108,6 +109,21 @@ class AddInternalNoteRequest(BaseModel):
     works_id: str = Field(..., description="EasyBOP works_id of the job")
     contract_id: str = Field("321129", description="EasyBOP contract_id")
     note: str = Field(..., description="Text to append to the internal notes field, e.g. 'Vapi call attempt 1 placed 18/08/2026 15:02 — call_id: 8f3a2b1c-...'")
+    keep_page_open: Optional[bool] = Field(None, description="Leave Playwright page open after run")
+
+
+class SetVulnerabilityRequest(BaseModel):
+    works_id: str = Field(..., description="EasyBOP works_id of the job")
+    contract_id: str = Field("321129", description="EasyBOP contract_id")
+    vulnerability_id: str = Field(
+        ...,
+        description=(
+            "Numeric EasyBOP option value from the Property tab's vulnerability_id select, e.g. "
+            "'818' DNVA, '819' SP, '820' EP, '821' CI, '822' MH, '823' PETS, '824' SL, '825' MBI, "
+            "'826' H, '827' EV, '828' LD, '829' DA, '962' CT, '984' DD, '985' SC, '986' GV. "
+            "Pass '' to clear the vulnerability back to '-'."
+        ),
+    )
     keep_page_open: Optional[bool] = Field(None, description="Leave Playwright page open after run")
 
 
@@ -421,6 +437,48 @@ def create_router(
             raise HTTPException(status_code=422, detail=str(e)) from e
         except Exception:
             logger.exception("stage4-add-internal-note")
+            raise HTTPException(status_code=500, detail="Failed — see server logs.")
+        finally:
+            if not keep:
+                await page.close()
+
+    @router.post(
+        "/set-vulnerability",
+        summary="Set the vulnerability flag on a job's Property tab and save",
+        description=(
+            "Navigates to the works Property tab, selects the given option in the vulnerability_id "
+            "select (e.g. '829' for DA : Dementia / Alzheimer's), and saves. Use this to flag a "
+            "property as vulnerable based on what the voice agent (Michael) learned during a call."
+        ),
+    )
+    async def set_vulnerability(req: SetVulnerabilityRequest):
+        require_browser()
+        context = get_context()
+
+        keep = default_keep_page_open if req.keep_page_open is None else req.keep_page_open
+
+        page = await context.new_page()
+        try:
+            result = await run_set_vulnerability(
+                page,
+                works_id=req.works_id,
+                contract_id=req.contract_id,
+                vulnerability_id=req.vulnerability_id,
+                username=username,
+                password=password,
+                timeout_ms=timeout_ms,
+                login_fn=login_fn,
+                session_path=session_path,
+                context=context,
+            )
+            return {
+                "success": result.get("success", False),
+                **result,
+            }
+        except RuntimeError as e:
+            raise HTTPException(status_code=422, detail=str(e)) from e
+        except Exception:
+            logger.exception("stage4-set-vulnerability")
             raise HTTPException(status_code=500, detail="Failed — see server logs.")
         finally:
             if not keep:

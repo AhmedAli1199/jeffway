@@ -1725,6 +1725,67 @@ async def run_add_internal_note(
     }
 
 
+async def run_set_vulnerability(
+    page: Page,
+    *,
+    works_id: str,
+    contract_id: str,
+    vulnerability_id: str,
+    username: str,
+    password: str,
+    timeout_ms: int,
+    login_fn: Callable[[Page, str, str], Awaitable[bool]],
+    session_path: Path,
+    context: BrowserContext,
+) -> Dict[str, Any]:
+    """
+    Set the vulnerability flag on the job's Property tab (<select id="vulnerability_id">)
+    and save. vulnerability_id is the numeric EasyBOP option value (e.g. "829" for
+    "DA : Dementia / Alzheimer's", "986" for "GV : General - call office"). Pass ""
+    to clear the vulnerability back to "-".
+    """
+    async def _accept_dialog(dialog):
+        log.info("set_vulnerability: auto-accepting native browser dialog: %s", dialog.message)
+        await dialog.accept()
+    page.on("dialog", _accept_dialog)
+
+    property_url = f"https://easybop.co.uk/a_planned_works/z_works/works_details.php?works_id={works_id}&contract_id={contract_id}&tab_nav_item=property"
+
+    await _ensure_authenticated(
+        page,
+        context=context,
+        url=property_url,
+        login=login_fn,
+        username=username,
+        password=password,
+        session_path=session_path,
+        timeout_ms=timeout_ms,
+    )
+
+    vuln_select = page.locator("#vulnerability_id")
+    await vuln_select.wait_for(state="visible", timeout=timeout_ms)
+    await vuln_select.select_option(value=str(vulnerability_id))
+    log.info("set_vulnerability: selected vulnerability_id=%r for works_id=%s", vulnerability_id, works_id)
+
+    save_btn = page.locator("xpath=/html/body/div[2]/div/div/div[10]/div[3]/button")
+    await save_btn.wait_for(state="visible", timeout=timeout_ms)
+    await save_btn.click()
+    log.info("set_vulnerability: clicked save on property tab")
+
+    try:
+        await page.wait_for_load_state("networkidle", timeout=5000)
+    except Exception:
+        pass
+    await asyncio.sleep(2.0)
+
+    return {
+        "success": True,
+        "works_id": works_id,
+        "vulnerability_id": vulnerability_id,
+        "message": f"Successfully set vulnerability_id={vulnerability_id!r} for works_id={works_id}",
+    }
+
+
 async def run_process_completed_task(
     page: Page,
     *,
